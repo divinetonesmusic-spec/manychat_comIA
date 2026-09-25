@@ -1,4 +1,4 @@
-# Guia completo: crie seu proprio UaiFlow
+# Guia completo: crie seu proprio manychat_comIA
 
 Este guia foi escrito para quem nao e programador. Siga as etapas na ordem. Reserve de 60 a 120 minutos. Nao use credenciais de outra pessoa: sua copia deve ter GitHub, banco, deploy, app Meta e Instagram proprios.
 
@@ -34,7 +34,7 @@ Use um e-mail ao qual voce sempre tera acesso. Ative autenticacao em dois fatore
 1. Abra o repositorio original no GitHub.
 2. Se houver o botao **Use this template**, clique nele; caso contrario, clique em **Fork**.
 3. Escolha sua conta.
-4. Nome sugerido: `uaiflow`.
+4. Nome sugerido: `manychat_comIA`.
 5. Mantenha o repositorio **Private** durante a configuracao.
 6. Clique em **Create repository**.
 
@@ -43,8 +43,8 @@ Use um e-mail ao qual voce sempre tera acesso. Ative autenticacao em dois fatore
 No repositorio novo, clique em **Code**, copie a URL HTTPS e execute:
 
 ```bash
-git clone URL_QUE_VOCE_COPIOU
-cd uaiflow
+git clone https://github.com/msgsolucoes/exemplo_manychat_comIA
+cd exemplo_manychat_comIA
 npm install
 ```
 
@@ -55,7 +55,7 @@ Nao envie `.env.local`, `.next`, `.vercel` ou `node_modules` ao GitHub. O projet
 1. Entre em https://supabase.com/dashboard.
 2. Clique em **New project**.
 3. Escolha sua organizacao.
-4. Preencha o nome, por exemplo `uaiflow`.
+4. Preencha o nome, por exemplo `manychat_comIA`.
 5. Crie uma senha forte para o banco e guarde-a em um gerenciador de senhas.
 6. Escolha a regiao mais proxima dos seus usuarios.
 7. Aguarde o projeto ficar pronto.
@@ -150,19 +150,19 @@ http://localhost:3000/auth/callback
 
 1. Entre em https://vercel.com e escolha **Continue with GitHub**.
 2. Clique em **Add New > Project**.
-3. Importe seu repositorio `uaiflow`.
+3. Importe seu repositorio `manychat_comIA`.
 4. A Vercel deve detectar **Next.js** automaticamente.
 5. Antes de clicar em Deploy, abra **Environment Variables**.
 6. Copie todas as variaveis de `.env.example` e seus valores atuais.
 7. Ainda nao use placeholders da Meta como valores definitivos; o primeiro deploy pode falhar em telas que exigem Meta, mas servira para obter o dominio.
 8. Clique em **Deploy**.
-9. Ao finalizar, copie o dominio, por exemplo `https://meu-uaiflow.vercel.app`.
+9. Ao finalizar, copie o dominio, por exemplo `https://meu-manychat_comIA.vercel.app`.
 
 Agora altere na Vercel:
 
 ```text
-APP_BASE_URL=https://meu-uaiflow.vercel.app
-INSTAGRAM_REDIRECT_URI=https://meu-uaiflow.vercel.app/api/oauth/callback
+APP_BASE_URL=https://meu-manychat_comIA.vercel.app
+INSTAGRAM_REDIRECT_URI=https://meu-manychat_comIA.vercel.app/api/oauth/callback
 ```
 
 Atualize tambem esses dois valores no `.env.local`.
@@ -174,24 +174,24 @@ Os nomes dos menus da Meta mudam com frequencia. Procure pelos termos em negrito
 1. Entre em https://developers.facebook.com/apps/.
 2. Clique em **Create App**.
 3. Escolha um caso de uso que permita **Instagram API / Instagram Login**.
-4. Nome sugerido: `UaiFlow - Seu Nome`.
+4. Nome sugerido: `manychat_comIA - Seu Nome`.
 5. Informe e-mail de contato e conclua a criacao.
 6. No painel do app, adicione/configure **Instagram** e **API setup with Instagram login**.
 7. Copie o **Instagram App ID** e o **Instagram App Secret**.
 8. Em OAuth/Instagram Login, adicione exatamente:
 
 ```text
-https://meu-uaiflow.vercel.app/api/oauth/callback
+https://meu-manychat_comIA.vercel.app/api/oauth/callback
 ```
 
 9. Configure as URLs publicas:
 
 ```text
-Privacy Policy: https://meu-uaiflow.vercel.app/privacy-policy
-Data Deletion: https://meu-uaiflow.vercel.app/data-deletion
+Privacy Policy: https://meu-manychat_comIA.vercel.app/privacy-policy
+Data Deletion: https://meu-manychat_comIA.vercel.app/data-deletion
 ```
 
-10. As permissoes usadas pelo UaiFlow sao:
+10. As permissoes usadas pelo manychat_comIA sao:
 
 ```text
 instagram_business_basic
@@ -231,7 +231,7 @@ Na Vercel, clique em **Redeploy** depois de mudar variaveis.
 2. Use como Callback URL:
 
 ```text
-https://meu-uaiflow.vercel.app/api/webhook
+https://meu-manychat_comIA.vercel.app/api/webhook
 ```
 
 3. Em Verify Token, cole exatamente o valor de `WEBHOOK_VERIFY_TOKEN` da Vercel.
@@ -244,12 +244,12 @@ Se a verificacao falhar, confira se o deploy mais recente terminou e se o token 
 
 Em **Authentication > URL Configuration**:
 
-1. troque Site URL para `https://meu-uaiflow.vercel.app`;
+1. troque Site URL para `https://meu-manychat_comIA.vercel.app`;
 2. mantenha as URLs locais;
 3. adicione:
 
 ```text
-https://meu-uaiflow.vercel.app/auth/callback
+https://meu-manychat_comIA.vercel.app/auth/callback
 ```
 
 ## 12. Configurar os jobs automaticos
@@ -271,7 +271,7 @@ Para conferir os jobs no SQL Editor:
 select jobname, schedule, active from cron.job order by jobname;
 ```
 
-Devem existir `uaiflow-drain-every-minute` e `uaiflow-refresh-weekly`.
+Devem existir `manychat_comIA-drain-every-minute` e `manychat_comIA-refresh-weekly`.
 
 ## 13. Primeiro acesso e conexao do Instagram
 
@@ -294,7 +294,7 @@ Use um post de teste e um segundo perfil controlado.
 3. Gatilho: comentarios.
 4. Palavra-chave: `queroteste`.
 5. Resposta publica: `Enviei as informacoes no direct.`
-6. DM: `Oi! Este e um teste do meu UaiFlow.`
+6. DM: `Oi! Este e um teste do meu manychat_comIA.`
 7. Botao: `Abrir site`.
 8. URL: seu dominio Vercel.
 9. Ative e salve.
