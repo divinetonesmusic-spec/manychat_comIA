@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createAdminSessionValue, getAdminCookieName } from "@/lib/auth";
+import { createAdminSessionValue, getAdminCookieName, isAllowedEmail } from "@/lib/auth";
 
 const PUBLIC_EXACT_PATHS = [
   "/",
@@ -22,6 +22,7 @@ const PUBLIC_PREFIXES = [
   "/api/webhook",
   "/api/queue/drain",
   "/api/token/refresh",
+  "/api/molde", // protegido pelo MOLDE_API_TOKEN dentro das rotas
 ];
 
 export async function proxy(request: NextRequest) {
@@ -32,7 +33,8 @@ export async function proxy(request: NextRequest) {
   }
 
   const adminSession = request.cookies.get(getAdminCookieName())?.value;
-  if (adminSession === createAdminSessionValue()) {
+  const adminValue = await createAdminSessionValue();
+  if (adminValue && adminSession === adminValue) {
     return NextResponse.next();
   }
 
@@ -55,7 +57,7 @@ export async function proxy(request: NextRequest) {
     });
 
     const { data, error } = await supabase.auth.getUser();
-    if (!error && data.user) {
+    if (!error && data.user && isAllowedEmail(data.user.email)) {
       return response;
     }
   }

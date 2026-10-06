@@ -13,8 +13,13 @@ export const availableMessageVariables = [
 ] as const;
 
 export function renderMessageTemplate(value: string, context: MessageTemplateContext) {
-  return value.replace(VARIABLE_PATTERN, (_match, key: string) => {
+  let empty = false;
+  const rendered = value.replace(VARIABLE_PATTERN, (_match, key: string) => {
     const replacement = context[key];
-    return replacement === null || replacement === undefined ? "" : String(replacement);
+    const text = replacement === null || replacement === undefined ? "" : String(replacement);
+    if (!text) empty = true;
+    return text;
   });
+  // Variável vazia (ex.: lead sem nome): "Oi , tudo bem" vira "Oi, tudo bem".
+  return empty ? rendered.replace(/[ \t]+([,.!?;:])/g, "$1").replace(/[ \t]{2,}/g, " ") : rendered;
 }

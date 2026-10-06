@@ -13,9 +13,13 @@ export async function POST(request: NextRequest) {
 }
 
 async function refresh(request: NextRequest) {
-  const providedSecret = request.headers.get("x-worker-secret") || request.nextUrl.searchParams.get("secret");
+  const providedSecret = request.headers.get("x-worker-secret");
+  const expected = process.env.WORKER_SECRET;
 
-  if (process.env.WORKER_SECRET && providedSecret !== process.env.WORKER_SECRET) {
+  if (!expected && process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Defina WORKER_SECRET nas variaveis do servidor." }, { status: 503 });
+  }
+  if (expected && providedSecret !== expected) {
     return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
   }
 

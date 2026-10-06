@@ -40,6 +40,14 @@ for (const key of ["ADMIN_SESSION_SECRET", "WORKER_SECRET", "WEBHOOK_VERIFY_TOKE
   if (value && value.length < 32) warnings.push(`${key} deve ter pelo menos 32 caracteres.`);
 }
 
+// Planner de conteúdo (opcional): envio de arquivo pelo Cloudflare R2 e a porta do Molde do Avatar.
+const r2Keys = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_PUBLIC_BASE_URL"];
+const r2Set = r2Keys.filter((key) => process.env[key]);
+if (r2Set.length && r2Set.length < r2Keys.length) warnings.push(`R2 incompleto (falta ${r2Keys.filter((key) => !process.env[key]).join(", ")}). Sem isso o botao Enviar arquivo nao funciona; links publicos colados continuam funcionando.`);
+if (!r2Set.length) warnings.push("R2 nao configurado: o planner aceita so links publicos de midia (sem botao de enviar arquivo).");
+if (process.env.MOLDE_API_TOKEN && process.env.MOLDE_API_TOKEN.length < 24) warnings.push("MOLDE_API_TOKEN deve ter pelo menos 24 caracteres.");
+if (!process.env.MOLDE_API_TOKEN) warnings.push("MOLDE_API_TOKEN vazio: o Molde do Avatar nao consegue mandar posts para o planner.");
+
 if (process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length < 12) warnings.push("ADMIN_PASSWORD deve ter pelo menos 12 caracteres.");
 
 console.log(loaded ? "Arquivo .env.local carregado." : ".env.local nao encontrado; usando variaveis do processo.");

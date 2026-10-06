@@ -364,6 +364,43 @@ export async function sendDirectMediaMessage(input: {
   });
 }
 
+/** Comenta no próprio post (usado para o "primeiro comentário" depois de publicar). */
+export async function createInstagramMediaComment(input: { mediaId: string; accessToken: string; message: string }) {
+  const url = new URL(`${GRAPH_BASE_URL}/${input.mediaId}/comments`);
+  return graphFetch<{ id: string }>(url, input.accessToken, {
+    method: "POST",
+    body: JSON.stringify({ message: input.message }),
+  });
+}
+
+/** Resultados de um post publicado. Métricas que a Meta recusar para o tipo de mídia são ignoradas. */
+export async function getInstagramMediaInsights(input: { mediaId: string; accessToken: string; isReel: boolean }) {
+  const preferred = input.isReel
+    ? ["views", "reach", "likes", "comments", "shares", "saved", "total_interactions", "ig_reels_avg_watch_time"]
+    : ["views", "reach", "likes", "comments", "shares", "saved", "total_interactions"];
+  const result: Record<string, number> = {};
+  let metrics = preferred.slice();
+
+  for (let attempt = 0; attempt < 3 && metrics.length; attempt += 1) {
+    const url = new URL(`${GRAPH_BASE_URL}/${input.mediaId}/insights`);
+    url.searchParams.set("metric", metrics.join(","));
+    try {
+      const data = await graphFetch<{ data?: Array<{ name: string; values?: Array<{ value: number }>; total_value?: { value: number } }> }>(url, input.accessToken);
+      for (const item of data.data ?? []) {
+        const value = item.total_value?.value ?? item.values?.[0]?.value;
+        if (typeof value === "number") result[item.name] = value;
+      }
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const bad = metrics.filter((metric) => message.includes(metric));
+      metrics = bad.length ? metrics.filter((metric) => !bad.includes(metric)) : metrics.slice(0, Math.max(0, metrics.length - 2));
+    }
+  }
+
+  return result;
+}
+
 export async function sendPublicCommentReply(input: {
   commentId: string;
   accessToken: string;

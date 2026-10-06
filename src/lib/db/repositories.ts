@@ -229,11 +229,31 @@ export type ContentPost = {
   container_id: string | null;
   published_media_id: string | null;
   permalink: string | null;
-  status: "draft" | "publishing" | "published" | "failed";
+  status: "draft" | "scheduled" | "publishing" | "published" | "failed" | "canceled";
   last_error: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;
+  title?: string;
+  scheduled_at?: string | null;
+  first_comment?: string;
+  first_comment_id?: string | null;
+  keyword?: string;
+  dm_text?: string;
+  link_url?: string;
+  link_label?: string;
+  public_reply?: string;
+  automation_options?: { quickReplyLabel?: string; linkText?: string; reminderText?: string; publicReplies?: string[]; requireFollower?: boolean };
+  automation_id?: string | null;
+  source?: string;
+  external_ref?: string | null;
+  media_keys?: string[];
+  media_deleted_at?: string | null;
+  attempts?: number;
+  insights?: Record<string, number>;
+  insights_at?: string | null;
+  publishing_started_at?: string | null;
+  lock_until?: string | null;
 };
 export type InboxConversationMessage = {
   id: string;
@@ -1123,7 +1143,7 @@ export async function listContentPosts(limit = 50, accountId?: string | null): P
      from public.content_posts cp
      left join public.instagram_accounts ia on ia.id = cp.account_id
      where ($2::uuid is null or cp.account_id = $2)
-     order by cp.created_at desc
+     order by coalesce(cp.scheduled_at, cp.published_at, cp.created_at) desc
      limit $1`,
     [limit, accountId ?? null],
   );
@@ -1211,6 +1231,26 @@ export async function listFlowLogs(limit = 80, accountId?: string | null): Promi
 }export async function claimQueueJobs(limit = 20): Promise<QueueJob[]> {
   const { rows } = await query<QueueJob>("select * from public.claim_queue_jobs($1)", [limit]);
   return rows;
+}
+
+/** Jobs que ficaram em "sending" (a função caiu no meio) voltam para a fila depois de 10 min. */
+export async function recoverStaleQueueJobs() {
+  await query(
+    `update public.queue
+     set status = case when attempts >= 3 then 'failed' else 'pending' end,
+         claimed_at = null,
+         last_error = coalesce(last_error, 'Envio interrompido; tentando de novo')
+     where status = 'sending' and claimed_at < now() - interval '10 minutes'`,
+  );
+}
+
+/** Devolve jobs pegos mas não enviados (faltou tempo), sem contar como tentativa. */
+export async function releaseQueueJobs(ids: string[]) {
+  if (!ids.length) return;
+  await query(
+    "update public.queue set status = 'pending', claimed_at = null, attempts = greatest(attempts - 1, 0) where id = any($1::uuid[]) and status = 'sending'",
+    [ids],
+  );
 }
 
 export async function markJobSent(id: string) {

@@ -1,7 +1,7 @@
 const fallbackMessage = "Nao consegui concluir a autenticacao. Tente novamente.";
 
 const exactMessages: Record<string, string> = {
-  config: "A autenticacao ainda nao esta configurada corretamente.",
+  config: "A autenticacao ainda nao esta configurada: defina ADMIN_SESSION_SECRET (ou WORKER_SECRET) e ADMIN_PASSWORD (12+ caracteres) nas variaveis do servidor.",
   "1": "Senha incorreta.",
   "user already registered": "Este e-mail ja esta cadastrado. Use Entrar ou solicite um link magico.",
   "invalid login credentials": "E-mail ou senha incorretos.",

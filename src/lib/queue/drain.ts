@@ -5,6 +5,8 @@
   markExpiredDmsSkipped,
   markJobFailed,
   markJobSent,
+  recoverStaleQueueJobs,
+  releaseQueueJobs,
   sentDmCountLastHour,
   type QueueJob,
 } from "@/lib/db/repositories";
@@ -18,45 +20,69 @@ import { renderMessageTemplate } from "@/lib/message-template";
 
 const MAX_JOBS_PER_DRAIN = 40;
 const MAX_AUTOMATED_DMS_PER_HOUR = 200;
-const SEND_DELAY_MS = 500;
+const SEND_DELAY_MS = 300;
+const BATCH_SIZE = 5;
 
-export async function drainQueue(limit = MAX_JOBS_PER_DRAIN) {
+/**
+ * Envia a fila em lotes pequenos e respeita um limite de tempo (serverless: Netlify/Render cortam em ~10 s).
+ * O que não couber fica "pending" e sai no próximo minuto. Jobs presos em "sending" voltam para a fila.
+ */
+export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(process.env.DRAIN_BUDGET_MS || 6000)) {
+  const deadline = Date.now() + budgetMs;
+  await recoverStaleQueueJobs();
   await markExpiredDmsSkipped();
 
-  const jobs = await claimQueueJobs(Math.min(limit, MAX_JOBS_PER_DRAIN));
+  const total = Math.min(limit, MAX_JOBS_PER_DRAIN);
+  let processed = 0;
   let sent = 0;
   let failed = 0;
+  let stoppedEarly = false;
 
-  for (const job of jobs) {
-    const config = await getConfig(job.account_id);
-    if (!config.instagram_access_token || !config.instagram_user_id) {
-      await markJobFailed(job.id, "Instagram nao conectado para este perfil");
-      failed += 1;
-      continue;
+  while (processed < total) {
+    if (deadline - Date.now() < 1500) { stoppedEarly = true; break; }
+    const jobs = await claimQueueJobs(Math.min(BATCH_SIZE, total - processed));
+    if (!jobs.length) break;
+
+    for (const [index, job] of jobs.entries()) {
+      if (deadline - Date.now() < 800) {
+        // Sem tempo: devolve o resto do lote sem gastar tentativa.
+        await releaseQueueJobs(jobs.slice(index).map((item) => item.id));
+        stoppedEarly = true;
+        break;
+      }
+      processed += 1;
+      const config = await getConfig(job.account_id);
+      if (!config.instagram_access_token || !config.instagram_user_id) {
+        await markJobFailed(job.id, "Instagram nao conectado para este perfil");
+        failed += 1;
+        continue;
+      }
+
+      const countsTowardDmLimit = job.send_type === "dm" || job.send_type === "private_reply";
+      const hourlyCount = countsTowardDmLimit ? await sentDmCountLastHour(config.account_id) : 0;
+      if (hourlyCount >= MAX_AUTOMATED_DMS_PER_HOUR) {
+        await markJobFailed(job.id, "Limite horario de seguranca atingido para este perfil");
+        failed += 1;
+        continue;
+      }
+
+      try {
+        await sendJob(job, config.instagram_user_id, config.instagram_access_token);
+        await markJobSent(job.id);
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        await markJobFailed(job.id, error instanceof Error ? error.message : "Erro desconhecido ao enviar");
+      }
+
+      await delay(SEND_DELAY_MS);
     }
-
-    const countsTowardDmLimit = job.send_type === "dm" || job.send_type === "private_reply";
-    const hourlyCount = countsTowardDmLimit ? await sentDmCountLastHour(config.account_id) : 0;
-    if (hourlyCount >= MAX_AUTOMATED_DMS_PER_HOUR) {
-      await markJobFailed(job.id, "Limite horario de seguranca atingido para este perfil");
-      failed += 1;
-      continue;
-    }
-
-    try {
-      await sendJob(job, config.instagram_user_id, config.instagram_access_token);
-      await markJobSent(job.id);
-      sent += 1;
-    } catch (error) {
-      failed += 1;
-      await markJobFailed(job.id, error instanceof Error ? error.message : "Erro desconhecido ao enviar");
-    }
-
-    await delay(SEND_DELAY_MS);
+    if (stoppedEarly) break;
   }
 
-  return { processed: jobs.length, sent, failed };
+  return { processed, sent, failed, stoppedEarly };
 }
+
 async function sendJob(job: QueueJob, instagramUserId: string, accessToken: string) {
   const context = await getTemplateContext({ contactId: job.contact_id, automationId: job.automation_id });
   const text = renderMessageTemplate(String(job.payload.text || ""), context);
