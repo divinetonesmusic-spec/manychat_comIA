@@ -89,6 +89,8 @@ export type InstagramAccount = {
   instagram_name: string | null;
   instagram_profile_picture_url: string | null;
   token_expires_at: string | null;
+  /** Hora da última renovação do token (vem no select *). */
+  last_token_refresh_at?: string | null;
   webhook_subscribed_at: string | null;
   is_default: boolean;
   created_at: string;

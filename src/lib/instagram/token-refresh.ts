@@ -4,8 +4,14 @@ import { refreshLongLivedToken } from "@/lib/instagram/client";
 /** Avisar quando faltar menos que isto para o token vencer. */
 export const TOKEN_ALERT_DAYS = 10;
 
+/** A Meta só renova token de longa duração que tenha pelo menos 24 h de vida. */
+export const TOKEN_MIN_AGE_MS = 24 * 3600_000;
+/** Token de longa duração vale 60 dias: vencimento além de 59 dias = emitido há menos de 24 h. */
+const FRESH_TOKEN_EXPIRY_MS = 59 * 86_400_000;
+
 export type TokenRefreshResult =
-  | { accountId: string; username: string; ok: true; expiresAt: string }
+  /** `skipped`: token com menos de 24 h (acabou de ser conectado ou renovado); não há o que renovar ainda. */
+  | { accountId: string; username: string; ok: true; expiresAt: string | null; skipped?: boolean }
   | { accountId: string; username: string; ok: false; error: string; tokenExpiresAt: string | null };
 
 /**
@@ -17,6 +23,10 @@ export async function refreshAllInstagramTokens(): Promise<TokenRefreshResult[]>
   const results: TokenRefreshResult[] = [];
   for (const account of accounts) {
     const base = { accountId: account.id, username: account.instagram_username };
+    if (tokenIssuedRecently(account)) {
+      results.push({ ...base, ok: true, skipped: true, expiresAt: toIso(account.token_expires_at) });
+      continue;
+    }
     try {
       if (!account.instagram_access_token) throw new Error("Conta sem token salvo. Conecte o perfil de novo.");
       const token = await refreshLongLivedToken(account.instagram_access_token);
@@ -28,6 +38,21 @@ export async function refreshAllInstagramTokens(): Promise<TokenRefreshResult[]>
     }
   }
   return results;
+}
+
+/**
+ * Token emitido ou renovado há menos de 24 h: a Meta recusaria a renovação (falso "não consegui renovar").
+ * Usa a hora da última renovação e o vencimento (60 dias a partir da emissão). created_at e updated_at não
+ * servem: reconectar não muda o created_at, e o updated_at muda com qualquer alteração da conta.
+ */
+export function tokenIssuedRecently(
+  account: { last_token_refresh_at?: string | Date | null; token_expires_at?: string | Date | null },
+  now = new Date(),
+) {
+  const lastRefresh = account.last_token_refresh_at ? new Date(account.last_token_refresh_at).getTime() : Number.NaN;
+  if (Number.isFinite(lastRefresh) && now.getTime() - lastRefresh < TOKEN_MIN_AGE_MS) return true;
+  const expires = account.token_expires_at ? new Date(account.token_expires_at).getTime() : Number.NaN;
+  return Number.isFinite(expires) && expires - now.getTime() > FRESH_TOKEN_EXPIRY_MS;
 }
 
 export type TokenAlert = {

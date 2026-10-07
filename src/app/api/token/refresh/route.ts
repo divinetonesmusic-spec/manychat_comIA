@@ -39,7 +39,7 @@ async function refresh(request: NextRequest) {
       ok: renovadas === resultados.length,
       contas: resultados.map((resultado) =>
         resultado.ok
-          ? { username: resultado.username, ok: true, expiresAt: resultado.expiresAt }
+          ? { username: resultado.username, ok: true, expiresAt: resultado.expiresAt, ...(resultado.skipped ? { pulada: true } : {}) }
           : { username: resultado.username, ok: false, erro: resultado.error },
       ),
     },

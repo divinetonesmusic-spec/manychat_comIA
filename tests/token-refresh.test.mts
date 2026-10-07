@@ -137,6 +137,30 @@ describe("renovação de token de todas as contas (U-PUB-02)", { skip: semBanco 
       assert.match(texto, /- @payoff: a conexão vence em [45] dias\./);
     });
 
+    test("(onda final) conta conectada há menos de 24 h (token novo, 60 dias): não tenta renovar, não avisa e não dá 500", async () => {
+      await db!.sql("delete from public.instagram_accounts");
+      await seedAccount(db!, { username: "nova", userId: "2001", token: "IGAA-TESTE-NOVA", isDefault: true, expiresInDays: 60 });
+      meta.refreshFails.add("IGAA-TESTE-NOVA"); // a Meta recusaria (token com menos de 24 h)
+      const response = await route.POST(request("/api/token/refresh", { method: "POST", headers: WORKER }));
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, true);
+      assert.deepEqual(body.contas.map((conta: { username: string; ok: boolean; pulada?: boolean }) => [conta.username, conta.ok, conta.pulada]), [["nova", true, true]]);
+      assert.equal(meta.count("/refresh_access_token"), 0);
+      assert.equal(meta.telegram.length, 0);
+    });
+
+    test("(onda final) conta renovada há menos de 24 h: pulada; a outra (mais velha) é renovada normalmente", async () => {
+      await db!.sql("update public.instagram_accounts set last_token_refresh_at = now() - interval '2 hours' where instagram_username = 'ruthie'");
+      meta.refreshFails.add("IGAA-TESTE-RUTHIE");
+      const response = await route.POST(request("/api/token/refresh", { method: "POST", headers: WORKER }));
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.deepEqual(body.contas.map((conta: { username: string; ok: boolean; pulada?: boolean }) => [conta.username, conta.ok, conta.pulada ?? false]), [["ruthie", true, true], ["payoff", true, false]]);
+      assert.equal(meta.count("/refresh_access_token"), 1, "só a payoff");
+      assert.equal(meta.telegram.length, 0, "nenhum falso 'não consegui renovar'");
+    });
+
     test("todas renovadas e longe de vencer: nenhum aviso", async () => {
       await route.POST(request("/api/token/refresh", { method: "POST", headers: WORKER }));
       assert.equal(meta.telegram.length, 0);
