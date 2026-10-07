@@ -61,6 +61,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Cliente do Postgres (o teste da cópia do banco usa o pg_dump)
+        run: pg_dump --version || (sudo apt-get update && sudo apt-get install -y postgresql-client && pg_dump --version)
       - name: Testes (com banco; nenhum pode ser pulado)
         shell: bash
         run: |

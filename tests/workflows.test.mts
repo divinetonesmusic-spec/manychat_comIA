@@ -29,6 +29,8 @@ describe("CI (.github/workflows/ci.yml)", () => {
     const passo = job.steps.find((step) => /\bnpm test\b/.test(step.run ?? ""));
     assert.equal(passo?.shell, "bash", "shell: bash liga o pipefail (o tee não esconde a falha)");
     assert.match(passo?.run ?? "", /SKIP/, "confere que nada foi pulado");
+    const pgDump = job.steps.findIndex((step) => /pg_dump --version/.test(step.run ?? ""));
+    assert.ok(pgDump >= 0 && pgDump < job.steps.indexOf(passo!), "garante o pg_dump (teste da cópia do banco) antes do npm test");
     const setupNode = job.steps.find((step) => step.uses?.startsWith("actions/setup-node"));
     assert.ok(Number(setupNode?.with?.["node-version"]) >= 20, "Node 20 ou mais novo (--import tsx)");
   });
