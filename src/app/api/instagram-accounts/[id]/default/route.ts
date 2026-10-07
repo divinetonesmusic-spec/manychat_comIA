@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { setDefaultInstagramAccount } from "@/lib/db/repositories";
+import { toPublicInstagramAccount } from "@/lib/instagram/public-account";
 
 export const runtime = "nodejs";
 
@@ -15,5 +16,5 @@ export async function POST(_request: NextRequest, { params }: Props) {
     return NextResponse.json({ error: "Perfil do Instagram nao encontrado." }, { status: 404 });
   }
 
-  return NextResponse.json({ data: account });
+  return NextResponse.json({ data: toPublicInstagramAccount(account) }); // sem token (U-SEG-01)
 }

@@ -19,7 +19,7 @@ import {
   getInboxConversation,
   listAutomations,
   listContacts,
-  listInstagramAccounts,
+  listPublicInstagramAccounts,
   type ContactSummary,
   type InboxConversationMessage,
 } from "@/lib/db/repositories";
@@ -40,7 +40,7 @@ type Props = {
 
 export default async function CaixaDeEntradaPage({ searchParams }: Props) {
   const params = await searchParams;
-  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listInstagramAccounts()]);
+  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listPublicInstagramAccounts()]);
   const activeAccountId = getSelectedAccountId(params, accounts);
   const [config, contacts, automations] = await Promise.all([
     getConfig(activeAccountId),

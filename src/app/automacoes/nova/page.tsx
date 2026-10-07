@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { AppFrame, PageHeader } from "../../app-frame";
 import { DashboardClient } from "../../dashboard-client";
-import { getDashboardStats, listInstagramAccounts } from "@/lib/db/repositories";
+import { getDashboardStats, listPublicInstagramAccounts } from "@/lib/db/repositories";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, hrefWithAccount, type AccountRouteSearchParams } from "@/lib/account-routing";
 
@@ -14,7 +14,7 @@ type Props = {
 
 export default async function NovaAutomacaoPage({ searchParams }: Props) {
   const params = await searchParams;
-  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listInstagramAccounts()]);
+  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listPublicInstagramAccounts()]);
   const activeAccountId = getSelectedAccountId(params, accounts);
   const stats = await getDashboardStats(activeAccountId);
   const connected = Boolean(stats.config.instagram_user_id);

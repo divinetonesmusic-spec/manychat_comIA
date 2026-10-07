@@ -24,13 +24,14 @@ import {
   UploadCloud,
   XCircle,
 } from "lucide-react";
-import type { Automation, Config, IceBreakerItem, InstagramAccount, PersistentMenuItem, ProfileSettings } from "@/lib/db/repositories";
+import type { Automation, IceBreakerItem, PersistentMenuItem, ProfileSettings } from "@/lib/db/repositories";
+import type { PublicConfig, PublicInstagramAccount } from "@/lib/instagram/public-account";
 import { hrefWithAccount } from "@/lib/account-routing";
 
 type Props = {
-  accounts: InstagramAccount[];
+  accounts: PublicInstagramAccount[];
   automations: Automation[];
-  config: Config;
+  config: PublicConfig;
   settings: ProfileSettings;
   activeAccountId?: string | null;
   metaDeveloperUrl: string;

@@ -24,9 +24,21 @@ Cada arquivo de teste cria um banco novo e vazio (`uaiflow_teste_...`), aplica `
 
 Se o Postgres local não tiver SSL (o normal), o teste já liga `sslmode=disable` sozinho.
 
+## Conferir se algum token do Instagram vaza para o navegador (depois do build)
+
+Este teste sobe o UaiFlow de verdade (`next start`) com contas falsas cujo token é `IGAA-TESTE-VAZOU-...`, abre as telas com uma sessão de administrador e procura o token no HTML que o navegador recebe (o HTML inclui os dados entregues aos componentes "use client"). O servidor do teste só consegue falar com o próprio computador.
+
+```bash
+npm run build
+TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres npm run test:html
+```
+
+Sem build ou sem `TEST_DATABASE_URL`, ele aparece como pulado.
+
 ## Onde fica cada coisa
 
 - `tests/helpers/env.mts`: variáveis falsas (nada é segredo real).
 - `tests/helpers/db.mts`: cria o banco de teste e aplica as migrações. `createTestDatabase({ ate: "0002" })` simula um Supabase em que a 0003 ainda não foi colada.
 - `tests/helpers/fake-meta.mts`: Meta/Instagram/R2 falsos, com contagem de chamadas (ex.: quantas vezes o `media_publish` foi chamado) e opção de simular o corte do Netlify logo depois de a Meta publicar.
-- `tests/*.test.mts`: os testes.
+- `tests/*.test.mts`: os testes (rodam no `npm test`).
+- `tests/html/`: o teste de HTML depois do build (`npm run test:html`).

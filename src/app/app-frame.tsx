@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AppShell, type AppSection } from "./app-shell";
-import type { InstagramAccount } from "@/lib/db/repositories";
+import type { PublicInstagramAccount } from "@/lib/instagram/public-account";
 
 export type { AppSection };
 
@@ -8,7 +8,7 @@ type Props = {
   active: AppSection;
   connected: boolean;
   username: string | null;
-  accounts?: InstagramAccount[];
+  accounts?: PublicInstagramAccount[];
   activeAccountId?: string | null;
   workspaceName?: string | null;
   userEmail?: string | null;

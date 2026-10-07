@@ -1,6 +1,6 @@
 import { AppFrame, PageHeader } from "../app-frame";
 import { ConteudoClient } from "./conteudo-client";
-import { getConfig, listInstagramAccounts } from "@/lib/db/repositories";
+import { getConfig, listPublicInstagramAccounts } from "@/lib/db/repositories";
 import { listContentPostsInRange } from "@/lib/db/content-planner";
 import { getSelectedAccountId, type AccountRouteSearchParams } from "@/lib/account-routing";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
@@ -13,7 +13,7 @@ type Props = {
 
 export default async function ConteudoPage({ searchParams }: Props) {
   const params = await searchParams;
-  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listInstagramAccounts()]);
+  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listPublicInstagramAccounts()]);
   const activeAccountId = getSelectedAccountId(params, accounts);
   // Mês atual com folga de 1 semana em cada ponta (o calendário mostra as semanas de borda).
   const now = new Date();

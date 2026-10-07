@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --import tsx --test tests/*.test.mts",
+    "test:html": "node --import tsx --test tests/html/*.test.mts",
     "db:migrate": "node scripts/migrate.cjs",
     "db:status": "node scripts/migration-status.cjs",
     "db:apply": "npm run db:migrate",

@@ -7,7 +7,7 @@ import { Bell, Bot, CircleHelp, Contact, GitBranch, Home, ImageIcon, Inbox, Plus
 import { SignOutButton } from "./sign-out-button";
 import { ThemeToggle } from "./theme-toggle";
 import { BrandMark } from "@/components/brand-mark";
-import type { InstagramAccount } from "@/lib/db/repositories";
+import type { PublicInstagramAccount } from "@/lib/instagram/public-account";
 import { hrefWithAccount } from "@/lib/account-routing";
 import {
   Sidebar,
@@ -34,7 +34,7 @@ type AppShellProps = {
   active: AppSection;
   connected: boolean;
   username: string | null;
-  accounts?: InstagramAccount[];
+  accounts?: PublicInstagramAccount[];
   activeAccountId?: string | null;
   workspaceName?: string | null;
   userEmail?: string | null;

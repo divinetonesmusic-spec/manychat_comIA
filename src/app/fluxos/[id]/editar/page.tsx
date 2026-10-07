@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { AppFrame } from "../../../app-frame";
 import { FluxoEditorClient } from "./fluxo-editor-client";
-import { getAutomation, getDashboardStats, listInstagramAccounts } from "@/lib/db/repositories";
+import { getAutomation, getDashboardStats, listPublicInstagramAccounts } from "@/lib/db/repositories";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, hrefWithAccount, type AccountRouteSearchParams } from "@/lib/account-routing";
 
@@ -14,7 +14,7 @@ type Props = {
 
 export default async function EditarFluxoPage({ params, searchParams }: Props) {
   const [{ id }, routeParams] = await Promise.all([params, searchParams]);
-  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listInstagramAccounts()]);
+  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listPublicInstagramAccounts()]);
   const activeAccountId = getSelectedAccountId(routeParams, accounts);
   const [stats, automation] = await Promise.all([
     getDashboardStats(activeAccountId),

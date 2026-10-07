@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, Clock3, Contact, MessageCircle, PauseCircle, Send, UserRound } from "lucide-react";
 import { AppFrame, PageHeader, formatDate } from "../app-frame";
-import { getConfig, listContacts, listInstagramAccounts, type ContactSummary } from "@/lib/db/repositories";
+import { getConfig, listContacts, listPublicInstagramAccounts, type ContactSummary } from "@/lib/db/repositories";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, type AccountRouteSearchParams } from "@/lib/account-routing";
 import { ContactPauseControls } from "./contact-pause-controls";
@@ -13,7 +13,7 @@ type Props = {
 
 export default async function ContatosPage({ searchParams }: Props) {
   const params = await searchParams;
-  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listInstagramAccounts()]);
+  const [workspaceContext, accounts] = await Promise.all([getCurrentWorkspaceContext(), listPublicInstagramAccounts()]);
   const activeAccountId = getSelectedAccountId(params, accounts);
   const [config, contacts] = await Promise.all([getConfig(activeAccountId), listContacts(80, activeAccountId)]);
   const connected = Boolean(config.instagram_user_id);

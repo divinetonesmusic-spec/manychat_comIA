@@ -1,10 +1,10 @@
-import type { InstagramAccount } from "@/lib/db/repositories";
+import type { PublicInstagramAccount } from "@/lib/instagram/public-account";
 
 export type AccountRouteSearchParams = {
   accountId?: string | string[];
 };
 
-export function getSelectedAccountId(params: AccountRouteSearchParams | null | undefined, accounts: InstagramAccount[]) {
+export function getSelectedAccountId(params: AccountRouteSearchParams | null | undefined, accounts: Pick<PublicInstagramAccount, "id" | "is_default">[]) {
   const requested = Array.isArray(params?.accountId) ? params?.accountId[0] : params?.accountId;
   const requestedAccount = accounts.find((account) => account.id === requested);
   if (requestedAccount) return requestedAccount.id;

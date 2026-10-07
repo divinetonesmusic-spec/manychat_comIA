@@ -2,9 +2,10 @@ import Link from "next/link";
 import { Camera, RefreshCcw } from "lucide-react";
 import { AppFrame, PageHeader } from "../app-frame";
 import { PerfisClient } from "./perfis-client";
-import { getConfig, getProfileSettings, listAutomations, listInstagramAccounts } from "@/lib/db/repositories";
+import { getConfig, getProfileSettings, listAutomations, listPublicInstagramAccounts } from "@/lib/db/repositories";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, hrefWithAccount, type AccountRouteSearchParams } from "@/lib/account-routing";
+import { toPublicConfig } from "@/lib/instagram/public-account";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function PerfisPage({ searchParams }: Props) {
   const params = await searchParams;
   const [workspaceContext, accounts] = await Promise.all([
     getCurrentWorkspaceContext(),
-    listInstagramAccounts(),
+    listPublicInstagramAccounts(),
   ]);
   const activeAccountId = getSelectedAccountId(params, accounts);
   const [config, settings, automations] = await Promise.all([
@@ -45,7 +46,7 @@ export default async function PerfisPage({ searchParams }: Props) {
         }
       />
 
-      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={config} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} />
+      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={toPublicConfig(config)} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} />
     </AppFrame>
   );
 }

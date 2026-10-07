@@ -1,4 +1,5 @@
 import { query } from "@/lib/db/client";
+import { toPublicConfig, toPublicInstagramAccount, type PublicInstagramAccount } from "@/lib/instagram/public-account";
 
 export type WorkspaceContext = {
   profile: {
@@ -335,6 +336,11 @@ export async function listInstagramAccounts(): Promise<InstagramAccount[]> {
     "select * from public.instagram_accounts order by is_default desc, created_at asc",
   );
   return rows;
+}
+
+/** Contas para as telas e para o navegador: sem token (U-SEG-01). Use esta, nunca a de cima, em página ou resposta de API. */
+export async function listPublicInstagramAccounts(): Promise<PublicInstagramAccount[]> {
+  return (await listInstagramAccounts()).map(toPublicInstagramAccount);
 }
 
 export async function getDefaultInstagramAccount(): Promise<InstagramAccount | null> {
@@ -1473,8 +1479,9 @@ export async function getDashboardStats(accountId?: string | null) {
 
   return {
     automations,
-    config,
-    accounts,
+    // as telas só usam @, id e foto: nada de token aqui (U-SEG-01)
+    config: toPublicConfig(config),
+    accounts: accounts.map(toPublicInstagramAccount),
     eventCount: Number(events.rows[0]?.count ?? 0),
     contactCount: Number(contacts.rows[0]?.count ?? 0),
     queue: queue.rows.map((row) => ({ status: row.status, count: Number(row.count) })),
