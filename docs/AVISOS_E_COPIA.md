@@ -55,12 +55,12 @@ O monitor depende da migração 0004. Cada arquivo pode ser colado mais de uma v
    - `TELEGRAM_CHAT_ID`: o mesmo número da Parte 2.
    - `SUPABASE_DB_URL`: o endereço do banco para a cópia (veja o passo 3).
    - `BACKUP_PASSPHRASE`: a senha que tranca as cópias (veja o passo 4).
-3. **SUPABASE_DB_URL tem que ser a do Session pooler**, porque o GitHub não consegue usar a conexão direta do Supabase (ela é IPv6).
-   1. No Supabase, clique no botão **Connect** (no alto da tela do projeto).
-   2. Escolha **Session pooler** e copie o endereço. Ele termina em `pooler.supabase.com:5432/postgres`, com a **porta 5432**.
-   3. Troque `[YOUR-PASSWORD]` pela senha do banco (a mesma que está no `DATABASE_URL` do Netlify).
-   4. O resultado fica parecido com `postgresql://postgres.abcdefgh:SUA-SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`.
-   5. Dica: é o mesmo endereço do `DATABASE_URL` do Netlify, mas com a porta trocada de 6543 para 5432.
+3. **SUPABASE_DB_URL tem que ser a do Session pooler (porta 5432)**, porque o GitHub não consegue usar a conexão direta do Supabase (ela é IPv6). O jeito mais seguro de montar:
+   1. No Netlify, abra **Site configuration** → **Environment variables** e copie o valor de `DATABASE_URL` (ele já funciona no site).
+   2. Troque só a porta: `:6543/` vira `:5432/`. Não mexa em mais nada.
+   3. O resultado fica parecido com `postgresql://postgres.abcdefgh:SUA-SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`.
+   4. Se preferir pegar no Supabase (botão **Connect** → **Session pooler**) e trocar `[YOUR-PASSWORD]` pela senha à mão, atenção: se a senha tem algum destes caracteres, escreva cada um em código: `@` vira `%40`, `:` vira `%3A`, `/` vira `%2F`, `%` vira `%25`, `#` vira `%23`, `?` vira `%3F`, `&` vira `%26`, `+` vira `%2B` e espaço vira `%20`. Sem isso a cópia falha.
+   5. Se a cópia falhar com "O endereço em SUPABASE_DB_URL está mal formado", refaça pelo item 1. Por segurança, o erro original nunca aparece no registro do GitHub (ele poderia mostrar pedaços da senha).
 4. **BACKUP_PASSPHRASE** é uma senha forte, só para as cópias.
    1. No Mac, abra o **Terminal** e rode `openssl rand -base64 24`. Use o texto que aparecer.
    2. **Guarde essa senha no gerenciador de senhas** (Chaves do iCloud, 1Password etc.). Sem ela, ninguém consegue abrir as cópias, nem você.

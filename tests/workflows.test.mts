@@ -159,10 +159,21 @@ describe("cópia semanal do banco (.github/workflows/backup.yml)", () => {
         const permitido =
           /^\s*if \[ -z "\$SUPABASE_DB_URL" \]; then$/.test(line) ||
           /^\s*docker run --rm -e SUPABASE_DB_URL postgres:17 \\$/.test(line) ||
-          /^\s*sh -c 'exec pg_dump --dbname="\$SUPABASE_DB_URL" [^']*' \\$/.test(line) ||
+          /^\s*sh -c 'exec pg_dump --dbname="\$SUPABASE_DB_URL" [^']*' 2> "\$erros" \\$/.test(line) ||
+          /^\s*credenciais="\$\{SUPABASE_DB_URL#\*:\/\/\}"$/.test(line) ||
           /^\s*#/.test(line);
         assert.ok(permitido, `"${candidate.name}": uso não previsto da URL do banco: ${line.trim()}`);
       }
+    }
+    // O erro do pg_dump vai para um arquivo que nunca é mostrado: só "grep -q" (classificar) e "rm -f".
+    const copia = step("copia").run ?? "";
+    for (const line of copia.split("\n").filter((text) => text.includes("$erros"))) {
+      const permitido =
+        /^\s*erros="[^"$]+"$/.test(line) ||
+        /' 2> "\$erros" \\$/.test(line) ||
+        /\bgrep -Eqi? '[^']+' "\$erros"/.test(line) ||
+        /^\s*rm -f "\$erros"$/.test(line);
+      assert.ok(permitido, `uso não previsto do arquivo de erros do pg_dump: ${line.trim()}`);
     }
     for (const candidate of steps) {
       for (const [name, value] of Object.entries(candidate.env ?? {})) {

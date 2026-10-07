@@ -38,6 +38,10 @@ jobs:
           fi
           echo "fazer=sim" >> "$GITHUB_OUTPUT"
 
+      - name: Baixar o pg_dump (imagem postgres:17)
+        if: steps.segredos.outputs.fazer == 'sim'
+        run: docker pull -q postgres:17
+
       - name: Copiar, compactar e criptografar
         id: copia
         if: steps.segredos.outputs.fazer == 'sim'
@@ -46,14 +50,68 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
+          # O registro do GitHub é público e ele só esconde o segredo inteiro. Um erro do pg_dump pode repetir
+          # pedaços da senha (ex.: senha com % ou @ sem codificar). Por isso: (1) o usuário e a senha são
+          # escondidos (::add-mask::) inteiros e em pedaços, e (2) o erro do pg_dump vai para um arquivo que
+          # nunca é mostrado; no registro sai só uma mensagem fixa.
+          mascarar() {
+            local valor="$1"
+            [ "${#valor}" -ge 3 ] || return 0
+            valor="${valor//'%'/%25}"
+            valor="${valor//$'\r'/%0D}"
+            valor="${valor//$'\n'/%0A}"
+            echo "::add-mask::$valor"
+          }
+          credenciais="${SUPABASE_DB_URL#*://}"
+          case "$credenciais" in
+            *@*) credenciais="${credenciais%@*}" ;;
+            *) credenciais="" ;;
+          esac
+          if [ -n "$credenciais" ]; then
+            mascarar "$credenciais"
+            senha="${credenciais#*:}"
+            mascarar "$senha"
+            if decodificada="$(printf '%b' "${senha//'%'/\\x}" 2> /dev/null)" && [ "$decodificada" != "$senha" ]; then mascarar "$decodificada"; fi
+            IFS='@:/%' read -r -a pedacos <<< "$credenciais"
+            for pedaco in "${pedacos[@]}"; do mascarar "$pedaco"; done
+          fi
+          unset credenciais senha decodificada pedacos pedaco
+
           nome="uaiflow-banco-$(date -u +%Y-%m-%d)"
           arquivo="$nome.sql.gz.enc"
+          erros="erros-do-pg_dump.txt"
           # pg_dump do Postgres 17 (copia servidores 15, 16 e 17). A URL entra no container pelo nome da
           # variável (-e), nunca na linha de comando; a senha da cópia vai para o openssl pelo ambiente.
+          set +e
           docker run --rm -e SUPABASE_DB_URL postgres:17 \
-            sh -c 'exec pg_dump --dbname="$SUPABASE_DB_URL" --no-owner --no-privileges --schema=public' \
+            sh -c 'exec pg_dump --dbname="$SUPABASE_DB_URL" --no-owner --no-privileges --schema=public' 2> "$erros" \
             | gzip -9 \
             | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt -pass env:BACKUP_PASSPHRASE -out "$arquivo"
+          estados=("${PIPESTATUS[@]}")
+          set -e
+
+          if [ "${estados[0]}" != "0" ]; then
+            if grep -Eqi 'invalid percent-encoded|invalid integer value|could not translate host name|invalid URI|missing "=" after|invalid connection option' "$erros"; then
+              motivo="O endereço em SUPABASE_DB_URL está mal formado. Se a senha do banco tem caracteres especiais (@ : / % # ? &), copie o DATABASE_URL do Netlify e troque só a porta 6543 por 5432 (docs/AVISOS_E_COPIA.md, Parte 5)."
+            elif grep -Eqi 'password authentication failed|Tenant or user not found|no pg_hba.conf entry' "$erros"; then
+              motivo="O Supabase recusou o usuário ou a senha do SUPABASE_DB_URL. Confira a senha do banco e atualize o segredo."
+            elif grep -Eqi 'timeout|timed out|Connection refused|could not connect|Network is unreachable|server closed the connection' "$erros"; then
+              motivo="O banco não respondeu. Confira se o projeto do Supabase não está pausado e se o endereço é o do Session pooler (porta 5432)."
+            elif grep -Eqi 'server version mismatch' "$erros"; then
+              motivo="O Postgres do Supabase é mais novo que o pg_dump da imagem postgres:17. Troque a imagem no backup.yml por uma versão mais nova."
+            else
+              motivo="O pg_dump não conseguiu copiar o banco. Por segurança o erro original não é mostrado (ele pode conter partes da senha). Confira o SUPABASE_DB_URL."
+            fi
+            rm -f "$erros"
+            echo "::error title=A cópia falhou::$motivo"
+            exit 1
+          fi
+          rm -f "$erros"
+          if [ "${estados[1]}" != "0" ] || [ "${estados[2]}" != "0" ]; then
+            echo "::error title=A cópia falhou::Não consegui compactar ou criptografar a cópia."
+            exit 1
+          fi
+
           # Confere a cópia: abre de novo com a mesma senha e testa o gzip.
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -pass env:BACKUP_PASSPHRASE -in "$arquivo" | gzip -t
           echo "Cópia pronta e conferida: $arquivo ($(du -h "$arquivo" | cut -f1))."
