@@ -16,3 +16,25 @@ describe("cor da nota no detalhe do post", () => {
     assert.match(lastErrorClass("failed"), /text-red-500/);
   });
 });
+
+describe("cor da nota na LISTA de posts (onda final)", () => {
+  test("notas de 'publicando' saem neutras; só a de post com erro sai em vermelho", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { PostList } = await import("@/app/conteudo/conteudo-client");
+    const base = { account_id: "a", account_username: "c", publish_type: "reel_video", caption: "x", media_url: "", cover_url: null, media_items: [], container_id: null, published_media_id: null, permalink: null, published_at: null, created_at: "2026-10-07T12:00:00Z", updated_at: "2026-10-07T12:00:00Z", scheduled_at: "2026-10-07T12:00:00Z" };
+    const posts = [
+      { ...base, id: "p1", title: "Um", status: "publishing", last_error: "A Meta publicou. Buscando o link do post." },
+      { ...base, id: "p2", title: "Dois", status: "publishing", last_error: "Conferindo se a Meta já publicou." },
+      { ...base, id: "p3", title: "Três", status: "failed", last_error: "A Meta recusou o vídeo." },
+    ];
+    const html = renderToStaticMarkup(createElement(PostList, { posts: posts as never, onOpenPost: () => undefined }));
+    const classeDa = (texto: string) => html.match(new RegExp(`<p class="([^"]*)">${texto}</p>`))?.[1] ?? "";
+    for (const nota of ["A Meta publicou. Buscando o link do post.", "Conferindo se a Meta já publicou."]) {
+      assert.ok(classeDa(nota), `nota não encontrada: ${nota}`);
+      assert.doesNotMatch(classeDa(nota), /red/, nota);
+      assert.match(classeDa(nota), /ms-muted/, nota);
+    }
+    assert.match(classeDa("A Meta recusou o vídeo."), /text-red-500/);
+  });
+});

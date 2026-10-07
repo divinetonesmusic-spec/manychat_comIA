@@ -351,7 +351,7 @@ function PostChip({ post, onClick }: { post: ContentPost; onClick: () => void })
 
 /* ---------------- Lista ---------------- */
 
-function PostList({ posts, onOpenPost }: { posts: ContentPost[]; onOpenPost: (post: ContentPost) => void }) {
+export function PostList({ posts, onOpenPost }: { posts: ContentPost[]; onOpenPost: (post: ContentPost) => void }) {
   if (!posts.length) return <p className="p-10 text-center text-sm text-[var(--ms-muted)]">Nenhum post ainda. Clique em Novo post ou mande um Reel pronto do Molde.</p>;
   return (
     <div className="grid divide-y divide-[var(--ms-border)]">
@@ -366,7 +366,7 @@ function PostList({ posts, onOpenPost }: { posts: ContentPost[]; onOpenPost: (po
               {post.source === "molde" ? <span className="status-pill"><Sparkles size={12} /> Molde</span> : null}
             </div>
             <p className="mt-2 truncate text-sm font-semibold">{post.title || post.caption || "Sem legenda"}</p>
-            {post.last_error && post.status !== "published" ? <p className="mt-1 truncate text-xs text-red-500">{post.last_error}</p> : null}
+            {post.last_error && post.status !== "published" ? <p className={`mt-1 truncate text-xs ${lastErrorClass(post.status)}`}>{post.last_error}</p> : null}
           </div>
           {post.status === "published" ? <InsightsInline insights={post.insights} /> : null}
         </button>
@@ -654,7 +654,7 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
           {post.first_comment ? <span className="status-pill"><MessageCircle size={12} /> 1º comentário {post.first_comment_id ? "feito" : "pendente"}</span> : null}
         </div>
         {notice ? <p className={noticeClass(notice.tone)}>{notice.text}</p> : null}
-        {post.last_error ? <p className={lastErrorClass(post.status)}>{post.last_error}</p> : null}
+        {post.last_error ? <p className={`text-sm ${lastErrorClass(post.status)}`}>{post.last_error}</p> : null}
         {post.status === "published" ? <InsightsGrid insights={post.insights} at={post.insights_at} /> : null}
         {error ? <p className="status-pill w-fit text-red-500"><AlertCircle size={14} /> {error}</p> : null}
         <div className="flex flex-wrap gap-2">
@@ -920,9 +920,9 @@ function chipTone(status: ContentPost["status"]) {
   return "border-dashed border-[var(--ms-border-strong)] bg-transparent text-[var(--ms-muted)]";
 }
 
-/** Nota do post: neutra enquanto publica e depois de publicado (ex.: "Publicado; não consegui buscar o link"); vermelha só para erro. */
+/** Cor da nota do post (lista e detalhe): neutra enquanto publica e depois de publicado (ex.: "Publicado; não consegui buscar o link"); vermelha só para erro. */
 export function lastErrorClass(status: ContentPost["status"]) {
-  return status === "publishing" || status === "published" ? "text-sm text-[var(--ms-muted)]" : "text-sm text-red-500";
+  return status === "publishing" || status === "published" ? "text-[var(--ms-muted)]" : "text-red-500";
 }
 
 function statusClass(status: ContentPost["status"]) {
