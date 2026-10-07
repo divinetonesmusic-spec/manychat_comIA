@@ -16,7 +16,7 @@ export default function LandingPage() {
           <nav className="hidden items-center gap-6 text-sm font-semibold text-[var(--ms-muted)] md:flex">
             <a className="hover:text-[var(--ms-foreground)]" href="#recursos">Recursos</a>
             <a className="hover:text-[var(--ms-foreground)]" href="#como-funciona">Como funciona</a>
-            <a className="hover:text-[var(--ms-foreground)]" href="#precos">Precos</a>
+            <a className="hover:text-[var(--ms-foreground)]" href="#precos">Preços</a>
           </nav>
           <div className="flex items-center gap-2">
             <Link className="btn-secondary hidden sm:inline-flex" href="/login">Entrar</Link>
@@ -36,15 +36,15 @@ export default function LandingPage() {
           <div className="max-w-3xl text-white">
             <div className="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-300/15 px-3 py-1 text-xs font-bold text-emerald-100">
               <Sparkles size={14} />
-              Automacao de Instagram em PT-BR
+              Automação de Instagram em português
             </div>
             <h1 className="mt-6 text-4xl font-black leading-tight tracking-normal sm:text-5xl lg:text-6xl">UaiFlow</h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-white/78">
-              Crie fluxos que respondem comentarios, enviam DMs, entregam links e organizam contatos sem depender de ferramentas confusas ou idioma misturado.
+              Crie automações que respondem comentários, mandam mensagens no direct, entregam links e organizam seus contatos, sem ferramentas confusas e tudo em português.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link className="btn-primary h-12 px-5" href="/cadastro">
-                Comecar gratis
+                Começar grátis
                 <ArrowRight size={17} />
               </Link>
               <Link className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/10 px-5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/16" href="/login">
@@ -53,7 +53,7 @@ export default function LandingPage() {
               </Link>
             </div>
             <div className="mt-8 grid gap-3 text-sm text-white/78 sm:grid-cols-3">
-              <TrustItem label="Seguro para Meta" />
+              <TrustItem label="Dentro das regras do Instagram" />
               <TrustItem label="Supabase + Vercel" />
               <TrustItem label="Tema claro/escuro" />
             </div>
@@ -64,56 +64,56 @@ export default function LandingPage() {
 
       <section className="mx-auto -mt-10 grid max-w-7xl gap-4 px-4 pb-12 sm:px-6 lg:grid-cols-3 lg:px-8">
         <div className="panel p-5">
-          <p className="text-sm text-[var(--ms-muted)]">Eventos hoje</p>
+          <p className="text-sm text-[var(--ms-muted)]">Comentários e mensagens hoje</p>
           <p className="mt-2 text-2xl font-bold">124</p>
         </div>
         <div className="panel p-5">
-          <p className="text-sm text-[var(--ms-muted)]">Fluxo ativo</p>
+          <p className="text-sm text-[var(--ms-muted)]">Automação ativa</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <FlowPill tone="emerald" label="Comentario" />
-            <FlowPill tone="blue" label="DM" />
-            <FlowPill tone="violet" label="Botao" />
+            <FlowPill tone="emerald" label="Comentário" />
+            <FlowPill tone="blue" label="Mensagem" />
+            <FlowPill tone="violet" label="Botão" />
           </div>
         </div>
         <div className="panel p-5">
-          <p className="text-sm text-[var(--ms-muted)]">Fila</p>
-          <p className="mt-2 text-2xl font-bold">limpa</p>
+          <p className="text-sm text-[var(--ms-muted)]">Mensagens esperando para sair</p>
+          <p className="mt-2 text-2xl font-bold">nenhuma</p>
         </div>
       </section>
 
       <section className="border-y border-[var(--ms-border)] bg-[var(--ms-surface)]" id="recursos">
         <div className="mx-auto grid max-w-7xl gap-4 px-4 py-12 sm:px-6 lg:grid-cols-3 lg:px-8">
-          <FeatureCard icon={<MessageCircle size={22} />} title="Comentarios viram conversa" text="Dispare uma resposta privada quando alguem comentar uma palavra-chave em post ou reel." />
-          <FeatureCard icon={<Workflow size={22} />} title="Fluxos claros" text="Organize gatilhos, mensagens, botoes, links e lembretes dentro de uma interface visual." />
-          <FeatureCard icon={<ShieldCheck size={22} />} title="Dentro das regras" text="A automacao respeita webhook, assinatura, fila e janela de atendimento da Meta." />
+          <FeatureCard icon={<MessageCircle size={22} />} title="Comentários viram conversa" text="Mande uma resposta privada quando alguém comentar uma palavra-chave em um post ou Reel." />
+          <FeatureCard icon={<Workflow size={22} />} title="Tudo claro" text="Organize mensagens, botões, links e lembretes em uma tela visual." />
+          <FeatureCard icon={<ShieldCheck size={22} />} title="Dentro das regras" text="A automação respeita as regras do Instagram: só responde a quem falou com você e dentro do prazo permitido." />
         </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8" id="como-funciona">
         <div className="mb-8 max-w-2xl">
           <p className="eyebrow">Como funciona</p>
-          <h2 className="mt-2 text-3xl font-bold">Do comentario ao link em poucos passos</h2>
+          <h2 className="mt-2 text-3xl font-bold">Do comentário ao link em poucos passos</h2>
         </div>
         <div className="grid gap-4 md:grid-cols-4">
           <Step number="1" title="Conecte" text="Autorize sua conta profissional do Instagram." />
-          <Step number="2" title="Escolha" text="Selecione posts, reels e palavras-chave." />
-          <Step number="3" title="Responda" text="Configure DM, botao e link de entrega." />
-          <Step number="4" title="Acompanhe" text="Veja eventos, contatos e fila em tempo real." />
+          <Step number="2" title="Escolha" text="Escolha posts, Reels e palavras-chave." />
+          <Step number="3" title="Responda" text="Monte a mensagem, o botão e o link de entrega." />
+          <Step number="4" title="Acompanhe" text="Veja comentários, mensagens e contatos em tempo real." />
         </div>
       </section>
 
       <section className="bg-[var(--ms-surface)]" id="precos">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-14 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
           <div>
-            <p className="eyebrow">Precos</p>
+            <p className="eyebrow">Preços</p>
             <h2 className="mt-2 text-3xl font-bold">Comece simples, evolua depois</h2>
             <p className="mt-4 text-sm leading-6 text-[var(--ms-muted)]">
-              A cobranca real ainda pode ser definida depois. Por enquanto, a pagina prepara a estrutura basica do SaaS.
+              A cobrança real ainda pode ser definida depois. Por enquanto, esta página prepara a estrutura básica do serviço.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <PriceCard title="Inicial" price="R$ 0" items={["1 conta conectada", "Automacoes essenciais", "Painel basico"]} />
-            <PriceCard title="Pro" price="Em breve" highlighted items={["Multiplas contas", "Editor visual", "Caixa de entrada", "Relatorios"]} />
+            <PriceCard title="Início" price="R$ 0" items={["1 conta conectada", "Automações essenciais", "Painel básico"]} />
+            <PriceCard title="Pro" price="Em breve" highlighted items={["Várias contas", "Editor visual", "Caixa de entrada", "Relatórios"]} />
           </div>
         </div>
       </section>
@@ -121,7 +121,7 @@ export default function LandingPage() {
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
         <div className="panel flex flex-col gap-5 p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-2xl font-bold">Pronto para montar seu primeiro fluxo?</h2>
+            <h2 className="text-2xl font-bold">Pronto para montar sua primeira automação?</h2>
             <p className="mt-2 text-sm text-[var(--ms-muted)]">Entre no painel e conecte seu Instagram profissional.</p>
           </div>
           <Link className="btn-primary h-12 px-5" href="/cadastro">
@@ -133,10 +133,10 @@ export default function LandingPage() {
 
       <footer className="border-t border-[var(--ms-border)] bg-[var(--ms-surface)]">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 text-sm text-[var(--ms-muted)] sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
-          <p>(c) 2026 UaiFlow. Todos os direitos reservados.</p>
+          <p>© 2026 UaiFlow. Todos os direitos reservados.</p>
           <div className="flex gap-4">
             <Link href="/privacy-policy">Privacidade</Link>
-            <Link href="/data-deletion">Exclusao de dados</Link>
+            <Link href="/data-deletion">Exclusão de dados</Link>
             <Link href="/login">Entrar</Link>
           </div>
         </div>

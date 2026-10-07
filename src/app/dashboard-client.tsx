@@ -430,7 +430,7 @@ export function DashboardClient({
             <p className="eyebrow">Modelos de automação</p>
             <h2 className="mt-2 text-xl font-semibold">Comece por um fluxo pronto</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ms-muted)]">
-              Escolha um modelo para preencher o editor. Os modelos marcados como "Em breve" ainda não funcionam.
+              Escolha um modelo para preencher o editor. Os modelos marcados como &ldquo;Em breve&rdquo; ainda não funcionam.
             </p>
           </div>
           <span className="status-pill">{automationTemplates.filter((template) => template.status === "ready").length} prontos</span>

@@ -34,16 +34,16 @@ export function MagicLinkForm({ next = "/dashboard" }: { next?: string }) {
       return;
     }
 
-    setMessage("Link enviado. Verifique sua caixa de entrada.");
+    setMessage("Link enviado. Abra o seu e-mail e toque no link para entrar.");
   }
 
   return (
     <form className="grid gap-4" onSubmit={submit}>
       <label className="field" htmlFor="email">
-        <span>E-mail corporativo</span>
+        <span>Seu e-mail</span>
         <div className="relative">
           <Mail className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ms-muted)]" size={17} />
-          <input className="input pl-10" id="email" name="email" placeholder="exemplo@empresa.com" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <input className="input pl-10" id="email" name="email" placeholder="seu@email.com" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
         </div>
       </label>
 
@@ -52,7 +52,7 @@ export function MagicLinkForm({ next = "/dashboard" }: { next?: string }) {
 
       <button className="btn-primary h-11 w-full" disabled={loading}>
         {loading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-        Enviar link de recuperacao
+        Enviar link de recuperação
       </button>
     </form>
   );

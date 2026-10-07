@@ -38,7 +38,7 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
 
     if (isSignup && password !== confirmPassword) {
       setLoading(null);
-      setError("As senhas nao conferem.");
+      setError("As senhas não conferem.");
       return;
     }
 
@@ -65,14 +65,14 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
       return;
     }
 
-    setMessage("Login confirmado. Abrindo seu painel...");
+    setMessage("Pronto! Abrindo o seu painel...");
     router.push(next);
     router.refresh();
   }
 
   async function sendMagicLink() {
     if (!email) {
-      setError("Informe seu e-mail para receber o link magico.");
+      setError("Informe seu e-mail para receber o link de entrada.");
       return;
     }
 
@@ -95,13 +95,13 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
       return;
     }
 
-    setMessage("Link magico enviado. Verifique sua caixa de entrada.");
+    setMessage("Link enviado. Abra o seu e-mail e toque no link para entrar.");
   }
 
   async function signInWithGoogle() {
     setLoading("google");
     setError(null);
-    setMessage("Abrindo autenticacao do Google...");
+    setMessage("Abrindo o Google...");
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -120,7 +120,7 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
         <CardHeader className="text-center">
           <CardTitle className="text-xl">{isSignup ? "Criar sua conta" : "Bem-vindo de volta"}</CardTitle>
           <CardDescription>
-            {isSignup ? "Use Google ou e-mail para comecar" : "Entre com Google, link magico ou e-mail"}
+            {isSignup ? "Use o Google ou o seu e-mail para começar" : "Entre com o Google ou com o seu e-mail"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -133,7 +133,7 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
                 </Button>
                 <Button className="w-full" variant="outline" type="button" onClick={sendMagicLink} disabled={Boolean(loading)}>
                   {loading === "magic" ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                  {loading === "magic" ? "Enviando link..." : "Enviar link magico"}
+                  {loading === "magic" ? "Enviando link..." : "Receber link de entrada por e-mail"}
                 </Button>
               </Field>
 
@@ -148,7 +148,7 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
 
               <Field>
                 <FieldLabel htmlFor="email">E-mail</FieldLabel>
-                <Input id="email" type="email" placeholder="voce@empresa.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
+                <Input id="email" type="email" placeholder="seu@email.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
               </Field>
 
               {isSignup ? (
@@ -163,7 +163,7 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
                       <Input id="confirm-password" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
                     </Field>
                   </div>
-                  <FieldDescription>Minimo de 6 caracteres.</FieldDescription>
+                  <FieldDescription>Mínimo de 6 caracteres.</FieldDescription>
                 </Field>
               ) : (
                 <Field>
@@ -187,7 +187,7 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
                 </Button>
                 {isSignup ? (
                   <FieldDescription className="text-center">
-                    Ja tem uma conta? <Link href="/login">Entrar agora</Link>
+                    Já tem uma conta? <Link href="/login">Entrar agora</Link>
                   </FieldDescription>
                 ) : null}
               </Field>
@@ -196,7 +196,7 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
         </CardContent>
       </Card>
       <FieldDescription className="px-6 text-center">
-        Ao continuar, voce concorda com nossos <Link href="/privacy-policy">termos</Link> e <Link href="/privacy-policy">politica de privacidade</Link>.
+        Ao continuar, você concorda com nossos <Link href="/privacy-policy">termos</Link> e com a <Link href="/privacy-policy">política de privacidade</Link>.
       </FieldDescription>
     </div>
   );

@@ -19,7 +19,7 @@ export default function RecuperarSenhaPage() {
         <div className="panel p-6 sm:p-8">
           <p className="eyebrow">Recuperação</p>
           <h1 className="mt-2 text-3xl font-bold tracking-normal">Esqueceu a senha?</h1>
-          <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">Informe seu e-mail para receber um link mágico de acesso pelo Supabase.</p>
+          <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">Informe seu e-mail para receber um link de entrada.</p>
 
           <div className="mt-6">
             <MagicLinkForm next="/dashboard" />
