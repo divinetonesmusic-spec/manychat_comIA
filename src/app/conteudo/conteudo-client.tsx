@@ -654,7 +654,7 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
           {post.first_comment ? <span className="status-pill"><MessageCircle size={12} /> 1º comentário {post.first_comment_id ? "feito" : "pendente"}</span> : null}
         </div>
         {notice ? <p className={noticeClass(notice.tone)}>{notice.text}</p> : null}
-        {post.last_error ? <p className={post.status === "publishing" ? "text-sm text-[var(--ms-muted)]" : "text-sm text-red-500"}>{post.last_error}</p> : null}
+        {post.last_error ? <p className={lastErrorClass(post.status)}>{post.last_error}</p> : null}
         {post.status === "published" ? <InsightsGrid insights={post.insights} at={post.insights_at} /> : null}
         {error ? <p className="status-pill w-fit text-red-500"><AlertCircle size={14} /> {error}</p> : null}
         <div className="flex flex-wrap gap-2">
@@ -918,6 +918,11 @@ function chipTone(status: ContentPost["status"]) {
   if (status === "failed") return "border-red-300/60 bg-red-50 text-red-700 dark:border-red-800/50 dark:bg-red-950/40 dark:text-red-200";
   if (status === "scheduled") return "border-[var(--ms-primary-soft)] bg-[var(--ms-surface-soft)] text-[var(--ms-primary)]";
   return "border-dashed border-[var(--ms-border-strong)] bg-transparent text-[var(--ms-muted)]";
+}
+
+/** Nota do post: neutra enquanto publica e depois de publicado (ex.: "Publicado; não consegui buscar o link"); vermelha só para erro. */
+export function lastErrorClass(status: ContentPost["status"]) {
+  return status === "publishing" || status === "published" ? "text-sm text-[var(--ms-muted)]" : "text-sm text-red-500";
 }
 
 function statusClass(status: ContentPost["status"]) {
