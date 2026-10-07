@@ -48,6 +48,12 @@ if (!r2Set.length) warnings.push("R2 nao configurado: o planner aceita so links 
 if (process.env.MOLDE_API_TOKEN && process.env.MOLDE_API_TOKEN.length < 24) warnings.push("MOLDE_API_TOKEN deve ter pelo menos 24 caracteres.");
 if (!process.env.MOLDE_API_TOKEN) warnings.push("MOLDE_API_TOKEN vazio: o Molde do Avatar nao consegue mandar posts para o planner.");
 
+// Avisos pelo Telegram (opcional): as duas variáveis juntas, ou nenhuma.
+const telegramKeys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
+const telegramSet = telegramKeys.filter((key) => process.env[key]);
+if (telegramSet.length === 1) warnings.push(`Telegram incompleto (falta ${telegramKeys.filter((key) => !process.env[key]).join(", ")}). Sem as duas variáveis, nenhum aviso é enviado.`);
+if (!telegramSet.length) warnings.push("Telegram não configurado: o UaiFlow não manda avisos no celular (opcional; veja docs/AVISOS_E_COPIA.md).");
+
 if (process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length < 12) warnings.push("ADMIN_PASSWORD deve ter pelo menos 12 caracteres.");
 
 console.log(loaded ? "Arquivo .env.local carregado." : ".env.local nao encontrado; usando variaveis do processo.");

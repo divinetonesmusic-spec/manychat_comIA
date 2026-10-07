@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { Camera, CheckCircle2, ExternalLink, KeyRound, Link2, RefreshCcw, ShieldCheck } from "lucide-react";
+import { BellRing, Camera, CheckCircle2, ExternalLink, KeyRound, Link2, RefreshCcw, ShieldCheck } from "lucide-react";
 import { AppFrame, PageHeader, formatDate, getTokenStatus } from "../app-frame";
 import { PendingLink } from "../pending-link";
+import { NotifyTestButton } from "./notify-test-button";
 import { getAppBaseUrl } from "@/lib/env";
 import { getConfig } from "@/lib/db/repositories";
+import { isTelegramConfigured } from "@/lib/notify";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,7 @@ export default async function ConfiguracoesPage() {
   const appBaseUrl = getAppBaseUrl();
   const connected = Boolean(config.instagram_user_id);
   const metaAppConfigured = Boolean(process.env.INSTAGRAM_APP_ID && process.env.INSTAGRAM_APP_SECRET);
+  const telegramConfigured = isTelegramConfigured();
   const metaDeveloperUrl = process.env.INSTAGRAM_APP_ID
     ? `https://developers.facebook.com/apps/${process.env.INSTAGRAM_APP_ID}/dashboard/`
     : "https://developers.facebook.com/apps/";
@@ -75,6 +78,23 @@ export default async function ConfiguracoesPage() {
                 Abrir Meta
               </Link>
             </div>
+          </div>
+
+          <div className="panel p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">Telegram</p>
+                <h2 className="mt-2 text-xl font-semibold">Avisos no celular</h2>
+              </div>
+              <BellRing size={20} className="text-[var(--ms-primary)]" />
+            </div>
+            <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">
+              O UaiFlow avisa no Telegram quando um post não sai e quando a conexão do Instagram está para vencer.
+            </p>
+            <p className={telegramConfigured ? "status-pill status-pill-green mt-3 w-fit" : "status-pill mt-3 w-fit"}>
+              {telegramConfigured ? "Telegram configurado" : "Telegram ainda não configurado"}
+            </p>
+            <NotifyTestButton />
           </div>
 
           <div className="panel p-5 sm:p-6">
