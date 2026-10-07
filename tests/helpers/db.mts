@@ -83,8 +83,12 @@ export async function createTestDatabase(options: { ate?: string } = {}): Promis
     name,
     sql: async (text, params = []) => (await pool.query(text, params)).rows,
     close: async () => {
+      pool.on("error", () => undefined);
       await pool.end();
       const appPool = (globalThis as { postgresPool?: pg.Pool }).postgresPool;
+      // O pool do app encerra as conexões ociosas sem esperar; o "drop ... with (force)" logo abaixo pode alcançar uma
+      // delas antes e gerar um erro solto ("terminating connection"). Aqui esse erro é esperado.
+      appPool?.on("error", () => undefined);
       await appPool?.end().catch(() => undefined);
       const cleaner = new pg.Client({ connectionString: withSslDefault(TEST_DATABASE_URL) });
       await cleaner.connect();

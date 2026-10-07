@@ -1319,9 +1319,7 @@ export async function sentDmCountLastHour(accountId?: string | null) {
   return Number(rows[0]?.count ?? 0);
 }
 
-export async function listContacts(limit = 50, accountId?: string | null): Promise<ContactSummary[]> {
-  const { rows } = await query<ContactSummary>(
-    `select c.id, c.account_id, ia.instagram_username as account_username,
+const CONTACT_SUMMARY_COLUMNS = `c.id, c.account_id, ia.instagram_username as account_username,
             c.instagram_user_id, c.instagram_username, c.instagram_name,
             c.instagram_profile_picture_url, c.tags, c.instagram_follower_count,
             c.is_user_follow_business, c.is_business_follow_user, c.follower_checked_at,
@@ -1333,18 +1331,31 @@ export async function listContacts(limit = 50, accountId?: string | null): Promi
             coalesce(q.pending_count, 0)::int as pending_count,
             coalesce(q.failed_count, 0)::int as failed_count,
             ev.last_event_at, ev.last_event_type, ev.last_event_text,
-            q.last_queue_at, q.last_queue_status, q.last_queue_error
-     from public.contacts c
-     left join public.instagram_accounts ia on ia.id = c.account_id
+            q.last_queue_at, q.last_queue_status, q.last_queue_error`;
+
+/**
+ * Junta o perfil, a automação, os eventos e a fila de cada contato de `cand` (que precisa ter o alias "c").
+ * Nos eventos, `account_id = c.account_id` (e não "is not distinct from") para o Postgres usar o índice da 0005;
+ * o 2º trecho do union cobre o contato sem perfil (conta nula), como antes.
+ */
+const CONTACT_SUMMARY_JOINS = `left join public.instagram_accounts ia on ia.id = c.account_id
      left join public.automations a on a.id = c.last_automation_id
      left join lateral (
        select count(*) as event_count,
               max(e.received_at) as last_event_at,
               (array_agg(e.event_type order by e.received_at desc))[1] as last_event_type,
               (array_agg(coalesce(e.payload #>> '{change,value,text}', e.payload #>> '{event,message,text}', e.payload #>> '{event,postback,title}') order by e.received_at desc))[1] as last_event_text
-       from public.events e
-       where e.account_id is not distinct from c.account_id
-         and e.instagram_user_id = c.instagram_user_id
+       from (
+         select e.event_type, e.received_at, e.payload
+         from public.events e
+         where e.account_id = c.account_id
+           and e.instagram_user_id = c.instagram_user_id
+         union all
+         select e.event_type, e.received_at, e.payload
+         from public.events e
+         where c.account_id is null and e.account_id is null
+           and e.instagram_user_id = c.instagram_user_id
+       ) e
      ) ev on true
      left join lateral (
        select count(*) filter (where q.status = 'sent') as sent_count,
@@ -1356,14 +1367,53 @@ export async function listContacts(limit = 50, accountId?: string | null): Promi
        from public.queue q
        where q.account_id is not distinct from c.account_id
          and q.contact_id = c.id
-     ) q on true
-     where ($2::uuid is null or c.account_id = $2)
+     ) q on true`;
+
+/**
+ * Contatos mais recentes primeiro, com contagens de eventos e fila.
+ * Primeiro escolhe os candidatos pelos contatos que mudaram há pouco (`updated_at` sobe a cada evento: o webhook
+ * chama `upsertContact`, e o gatilho `set_contacts_updated_at` roda no "on conflict do update"); só depois junta
+ * eventos e fila, só para eles. A ordem final é a de sempre. Os candidatos são o dobro do pedido (máximo 500),
+ * de reserva para quem tem atividade recente só na fila.
+ */
+export async function listContacts(limit = 50, accountId?: string | null): Promise<ContactSummary[]> {
+  const candidates = Math.min(Math.max(limit * 2, limit + 50), 500);
+  const { rows } = await query<ContactSummary>(
+    `with cand as (
+       select c.* from public.contacts c
+       where ($2::uuid is null or c.account_id = $2)
+       order by c.updated_at desc
+       limit $3
+     )
+     select ${CONTACT_SUMMARY_COLUMNS}
+     from cand c
+     ${CONTACT_SUMMARY_JOINS}
      order by greatest(coalesce(ev.last_event_at, c.first_contact_at), coalesce(q.last_queue_at, c.first_contact_at), c.updated_at) desc
      limit $1`,
-    [limit, accountId ?? null],
+    [limit, accountId ?? null, candidates],
   );
 
   return rows;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** O mesmo resumo de `listContacts`, para um contato só (não importa se ele está entre os mais recentes). */
+export async function getContactSummary(contactId: string, accountId?: string | null): Promise<ContactSummary | null> {
+  if (!UUID_PATTERN.test(contactId)) return null;
+
+  const { rows } = await query<ContactSummary>(
+    `with cand as (
+       select c.* from public.contacts c
+       where c.id = $1 and ($2::uuid is null or c.account_id = $2)
+     )
+     select ${CONTACT_SUMMARY_COLUMNS}
+     from cand c
+     ${CONTACT_SUMMARY_JOINS}`,
+    [contactId, accountId ?? null],
+  );
+
+  return rows[0] ?? null;
 }
 
 
@@ -1392,8 +1442,7 @@ export async function removeContactTag(contactId: string, tag: string) {
 export async function getInboxConversation(contactId: string | null | undefined, accountId?: string | null): Promise<{ contact: ContactSummary | null; messages: InboxConversationMessage[] }> {
   if (!contactId) return { contact: null, messages: [] };
 
-  const contacts = await listContacts(250, accountId);
-  const contact = contacts.find((item) => item.id === contactId) ?? null;
+  const contact = await getContactSummary(contactId, accountId);
   if (!contact) return { contact: null, messages: [] };
 
   const [events, jobs] = await Promise.all([
