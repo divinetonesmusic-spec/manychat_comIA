@@ -85,7 +85,7 @@ async function ensureNotPublishedYet(post: ContentPost): Promise<ContentPost | n
   const check = await confirmEarlierPublish(post);
   if (check.state === "published") return check.post;
   if (check.state === "unknown") {
-    throw new ContentError(`Não consegui conferir no Instagram se este post já saiu, então não publiquei de novo. Tente daqui a alguns minutos. (${check.error})`, 409);
+    throw new ContentError("Não consegui conferir no Instagram se este post já saiu, então não publiquei de novo. Tente de novo em alguns minutos.", 409);
   }
   return null;
 }

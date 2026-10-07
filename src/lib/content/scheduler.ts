@@ -57,6 +57,13 @@ export const PUBLISH_NOW_NOTICE = "Vai ao ar em até 2 minutos.";
 export const PUBLISHED_WITHOUT_LINK_NOTE = "Publicado; não consegui buscar o link";
 
 /**
+ * Depois de um pedido de publicação (media_publish), quanto tempo esperar antes de pedir de novo ou de desistir
+ * de achar o post no feed. Um pedido cortado no meio solta a trava na hora e, com a tela Conteúdo aberta, o ciclo
+ * leve roda a cada 20 s: nesse intervalo a Meta pode ter recebido o pedido e ainda não mostrar o post.
+ */
+export const PUBLISH_RECHECK_MS = 3 * 60_000;
+
+/**
  * "Publicar agora": marca o post para sair já e, se couber no tempo, cria o container na Meta (passo rápido).
  * NUNCA chama o media_publish aqui: quem publica é o relógio (/api/queue/drain, a cada ~2 min).
  * Assim a resposta volta rápido e um corte do Netlify (10 s) não deixa o post sair em dobro.
@@ -274,8 +281,20 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
   }
 
   // PUBLISHED: a Meta já publicou (a função anterior foi cortada antes de gravar). É sucesso, nunca publicar de novo.
+  // PUBLISHED é final: se o feed não responder, espera o próximo relógio para pegar o id (1º comentário,
+  // automação e resultados dependem dele). Só desiste do link depois de 2 h.
   if (status.status_code === "PUBLISHED") {
-    const media = await findPublishedMedia(post, config).catch(() => null);
+    let media: FeedMedia | null;
+    try {
+      media = await findPublishedMedia(post, config);
+    } catch (error) {
+      if (!tooOld) throw error;
+      media = null;
+    }
+    if (!media && !tooOld && publishRequestedRecently(post)) {
+      await touchContentPost(post.id, "A Meta publicou. Buscando o link do post.");
+      return "waiting"; // o feed pode demorar alguns minutos para mostrar o post
+    }
     await finishPublished(post, config, media, { locked: true });
     return "published";
   }
@@ -292,6 +311,11 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     if (media) {
       await finishPublished(post, config, media, { locked: true });
       return "published";
+    }
+    // Pedido recente e nada no feed ainda: a Meta pode ter recebido. Não pede de novo antes de PUBLISH_RECHECK_MS.
+    if (!tooOld && publishRequestedRecently(post)) {
+      await touchContentPost(post.id, "Conferindo se a Meta já publicou.");
+      return "waiting";
     }
   }
 
@@ -346,6 +370,11 @@ async function finishPublished(post: ContentPost, config: Config, media: FeedMed
   return (await getContentPost(post.id)) ?? updated;
 }
 
+function publishRequestedRecently(post: ContentPost) {
+  if (!post.publish_requested_at) return false;
+  return Date.now() - new Date(post.publish_requested_at).getTime() < PUBLISH_RECHECK_MS;
+}
+
 /** Procura no feed do perfil o post que já saiu (mesma legenda, depois do pedido). Erro da Meta sobe para quem chamou. */
 async function findPublishedMedia(post: ContentPost, config: Config): Promise<FeedMedia | null> {
   const feed = await listRecentInstagramMedia(config.instagram_user_id as string, config.instagram_access_token as string, 10);
@@ -356,7 +385,8 @@ async function findPublishedMedia(post: ContentPost, config: Config): Promise<Fe
 export type EarlierPublishCheck =
   | { state: "published"; post: ContentPost }
   | { state: "not_published" }
-  | { state: "unknown"; error: string };
+  /** Não deu para conferir agora (Instagram desconectado, feed fora do ar ou pedido recente): não mexer no post. */
+  | { state: "unknown" };
 
 /**
  * Antes de "Tentar de novo", reagendar ou reenviar um post que já foi mandado para a Meta:
@@ -365,7 +395,7 @@ export type EarlierPublishCheck =
 export async function confirmEarlierPublish(post: ContentPost): Promise<EarlierPublishCheck> {
   if (!post.published_media_id && !post.publish_requested_at && !post.container_id) return { state: "not_published" };
   const config = await getConfig(post.account_id);
-  if (!config.instagram_user_id || !config.instagram_access_token) return { state: "unknown", error: "Instagram nao conectado para este perfil." };
+  if (!config.instagram_user_id || !config.instagram_access_token) return { state: "unknown" };
 
   if (post.published_media_id) {
     const published = await finishPublished(post, config, { id: post.published_media_id, permalink: post.permalink }, { locked: false });
@@ -386,10 +416,13 @@ export async function confirmEarlierPublish(post: ContentPost): Promise<EarlierP
   if (containerStatus === "PUBLISHED" || post.publish_requested_at || containerUnknown) {
     try {
       media = await findPublishedMedia(post, config);
-    } catch (error) {
-      if (containerStatus !== "PUBLISHED") return { state: "unknown", error: translateError(error) };
+    } catch {
+      // Sem o feed: nem publicar de novo, nem marcar publicado sem id (perderia 1º comentário e automação).
+      return { state: "unknown" };
     }
   }
+  // Pedido recente e o post ainda fora do feed: pode só estar atrasado. Melhor tentar daqui a alguns minutos.
+  if (!media && publishRequestedRecently(post)) return { state: "unknown" };
 
   if (containerStatus === "PUBLISHED" || media) {
     const published = await finishPublished(post, config, media, { locked: false });

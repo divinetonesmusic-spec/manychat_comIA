@@ -12,6 +12,7 @@ import { insertPost, LEGENDA, readPost, seedAccount } from "./helpers/seed.mjs";
  */
 const meta = installFakeMeta();
 const MOLDE = { "x-molde-token": process.env.MOLDE_API_TOKEN as string };
+const AVISO_SEM_CONFERIR = "Não consegui conferir no Instagram se este post já saiu, então não publiquei de novo. Tente de novo em alguns minutos.";
 
 describe("publicação segura (U-PUB-01, com a migração 0003)", { skip: semBanco }, () => {
   let db: TestDatabase;
@@ -156,15 +157,75 @@ describe("publicação segura (U-PUB-01, com a migração 0003)", { skip: semBan
     assert.equal(post.published_media_id, "media-lento");
   });
 
-  test("pedido registrado, container FINISHED e nada no feed: só então pede de novo (1 vez)", async () => {
-    const requestedAt = new Date(Date.now() - 2 * 60_000);
-    const id = await insertPost(db, accountId, { status: "publishing", container_id: "container-refazer", publishing_started_at: requestedAt, publish_requested_at: requestedAt });
+  test("pedido registrado, container FINISHED e nada no feed: espera 3 min (a Meta pode ter recebido) e só então pede de novo (1 vez)", async () => {
+    // Rodada 1, achado 2: um media_publish cortado solta a trava na hora; com a tela Conteúdo aberta, o ciclo
+    // leve roda a cada 20 s. Antes de 3 min do pedido, nunca pede de novo.
+    const requestedAt = new Date(Date.now() - 30_000);
+    const id = await insertPost(db, accountId, { status: "publishing", container_id: "container-refazer", publishing_started_at: new Date(Date.now() - 5 * 60_000), publish_requested_at: requestedAt });
 
+    await scheduler.runContentCycle(8000);
+    await scheduler.runContentCycle(3500, { light: true });
+    assert.equal(meta.count("/media_publish"), 0, "pedido há 30 s: não pede de novo");
+    assert.equal((await readPost(db, id)).status, "publishing");
+
+    await db.sql("update public.content_posts set publish_requested_at = now() - interval '4 minutes' where id = $1", [id]);
     await scheduler.runContentCycle(8000);
     await scheduler.runContentCycle(8000);
     const post = await readPost(db, id);
-    assert.equal(meta.count("/media_publish"), 1);
+    assert.equal(meta.count("/media_publish"), 1, "pedido há 4 min e nada no feed: pede de novo 1 vez");
     assert.equal(post.status, "published");
+  });
+
+  test("container PUBLISHED com o feed fora do ar: continua 'publicando' sem publicar de novo; quando o feed volta, publicado com id, 1º comentário e automação", async () => {
+    // Rodada 1, achado 1: antes virava publicado sem id e perdia 1º comentário, automação e resultados.
+    const id = await insertPost(db, accountId, { status: "publishing", container_id: "container-feed-caiu", publishing_started_at: new Date(Date.now() - 5 * 60_000) });
+    meta.containerStatus.set("container-feed-caiu", "PUBLISHED");
+    meta.feed.push({ id: "media-feed-caiu", caption: LEGENDA, timestamp: metaTimestamp(new Date(Date.now() - 60_000)), permalink: "https://www.instagram.com/reel/feed-caiu/" });
+    meta.feedFails = true;
+
+    await scheduler.runContentCycle(8000);
+    await scheduler.runContentCycle(8000);
+    let post = await readPost(db, id);
+    assert.equal(post.status, "publishing");
+    assert.equal(post.published_media_id, null);
+    assert.equal(meta.count("/media_publish"), 0);
+
+    meta.feedFails = false;
+    await scheduler.runContentCycle(8000);
+    post = await readPost(db, id);
+    assert.equal(post.status, "published");
+    assert.equal(post.published_media_id, "media-feed-caiu");
+    assert.ok(post.first_comment_id, "1º comentário feito");
+    assert.ok(post.automation_id, "automação ligada");
+    assert.equal(post.last_error, null);
+    assert.equal(meta.count("/media_publish"), 0);
+  });
+
+  test("container PUBLISHED com pedido recente e o post ainda fora do feed: espera alguns minutos antes de desistir do link", async () => {
+    const id = await insertPost(db, accountId, { status: "publishing", container_id: "container-atraso", publishing_started_at: new Date(Date.now() - 5 * 60_000), publish_requested_at: new Date(Date.now() - 60_000) });
+    meta.containerStatus.set("container-atraso", "PUBLISHED");
+
+    await scheduler.runContentCycle(8000);
+    assert.equal((await readPost(db, id)).status, "publishing", "pedido há 1 min: o feed pode estar atrasado");
+
+    await db.sql("update public.content_posts set publish_requested_at = now() - interval '4 minutes' where id = $1", [id]);
+    await scheduler.runContentCycle(8000);
+    const post = await readPost(db, id);
+    assert.equal(post.status, "published");
+    assert.equal(post.last_error, "Publicado; não consegui buscar o link");
+    assert.equal(meta.count("/media_publish"), 0);
+  });
+
+  test("container PUBLISHED há mais de 2 h com o feed fora do ar: marca publicado sem link (não fica preso)", async () => {
+    const id = await insertPost(db, accountId, { status: "publishing", container_id: "container-velho-sem-feed", publishing_started_at: new Date(Date.now() - 3 * 3600_000) });
+    meta.containerStatus.set("container-velho-sem-feed", "PUBLISHED");
+    meta.feedFails = true;
+
+    await scheduler.runContentCycle(8000);
+    const post = await readPost(db, id);
+    assert.equal(post.status, "published");
+    assert.equal(post.last_error, "Publicado; não consegui buscar o link");
+    assert.equal(meta.count("/media_publish"), 0);
   });
 
   test("pedido registrado e o feed não responde: não arrisca, espera o próximo relógio", async () => {
@@ -230,9 +291,35 @@ describe("publicação segura (U-PUB-01, com a migração 0003)", { skip: semBan
     const response = await contentIdRoute.PATCH(request(`/api/content/${id}`, { method: "PATCH", json: { action: "retry" } }), routeParams({ id }));
     const body = await response.json();
     assert.equal(response.status, 409);
-    assert.match(body.error, /Não consegui conferir no Instagram/);
+    assert.equal(body.error, AVISO_SEM_CONFERIR, "mensagem só em português, sem detalhe técnico entre parênteses");
     assert.equal(meta.count("/media_publish"), 0);
     assert.equal((await readPost(db, id)).status, "failed");
+  });
+
+  test("(b) 'Tentar de novo' com container PUBLISHED e o feed fora do ar: recusa (tente em alguns minutos) em vez de marcar publicado sem id", async () => {
+    // Rodada 1, achado 1 (lado do confirmEarlierPublish).
+    const id = await insertPost(db, accountId, { status: "failed", container_id: "container-w", publishing_started_at: new Date(Date.now() - 3 * 3600_000), last_error: "erro antigo" });
+    meta.containerStatus.set("container-w", "PUBLISHED");
+    meta.feedFails = true;
+
+    const response = await contentIdRoute.PATCH(request(`/api/content/${id}`, { method: "PATCH", json: { action: "retry" } }), routeParams({ id }));
+    const body = await response.json();
+    assert.equal(response.status, 409);
+    assert.equal(body.error, AVISO_SEM_CONFERIR);
+    const post = await readPost(db, id);
+    assert.equal(post.status, "failed");
+    assert.equal(post.published_media_id, null);
+    assert.equal(meta.count("/media_publish"), 0);
+    assert.equal(meta.count("/media", "POST"), 0);
+  });
+
+  test("(b) 'Tentar de novo' sem Instagram conectado e com container antigo: mesma recusa em português", async () => {
+    const id = await insertPost(db, accountId, { status: "failed", container_id: "container-v", publishing_started_at: new Date(Date.now() - 3 * 3600_000) });
+    const contas = await import("@/lib/db/content-planner");
+    const post = await contas.getContentPost(id);
+    await db.sql("update public.instagram_accounts set instagram_access_token = '' where id = $1", [accountId]);
+    const { ContentError, editPost } = await import("@/lib/content/service");
+    await assert.rejects(() => editPost(post!.id, {}, false), (error: unknown) => error instanceof ContentError && error.message === AVISO_SEM_CONFERIR);
   });
 
   test("'Tentar de novo' de um post que de fato não saiu continua funcionando (volta para a fila, sem publicar na requisição)", async () => {
