@@ -43,7 +43,7 @@ async function runDrain(request: NextRequest) {
   }));
 
   const remaining = Math.max(2500, totalBudget - (Date.now() - startedAt));
-  const content = await runContentCycle(remaining).catch((error: unknown) => ({
+  const content = await runContentCycle(remaining, { origin: request.nextUrl.origin }).catch((error: unknown) => ({
     error: error instanceof Error ? error.message : "Erro no planner",
   }));
 

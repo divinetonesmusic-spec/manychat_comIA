@@ -2,6 +2,7 @@ import { createAutomation, getConfig, updateContentPostMediaItems, updateContent
 import {
   claimDueContentPosts,
   claimPostNow,
+  failContentPost,
   getContentPost,
   listPostsForMediaCleanup,
   listPostsMissingAfterPublish,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/instagram/client";
 import { deleteR2Object, keyFromPublicUrl } from "@/lib/content/r2";
 import { findMatchingMedia, parseMetaTimestamp, type FeedMedia } from "@/lib/content/publish-check";
+import { notifyPostFailed } from "@/lib/notify";
 
 /**
  * Relógio do planner: roda junto com o /api/queue/drain (a cada minuto).
@@ -76,7 +78,7 @@ export async function publishPostNow(id: string, budgetMs = 4000) {
     const config = await getConfig(post.account_id);
     await startPost(post, config, deadline);
   } catch (error) {
-    await updateContentPostStatus({ id: post.id, status: "failed", lastError: translateError(error) });
+    await markPostFailed(post, translateError(error));
   } finally {
     await unlockPost(post.id).catch(() => undefined);
   }
@@ -85,7 +87,8 @@ export async function publishPostNow(id: string, budgetMs = 4000) {
 
 export async function runContentCycle(
   budgetMs = Number(process.env.CYCLE_BUDGET_MS || 8000),
-  options: { light?: boolean } = {},
+  /** origin: endereço do pedido, para o link do aviso quando APP_BASE_URL não estiver definida. */
+  options: { light?: boolean; origin?: string | null } = {},
 ): Promise<ContentCycleResult> {
   const deadline = Date.now() + budgetMs;
   const timeLeft = () => deadline - Date.now();
@@ -97,7 +100,8 @@ export async function runContentCycle(
     return configs.get(key) as Config;
   };
 
-  await recoverStuckPosts();
+  // Presos em "publicando" depois de 3 tentativas viram "Com erro": 1 aviso para cada um.
+  for (const post of await recoverStuckPosts()) await notifyPostFailed(post, post.last_error ?? "", options.origin);
 
   // 1) Posts que chegaram na hora: cria o container na Meta.
   if (timeLeft() > 2500) {
@@ -109,7 +113,7 @@ export async function runContentCycle(
         out.started += 1;
       } catch (error) {
         out.failed += 1;
-        await updateContentPostStatus({ id: post.id, status: "failed", lastError: translateError(error) });
+        await markPostFailed(post, translateError(error), { origin: options.origin });
       }
     }
   }
@@ -120,7 +124,7 @@ export async function runContentCycle(
       if (timeLeft() < 1500) { out.stoppedEarly = true; break; }
       try {
         const config = await configFor(post.account_id);
-        const result = await advancePost(post, config, deadline);
+        const result = await advancePost(post, config, deadline, options.origin);
         if (result === "published") out.published += 1;
         else if (result === "failed") out.failed += 1;
         else out.waiting += 1;
@@ -216,24 +220,24 @@ export async function startPost(post: ContentPost, config: Config, deadline = Da
 }
 
 /** Avança um post em "publicando". Retorna o que aconteceu. */
-export async function advancePost(post: ContentPost, config: Config, deadline = Date.now() + 8000): Promise<"published" | "failed" | "waiting"> {
+export async function advancePost(post: ContentPost, config: Config, deadline = Date.now() + 8000, origin?: string | null): Promise<"published" | "failed" | "waiting"> {
   assertConnected(config);
   if (!(await tryLockPost(post.id, 90))) return "waiting"; // outro relógio já está cuidando deste post
   try {
     // Relê depois de pegar a trava: o post pode ter mudado (outro relógio publicou, alguém cancelou...).
     const fresh = await getContentPost(post.id);
     if (!fresh || fresh.status !== "publishing") return "waiting";
-    return await advanceLocked(fresh, config, deadline);
+    return await advanceLocked(fresh, config, deadline, origin);
   } finally {
     await unlockPost(post.id).catch(() => undefined);
   }
 }
 
-async function advanceLocked(post: ContentPost, config: Config, deadline: number): Promise<"published" | "failed" | "waiting"> {
+async function advanceLocked(post: ContentPost, config: Config, deadline: number, origin?: string | null): Promise<"published" | "failed" | "waiting"> {
   const startedAt = new Date(post.publishing_started_at ?? post.scheduled_at ?? post.created_at).getTime();
   const tooOld = Date.now() - startedAt > MAX_PUBLISHING_HOURS * 3600_000;
   // Sem container na Meta não há o que conferir: passou do tempo, desiste. Com container, confere antes (pode já ter saído).
-  if (tooOld && !post.container_id) return failTooOld(post);
+  if (tooOld && !post.container_id) return failTooOld(post, origin);
 
   if (post.publish_type === "carousel") {
     const items = (post.media_items ?? []) as ContentMediaItem[];
@@ -248,13 +252,13 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
         if (status.status_code === "FINISHED") items[index] = { ...items[index], status: "finished", error: null };
         else if (status.status_code === "ERROR" || status.status_code === "EXPIRED") {
           await updateContentPostMediaItems(post.id, items);
-          await updateContentPostStatus({ id: post.id, status: "failed", lastError: `Item ${index + 1}: ${status.status || status.status_code}` });
+          await markPostFailed(post, `Item ${index + 1}: ${status.status || status.status_code}`, { origin });
           return "failed";
         }
       }
       await updateContentPostMediaItems(post.id, items);
       if (items.some((item) => item.status !== "finished")) {
-        if (tooOld) return failTooOld(post);
+        if (tooOld) return failTooOld(post, origin);
         await touchContentPost(post.id, "A Meta ainda esta processando os itens do carrossel.");
         return "waiting";
       }
@@ -276,7 +280,7 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
   try {
     status = await getInstagramMediaContainerStatus(post.container_id as string, config.instagram_access_token as string);
   } catch (error) {
-    if (tooOld) return failTooOld(post);
+    if (tooOld) return failTooOld(post, origin);
     throw error;
   }
 
@@ -306,7 +310,7 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     try {
       media = await findPublishedMedia(post, config);
     } catch (error) {
-      if (tooOld) return failTooOld(post);
+      if (tooOld) return failTooOld(post, origin);
       throw error; // sem conferir, não arrisca: espera o próximo relógio
     }
     if (media) {
@@ -320,7 +324,7 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     }
   }
 
-  if (tooOld) return failTooOld(post);
+  if (tooOld) return failTooOld(post, origin);
 
   if (status.status_code === "FINISHED") {
     // Grava o pedido ANTES de chamar a Meta: se a função cair no meio, a próxima rodada confere em vez de repetir.
@@ -335,17 +339,27 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     return "published";
   }
   if (status.status_code === "ERROR" || status.status_code === "EXPIRED") {
-    await updateContentPostStatus({ id: post.id, status: "failed", containerId: post.container_id, lastError: translateError(new Error(status.status || `Container ${status.status_code}`)) });
+    await markPostFailed(post, translateError(new Error(status.status || `Container ${status.status_code}`)), { containerId: post.container_id, origin });
     return "failed";
   }
-  if (tooOld) return failTooOld(post);
+  if (tooOld) return failTooOld(post, origin);
   await touchContentPost(post.id, "A Meta esta processando a midia.");
   return "waiting";
 }
 
-async function failTooOld(post: ContentPost) {
-  await updateContentPostStatus({ id: post.id, status: "failed", containerId: post.container_id, lastError: `A Meta nao terminou de processar em ${MAX_PUBLISHING_HOURS} h. Tente agendar de novo.` });
+async function failTooOld(post: ContentPost, origin?: string | null) {
+  await markPostFailed(post, `A Meta nao terminou de processar em ${MAX_PUBLISHING_HOURS} h. Tente agendar de novo.`, { containerId: post.container_id, origin });
   return "failed" as const;
+}
+
+/**
+ * Marca o post como "Com erro" e avisa no Telegram (se configurado) uma vez por mudança:
+ * um post que já estava com erro não gera outro aviso. O aviso nunca quebra o relógio.
+ */
+export async function markPostFailed(post: Pick<ContentPost, "id">, lastError: string, options: { containerId?: string | null; origin?: string | null } = {}) {
+  const result = await failContentPost({ id: post.id, lastError, containerId: options.containerId });
+  if (result?.changed) await notifyPostFailed(result.post, lastError, options.origin);
+  return result?.post ?? null;
 }
 
 /**

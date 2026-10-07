@@ -244,18 +244,44 @@ export async function listPublishingPosts(limit = 8): Promise<ContentPost[]> {
 /**
  * Posts presos em "publicando" sem container final há mais de 15 min voltam para a fila (até 3 tentativas).
  * Carrossel também: os itens que já têm container são aproveitados na próxima rodada.
+ * Devolve os que acabaram de passar para "Com erro" (para o aviso no Telegram).
  */
-export async function recoverStuckPosts() {
-  await query(
-    `update public.content_posts
+export async function recoverStuckPosts(): Promise<ContentPost[]> {
+  const { rows } = await query<ContentPost>(
+    `update public.content_posts cp
      set status = case when attempts >= 3 then 'failed' else 'scheduled' end,
          lock_until = null,
          last_error = case when attempts >= 3 then 'Nao consegui iniciar a publicacao depois de 3 tentativas.' else last_error end
      where status = 'publishing'
        and container_id is null
        and coalesce(publishing_started_at, updated_at) < now() - interval '15 minutes'
-       and (lock_until is null or lock_until < now())`,
+       and (lock_until is null or lock_until < now())
+     returning cp.*, (select ia.instagram_username from public.instagram_accounts ia where ia.id = cp.account_id) as account_username`,
   );
+  return rows.filter((row) => row.status === "failed");
+}
+
+/**
+ * Marca o post como "Com erro". `changed` diz se ele acabou de mudar para esse estado: um post que já
+ * estava com erro tem o motivo atualizado, mas não gera outro aviso. A trava da linha (for update) faz
+ * dois relógios ao mesmo tempo verem a mudança uma vez só.
+ */
+export async function failContentPost(input: { id: string; lastError: string; containerId?: string | null }) {
+  const { rows } = await query<ContentPost & { previous_status: ContentPost["status"] }>(
+    `with previous as (
+       select id, status from public.content_posts where id = $1 for update
+     )
+     update public.content_posts cp
+     set status = 'failed', container_id = coalesce($3, cp.container_id), last_error = $2
+     from previous
+     where cp.id = previous.id
+     returning cp.*, previous.status as previous_status,
+       (select ia.instagram_username from public.instagram_accounts ia where ia.id = cp.account_id) as account_username`,
+    [input.id, input.lastError, input.containerId ?? null],
+  );
+  if (!rows[0]) return null;
+  const { previous_status: previousStatus, ...post } = rows[0];
+  return { post: post as ContentPost, changed: previousStatus !== "failed" };
 }
 
 export async function touchContentPost(id: string, note: string | null) {

@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const to = params.get("to");
 
   // Sem esperar o relógio: dá um empurrão curto nos posts vencidos/em processamento.
-  if (params.get("sync") !== "0") await runContentCycle(3500, { light: true }).catch(() => null);
+  if (params.get("sync") !== "0") await runContentCycle(3500, { light: true, origin: request.nextUrl.origin }).catch(() => null);
 
   if (from && to) {
     const fromDate = new Date(from);
