@@ -24,11 +24,11 @@ export default async function FluxosPage({ searchParams }: Props) {
       <PageHeader
         eyebrow="Fluxos"
         title="Gerenciar fluxos"
-        description="Edite, pause, exclua e acompanhe os envios recentes das automacoes do perfil selecionado."
+        description="Edite, pause, exclua e acompanhe os envios recentes das automações do perfil selecionado."
         action={
           <Link className="btn-primary" href={hrefWithAccount("/automacoes/nova", activeAccountId)}>
             <Plus size={16} />
-            Nova automacao
+            Nova automação
           </Link>
         }
       />

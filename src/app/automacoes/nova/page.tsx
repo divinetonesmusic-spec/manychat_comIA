@@ -25,8 +25,8 @@ export default async function NovaAutomacaoPage({ searchParams }: Props) {
     <AppFrame active="automacoes" connected={connected} username={stats.config.instagram_username} accounts={accounts} activeAccountId={activeAccountId} workspaceName={workspaceContext?.workspace.name} userEmail={workspaceContext?.profile.email} plan={workspaceContext?.workspace.plan}>
       <PageHeader
         eyebrow="Editor"
-        title={hasModel ? "Editar modelo" : "Nova automacao"}
-        description={hasModel ? "Revise o modelo escolhido, conecte post/reel e ajuste mensagens antes de publicar no perfil selecionado." : "Crie uma automacao limpa com gatilhos, mensagens, botoes, delay e regras de seguidor."}
+        title={hasModel ? "Editar modelo" : "Nova automação"}
+        description={hasModel ? "Revise o modelo escolhido, escolha o post ou Reel e ajuste as mensagens antes de ligar no perfil selecionado." : "Respostas automáticas no Instagram. Defina quando acontece, as mensagens, os botões, a espera e se só seguidores recebem."}
         action={
           <Link className="btn-secondary" href={hrefWithAccount("/automacoes", activeAccountId)}>
             <ArrowLeft size={16} />
@@ -42,7 +42,7 @@ export default async function NovaAutomacaoPage({ searchParams }: Props) {
         showFlowList={false}
         showTemplates={false}
         initialTemplateId={params.modelo}
-        editorTitle={hasModel ? "Editar modelo selecionado" : "Nova automacao do zero"}
+        editorTitle={hasModel ? "Editar modelo selecionado" : "Nova automação do zero"}
         accountId={activeAccountId}
       />
     </AppFrame>

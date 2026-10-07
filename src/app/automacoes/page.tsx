@@ -14,45 +14,45 @@ type Props = {
 const catalogTemplates = [
   {
     id: "comment-follower-gate",
-    title: "Comentario + verifica seguidor",
+    title: "Comentário + verifica seguidor",
     category: "Seguidores",
-    description: "Responde o comentario, confere se a pessoa segue o perfil e so libera o acesso para seguidores.",
-    flow: ["Comentario", "Seguidor", "DM"],
+    description: "Responde o comentário, confere se a pessoa segue o perfil e só libera o acesso para seguidores.",
+    flow: ["Comentário", "Seguidor", "Direct"],
   },
   {
     id: "comment-dm-button",
-    title: "Comentario + DM com botao",
+    title: "Comentário + mensagem com botão",
     category: "Mais usado",
-    description: "Detecta palavra-chave no post ou reel, responde publicamente e envia o direct com botao.",
-    flow: ["Keyword", "Comentario", "Botao"],
+    description: "Percebe a palavra-chave no post ou Reel, responde no comentário e envia uma mensagem no direct com botão.",
+    flow: ["Palavra-chave", "Comentário", "Botão"],
   },
   {
     id: "dm-keyword",
     title: "Palavra-chave no Direct",
     category: "Direct",
-    description: "Quando a pessoa chama no direct com uma palavra-chave, o fluxo responde com botao e link.",
-    flow: ["DM", "Keyword", "Link"],
+    description: "Quando a pessoa escreve uma palavra-chave no direct, o fluxo responde com botão e link.",
+    flow: ["Direct", "Palavra-chave", "Link"],
   },
   {
     id: "story-reply",
     title: "Resposta de story",
     category: "Stories",
-    description: "Transforma respostas em stories em uma conversa guiada no direct.",
-    flow: ["Story", "DM", "Botao"],
+    description: "Transforma as respostas aos stories em uma conversa guiada no direct.",
+    flow: ["Story", "Direct", "Botão"],
   },
   {
     id: "public-private-reply",
-    title: "Comentario publico + resposta privada",
-    category: "Comentarios",
-    description: "Responde no post e leva a conversa para o direct sem disparar para base fria.",
-    flow: ["Publico", "Privado", "DM"],
+    title: "Comentário público + resposta privada",
+    category: "Comentários",
+    description: "Responde no post e leva a conversa para o direct, sem mandar mensagem para quem não conhece você.",
+    flow: ["Público", "Privado", "Direct"],
   },
   {
     id: "follow-up-direct",
-    title: "Follow-up no Direct",
-    category: "Recuperacao",
-    description: "Agenda um lembrete dentro da janela permitida pela Meta depois do primeiro contato.",
-    flow: ["DM", "Espera", "Lembrete"],
+    title: "Lembrete no direct",
+    category: "Recuperação",
+    description: "Agenda um lembrete, dentro do prazo permitido pelo Instagram, depois do primeiro contato.",
+    flow: ["Direct", "Espera", "Lembrete"],
   },
 ];
 
@@ -66,9 +66,9 @@ export default async function AutomacoesPage({ searchParams }: Props) {
   return (
     <AppFrame active="automacoes" connected={connected} username={stats.config.instagram_username} accounts={accounts} activeAccountId={activeAccountId} workspaceName={workspaceContext?.workspace.name} userEmail={workspaceContext?.profile.email} plan={workspaceContext?.workspace.plan}>
       <PageHeader
-        eyebrow="Automacoes"
-        title="Criar automacao"
-        description="Escolha um modelo pronto para editar ou comece uma automacao limpa para o perfil selecionado. A gestao e os logs ficam em Fluxos."
+        eyebrow="Automações"
+        title="Criar automação"
+        description="Respostas automáticas no Instagram. Escolha um modelo pronto para editar ou comece uma automação do zero para o perfil selecionado. Para pausar, apagar ou ver o que foi enviado, abra Fluxos, no menu Avançado."
         action={
           <Link className="btn-primary" href={hrefWithAccount("/automacoes/nova", activeAccountId)}>
             <Plus size={16} />
@@ -119,7 +119,7 @@ export default async function AutomacoesPage({ searchParams }: Props) {
             <span className="metric-icon metric-green"><Sparkles size={18} /></span>
             <div>
               <h2 className="text-lg font-bold">Nova do zero</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Abre o editor limpo para criar uma regra personalizada no perfil ativo.</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Abre o editor em branco para criar uma regra só sua no perfil selecionado.</p>
             </div>
             <span className="inline-flex items-center gap-2 text-sm font-bold text-[var(--ms-primary)]">Abrir editor <ArrowRight size={15} /></span>
           </Link>
@@ -128,7 +128,7 @@ export default async function AutomacoesPage({ searchParams }: Props) {
             <span className="metric-icon metric-amber"><GitBranch size={18} /></span>
             <div>
               <h2 className="text-lg font-bold">Gerenciar fluxos</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">{stats.automations.length} fluxos criados, {stats.automations.filter((item) => item.active).length} ativos.</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">{stats.automations.length} {stats.automations.length === 1 ? "criado" : "criados"}, {stats.automations.filter((item) => item.active).length} {stats.automations.filter((item) => item.active).length === 1 ? "ativo" : "ativos"}.</p>
             </div>
             <span className="inline-flex items-center gap-2 text-sm font-bold text-[var(--ms-primary)]">Ver fluxos <ArrowRight size={15} /></span>
           </Link>
@@ -137,7 +137,7 @@ export default async function AutomacoesPage({ searchParams }: Props) {
             <div className="flex items-center gap-3">
               <span className="metric-icon metric-blue"><Boxes size={18} /></span>
               <div>
-                <p className="text-sm font-semibold text-[var(--ms-muted)]">Eventos recebidos</p>
+                <p className="text-sm font-semibold text-[var(--ms-muted)]">Comentários e mensagens recebidos</p>
                 <p className="mt-1 text-2xl font-bold">{stats.eventCount}</p>
               </div>
             </div>

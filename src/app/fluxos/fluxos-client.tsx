@@ -45,9 +45,9 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
 
     try {
       const response = await fetch(`/api/automations/${automation.id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Nao consegui excluir o fluxo.");
+      if (!response.ok) throw new Error("Não consegui excluir o fluxo.");
       setAutomations((current) => current.filter((item) => item.id !== automation.id));
-      setNotice({ tone: "success", text: "Fluxo excluido." });
+      setNotice({ tone: "success", text: "Fluxo excluído." });
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao excluir fluxo." });
     } finally {
@@ -66,7 +66,7 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
         body: JSON.stringify(cloneAutomationPayload(automation)),
       });
       const result = (await response.json().catch(() => null)) as { data?: Automation; error?: string } | null;
-      if (!response.ok || !result?.data) throw new Error(result?.error || "Nao consegui duplicar o fluxo.");
+      if (!response.ok || !result?.data) throw new Error(result?.error || "Não consegui duplicar o fluxo.");
       setAutomations((current) => [result.data!, ...current]);
       router.push(hrefWithAccount(`/fluxos/${result.data.id}/editar`, activeAccountId));
     } catch (error) {
@@ -87,7 +87,7 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
         body: JSON.stringify(payload),
       });
       const result = (await response.json().catch(() => null)) as { data?: Automation; error?: string } | null;
-      if (!response.ok || !result?.data) throw new Error(result?.error || "Nao consegui atualizar o fluxo.");
+      if (!response.ok || !result?.data) throw new Error(result?.error || "Não consegui atualizar o fluxo.");
       onSuccess(result.data);
       setNotice({ tone: "success", text: "Fluxo atualizado." });
     } catch (error) {
@@ -107,7 +107,7 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
     <div className="grid gap-6">
       <section className="grid gap-4 md:grid-cols-3">
         <MetricCard label="Fluxos ativos" value={String(stats.active)} />
-        <MetricCard label="Na fila" value={String(stats.pending)} />
+        <MetricCard label="Mensagens esperando para sair" value={String(stats.pending)} />
         <MetricCard label="Com erro" value={String(stats.failed)} tone={stats.failed ? "danger" : "normal"} />
       </section>
 
@@ -142,7 +142,7 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
                     {automation.require_follower ? <span className="status-pill status-pill-green">Verifica seguidor</span> : null}
                   </div>
                   <p className="mt-2 text-sm text-[var(--ms-muted)]">
-                    {automation.triggers.join(", ")} | {automation.match_type} | {automation.keywords.join(", ") || "sem palavras"}
+                    {automation.triggers.map(triggerLabel).join(", ")} | {matchLabel(automation.match_type)} | {automation.keywords.join(", ") || "sem palavras"}
                   </p>
                   <p className="mt-2 truncate text-sm text-[var(--ms-muted)]">{automation.link_url || "Sem link configurado"}</p>
                 </div>
@@ -178,8 +178,8 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
         <section className="panel p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="eyebrow">Logs</p>
-              <h2 className="mt-2 text-xl font-semibold">Eventos da fila</h2>
+              <p className="eyebrow">Histórico</p>
+              <h2 className="mt-2 text-xl font-semibold">Últimos envios</h2>
             </div>
             <span className="status-pill">{logs.length}</span>
           </div>
@@ -189,14 +189,14 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-bold">{log.automation_name || "Fluxo removido"}</p>
-                    <p className="mt-1 text-xs text-[var(--ms-muted)]">{log.instagram_username ? `@${log.instagram_username}` : log.instagram_user_id || "lead sem usuario"}</p>
+                    <p className="mt-1 text-xs text-[var(--ms-muted)]">{log.instagram_username ? `@${log.instagram_username}` : log.instagram_user_id || "contato sem usuário"}</p>
                   </div>
                   <span className={log.status === "sent" ? "status-pill status-pill-green" : "status-pill"}>{translateStatus(log.status)}</span>
                 </div>
                 <p className="mt-2 text-xs text-[var(--ms-muted)]">{translateSendType(log.send_type)} | {formatDate(log.sent_at || log.created_at)}</p>
                 {log.last_error ? <p className="mt-2 text-xs text-red-500">{log.last_error}</p> : null}
               </article>
-            )) : <p className="text-sm text-[var(--ms-muted)]">Nenhum log de envio ainda.</p>}
+            )) : <p className="text-sm text-[var(--ms-muted)]">Nenhum envio ainda.</p>}
           </div>
         </section>
       </section>
@@ -207,7 +207,7 @@ export function FluxosClient({ initialAutomations, initialLogs, activeAccountId 
 function cloneAutomationPayload(automation: Automation) {
   return {
     account_id: automation.account_id,
-    name: `${automation.name} (copia)`,
+    name: `${automation.name} (cópia)`,
     active: false,
     triggers: automation.triggers,
     keywords: automation.keywords,
@@ -252,7 +252,7 @@ function MetricCard({ label, value, tone = "normal" }: { label: string; value: s
 
 function translateStatus(status: string) {
   const labels: Record<string, string> = {
-    pending: "Pendente",
+    pending: "Esperando",
     sending: "Enviando",
     sent: "Enviado",
     failed: "Erro",
@@ -264,10 +264,20 @@ function translateStatus(status: string) {
 function translateSendType(sendType: string) {
   const labels: Record<string, string> = {
     private_reply: "Resposta privada",
-    public_reply: "Comentario publico",
+    public_reply: "Comentário público",
     dm: "Direct",
   };
   return labels[sendType] || sendType;
+}
+
+function triggerLabel(trigger: string) {
+  const labels: Record<string, string> = { comments: "Comentário", story: "Resposta a story", dm: "Mensagem no direct" };
+  return labels[trigger] || trigger;
+}
+
+function matchLabel(matchType: string) {
+  const labels: Record<string, string> = { contains: "contém a palavra", exact: "palavra exata", any: "qualquer mensagem" };
+  return labels[matchType] || matchType;
 }
 
 function formatDate(value: string) {
