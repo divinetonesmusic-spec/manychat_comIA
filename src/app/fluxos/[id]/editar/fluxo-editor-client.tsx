@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import type { Automation, AutomationTrigger, DelayMode, FlowEdgeDefinition, FlowNodeDefinition, MatchType, QuickReply, ReplyMode } from "@/lib/db/repositories";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { mediaTypeLabel } from "@/lib/rotulos";
 
 
 type Props = {
@@ -148,14 +149,14 @@ type FlowFormState = {
   follower_confirmation_greetings: string[];
 };
 
-const defaultFollowerConfirmationGreetings = ["Oii", "Ola", "Eii", "Eae", "Opa"];
+const defaultFollowerConfirmationGreetings = ["Oii", "Olá", "Eii", "Eae", "Opa"];
 
 const variables = [
-  { tag: "{{username}}", label: "Usuario", preview: "@usuario" },
-  { tag: "{{first_name}}", label: "Primeiro Nome", preview: "Maria" },
+  { tag: "{{username}}", label: "Usuário", preview: "@usuario" },
+  { tag: "{{first_name}}", label: "Primeiro nome", preview: "Maria" },
   { tag: "{{name}}", label: "Nome", preview: "Maria Silva" },
   { tag: "{{profile_url}}", label: "Perfil", preview: "instagram.com/usuario" },
-  { tag: "{{automation_name}}", label: "Automacao", preview: "FluxoEuQuero1" },
+  { tag: "{{automation_name}}", label: "Automação", preview: "FluxoEuQuero1" },
 ];
 const nodeTypes = { uaiNode: AutomationNode };
 const defaultEdgeOptions = {
@@ -201,9 +202,9 @@ export function FluxoEditorClient({ automation, backHref, accountId, isInstagram
         const contentType = response.headers.get("content-type") || "";
         const payload = contentType.includes("application/json")
           ? ((await response.json()) as { data?: InstagramMedia[]; error?: string })
-          : { error: "Sessao expirada. Entre novamente para carregar posts e reels." };
+          : { error: "Sua sessão expirou. Entre de novo para carregar os posts e Reels." };
 
-        if (!response.ok) throw new Error(payload.error || "Nao consegui carregar posts e reels.");
+        if (!response.ok) throw new Error(payload.error || "Não consegui carregar os posts e Reels.");
         return payload.data ?? [];
       })
       .then((items) => {
@@ -214,7 +215,7 @@ export function FluxoEditorClient({ automation, backHref, accountId, isInstagram
       .catch((error) => {
         if (!active) return;
         setMediaStatus("error");
-        setMediaError(error instanceof Error ? error.message : "Nao consegui carregar posts e reels.");
+        setMediaError(error instanceof Error ? error.message : "Não consegui carregar os posts e Reels.");
       });
 
     return () => {
@@ -354,7 +355,7 @@ export function FluxoEditorClient({ automation, backHref, accountId, isInstagram
         body: JSON.stringify(payload),
       });
       const result = (await response.json().catch(() => null)) as { data?: Automation; error?: string } | null;
-      if (!response.ok || !result?.data) throw new Error(result?.error || "Nao consegui salvar o fluxo.");
+      if (!response.ok || !result?.data) throw new Error(result?.error || "Não consegui salvar o fluxo.");
       setNotice({ tone: "success", text: "Fluxo salvo." });
       router.refresh();
     } catch (error) {
@@ -371,7 +372,7 @@ export function FluxoEditorClient({ automation, backHref, accountId, isInstagram
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
             <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(220px,1fr)_120px] sm:items-end">
               <label className="field min-w-0 gap-1">
-                <span>Fluxo de automacao</span>
+                <span>Nome da automação</span>
                 <input className="input h-10 py-0 text-base font-semibold" value={formState.name} onChange={(event) => updateForm("name", event.target.value)} />
               </label>
               <label className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] px-3 text-sm font-semibold" title="Ativar ou pausar este fluxo">
@@ -389,7 +390,7 @@ export function FluxoEditorClient({ automation, backHref, accountId, isInstagram
               ) : null}
               <Link className="btn-secondary h-10 px-3" href={backHref} title="Voltar para a lista de fluxos"><ArrowLeft size={16} /> Voltar</Link>
               <button className="btn-secondary h-10 px-3" disabled title="Testar fluxo" type="button"><Workflow size={16} /> Testar</button>
-              <button className="btn-primary h-10 px-3" disabled={saving} onClick={saveFlow} title="Salvar alteracoes do fluxo" type="button">
+              <button className="btn-primary h-10 px-3" disabled={saving} onClick={saveFlow} title="Salvar as alterações do fluxo" type="button">
                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                 {saving ? "Salvando..." : "Salvar"}
               </button>
@@ -518,8 +519,8 @@ function EdgeInspectorPanel({
                 <GitBranch size={17} />
               </span>
               <div className="min-w-0">
-                <p className="eyebrow">Conexao selecionada</p>
-                <h2 className="mt-1 truncate text-lg font-semibold">Ligacao entre blocos</h2>
+                <p className="eyebrow">Conexão selecionada</p>
+                <h2 className="mt-1 truncate text-lg font-semibold">Ligação entre blocos</h2>
                 <p className="mt-1 truncate text-xs font-semibold text-red-500">Clique em excluir para remover do fluxo</p>
               </div>
             </div>
@@ -529,7 +530,7 @@ function EdgeInspectorPanel({
             <div>
               <p className="text-xs font-bold uppercase text-[var(--ms-muted)]">Origem</p>
               <p className="mt-1 font-semibold">{sourceNode?.data.title ?? edge.source}</p>
-              {edge.sourceHandle ? <p className="mt-1 text-xs text-[var(--ms-muted)]">Saida: {translateHandle(edge.sourceHandle)}</p> : null}
+              {edge.sourceHandle ? <p className="mt-1 text-xs text-[var(--ms-muted)]">Saída: {translateHandle(edge.sourceHandle)}</p> : null}
             </div>
             <div className="border-t border-[var(--ms-border)] pt-3">
               <p className="text-xs font-bold uppercase text-[var(--ms-muted)]">Destino</p>
@@ -538,7 +539,7 @@ function EdgeInspectorPanel({
           </div>
 
           <label className="field">
-            <span>Rotulo da conexao</span>
+            <span>Texto da conexão</span>
             <input className="input" value={typeof edge.label === "string" ? edge.label : ""} onChange={(event) => onUpdateLabel(event.target.value)} placeholder="Ex: segue" />
           </label>
         </div>
@@ -546,7 +547,7 @@ function EdgeInspectorPanel({
 
       <div className="grid shrink-0 gap-2 border-t border-[var(--ms-border)] bg-[var(--ms-surface)] p-3">
         <button className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 text-sm font-bold text-red-600" onClick={onDelete} type="button">
-          <Trash2 size={16} /> Excluir conexao
+          <Trash2 size={16} /> Excluir conexão
         </button>
       </div>
     </aside>
@@ -582,7 +583,7 @@ function AutomationNode({ data, selected }: NodeProps<UaiFlowNode>) {
         <>
           <span className="absolute right-3 top-[36%] rounded-md bg-emerald-500/15 px-2 py-1 text-[10px] font-bold text-emerald-600">segue</span>
           <Handle id="yes" type="source" position={Position.Right} style={{ top: "38%", background: "#10b981" }} className="!size-3 !border-2 !border-[var(--ms-surface)]" />
-          <span className="absolute bottom-[18%] right-3 rounded-md bg-amber-500/15 px-2 py-1 text-[10px] font-bold text-amber-600">nao segue</span>
+          <span className="absolute bottom-[18%] right-3 rounded-md bg-amber-500/15 px-2 py-1 text-[10px] font-bold text-amber-600">não segue</span>
           <Handle id="no" type="source" position={Position.Right} style={{ top: "74%", background: "#f59e0b" }} className="!size-3 !border-2 !border-[var(--ms-surface)]" />
         </>
       ) : (
@@ -668,9 +669,9 @@ function InspectorPanel({
               <div className="field">
                 <span>Origem</span>
                 <div className="grid gap-2 text-sm">
-                  <label className="check"><input checked={formState.triggers.includes("comments")} onChange={() => onToggleTrigger("comments")} type="checkbox" /> Comentario</label>
+                  <label className="check"><input checked={formState.triggers.includes("comments")} onChange={() => onToggleTrigger("comments")} type="checkbox" /> Comentário</label>
                   <label className="check"><input checked={formState.triggers.includes("story")} onChange={() => onToggleTrigger("story")} type="checkbox" /> Story</label>
-                  <label className="check"><input checked={formState.triggers.includes("dm")} onChange={() => onToggleTrigger("dm")} type="checkbox" /> DM</label>
+                  <label className="check"><input checked={formState.triggers.includes("dm")} onChange={() => onToggleTrigger("dm")} type="checkbox" /> Mensagem no direct</label>
                 </div>
               </div>
               <TriggerPostPicker media={media} mediaError={mediaError} mediaStatus={mediaStatus} selectedPostId={formState.post_id} onSelectPost={(postId) => onUpdate("post_id", postId)} />
@@ -688,7 +689,7 @@ function InspectorPanel({
           {node.data.kind === "publicReply" ? (
             <div className="grid gap-4">
               <DelayEditor
-                label="Atraso inteligente"
+                label="Espera inteligente"
                 mode={formState.reply_delay_mode}
                 unit={formState.reply_delay_unit}
                 value={formState.reply_delay_value}
@@ -713,10 +714,10 @@ function InspectorPanel({
           {node.data.kind === "condition" ? (
             <div className="grid gap-4">
               <label className="check"><input checked={formState.require_follower} onChange={(event) => onUpdate("require_follower", event.target.checked)} type="checkbox" /> Exigir seguidor</label>
-              <label className="field"><span>Mensagem para quem nao segue</span><textarea className="input min-h-24" value={formState.non_follower_dm} onChange={(event) => onUpdate("non_follower_dm", event.target.value)} /></label>
-              <label className="field"><span>Botao para seguir</span><input className="input" value={formState.non_follower_button_label} onChange={(event) => onUpdate("non_follower_button_label", event.target.value)} /></label>
+              <label className="field"><span>Mensagem para quem não segue</span><textarea className="input min-h-24" value={formState.non_follower_dm} onChange={(event) => onUpdate("non_follower_dm", event.target.value)} /></label>
+              <label className="field"><span>Botão para seguir</span><input className="input" value={formState.non_follower_button_label} onChange={(event) => onUpdate("non_follower_button_label", event.target.value)} /></label>
               <GreetingListEditor greetings={formState.follower_confirmation_greetings} onAdd={onAddFollowerGreeting} onRemove={onRemoveFollowerGreeting} onUpdate={onUpdateFollowerGreeting} />
-              <label className="field"><span>Confirmacao para quem segue</span><textarea className="input min-h-24" value={formState.follower_confirmation_text} onChange={(event) => onUpdate("follower_confirmation_text", event.target.value)} /></label>
+              <label className="field"><span>Confirmação para quem segue</span><textarea className="input min-h-24" value={formState.follower_confirmation_text} onChange={(event) => onUpdate("follower_confirmation_text", event.target.value)} /></label>
             </div>
           ) : null}
 
@@ -735,7 +736,7 @@ function InspectorPanel({
                 onMinChange={(value) => onUpdate("reply_delay_min", value)}
                 onMaxChange={(value) => onUpdate("reply_delay_max", value)}
               />
-              <label className="field"><span>DM inicial</span><textarea className="input min-h-36" value={formState.welcome_dm} onChange={(event) => onUpdate("welcome_dm", event.target.value)} /></label>
+              <label className="field"><span>Mensagem inicial</span><textarea className="input min-h-36" value={formState.welcome_dm} onChange={(event) => onUpdate("welcome_dm", event.target.value)} /></label>
             </div>
           ) : null}
 
@@ -746,7 +747,7 @@ function InspectorPanel({
           {node.data.kind === "link" ? (
             <div className="grid gap-4">
               <label className="field"><span>Texto com link</span><input className="input" value={formState.link_text} onChange={(event) => onUpdate("link_text", event.target.value)} /></label>
-              <label className="field"><span>Botao do link</span><input className="input" value={formState.link_button_label} onChange={(event) => onUpdate("link_button_label", event.target.value)} /></label>
+              <label className="field"><span>Botão do link</span><input className="input" value={formState.link_button_label} onChange={(event) => onUpdate("link_button_label", event.target.value)} /></label>
               <label className="field"><span>URL</span><input className="input" type="url" value={formState.link_url} onChange={(event) => onUpdate("link_url", event.target.value)} /></label>
             </div>
           ) : null}
@@ -787,12 +788,12 @@ function InspectorPanel({
       </div>
 
       <div className="grid shrink-0 gap-2 border-t border-[var(--ms-border)] bg-[var(--ms-surface)] p-3">
-        <button className="btn-secondary h-10 w-full" disabled={!canDelete} onClick={onDelete} title={canDelete ? "Excluir configuracao deste passo" : "Este passo e obrigatorio"} type="button">
+        <button className="btn-secondary h-10 w-full" disabled={!canDelete} onClick={onDelete} title={canDelete ? "Excluir a configuração deste passo" : "Este passo é obrigatório"} type="button">
           <Trash2 size={16} /> Excluir Passo
         </button>
         <button className="btn-primary h-10 w-full" disabled={saving} onClick={onSave} type="button">
           {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-          {saving ? "Salvando..." : "Salvar Alteracoes"}
+          {saving ? "Salvando..." : "Salvar alterações"}
         </button>
       </div>
     </aside>
@@ -801,10 +802,10 @@ function InspectorPanel({
 
 function FlowPalette({ onAddNode }: { onAddNode: (kind: FlowNodeKind) => void }) {
   const sections: Array<{ title: string; category: FlowNodeCategory; items: Array<{ label: string; kind: FlowNodeKind; icon: FlowNodeKind; status?: string; repeatable?: boolean }> }> = [
-    { title: "Gatilhos", category: "trigger", items: [{ label: "Comentario / Post", kind: "trigger", icon: "trigger" }, { label: "Palavra-chave", kind: "keywords", icon: "keywords" }, { label: "Gatilho por tag", kind: "tagAction", icon: "tagAction", status: "preparar" }] },
-    { title: "Acoes Instagram", category: "action", items: [{ label: "Responder comentario", kind: "commentReply", icon: "commentReply", repeatable: true }, { label: "Responder no privado", kind: "privateReply", icon: "privateReply", repeatable: true }, { label: "Enviar mensagem", kind: "dm", icon: "dm" }, { label: "Botao / link / payload", kind: "buttonMessage", icon: "buttonMessage", repeatable: true }, { label: "Enviar midia", kind: "mediaMessage", icon: "mediaMessage", repeatable: true }, { label: "Enviar reacao", kind: "reaction", icon: "reaction", repeatable: true }] },
-    { title: "Logica", category: "logic", items: [{ label: "Condicao", kind: "condition", icon: "condition" }, { label: "Esperar", kind: "reminder", icon: "reminder" }] },
-    { title: "Dados e saida", category: "data", items: [{ label: "Respostas rapidas", kind: "quickReplies", icon: "quickReplies" }, { label: "Adicionar etiqueta", kind: "tagAction", icon: "tagAction", repeatable: true }, { label: "Conectar automacao", kind: "automationLink", icon: "automationLink", repeatable: true }, { label: "Finalizar", kind: "end", icon: "end" }] },
+    { title: "Gatilhos", category: "trigger", items: [{ label: "Comentário / Post", kind: "trigger", icon: "trigger" }, { label: "Palavra-chave", kind: "keywords", icon: "keywords" }, { label: "Gatilho por tag", kind: "tagAction", icon: "tagAction", status: "preparar" }] },
+    { title: "Ações no Instagram", category: "action", items: [{ label: "Responder comentário", kind: "commentReply", icon: "commentReply", repeatable: true }, { label: "Responder no privado", kind: "privateReply", icon: "privateReply", repeatable: true }, { label: "Enviar mensagem", kind: "dm", icon: "dm" }, { label: "Botão / link / código do botão", kind: "buttonMessage", icon: "buttonMessage", repeatable: true }, { label: "Enviar mídia", kind: "mediaMessage", icon: "mediaMessage", repeatable: true }, { label: "Enviar reação", kind: "reaction", icon: "reaction", repeatable: true }] },
+    { title: "Lógica", category: "logic", items: [{ label: "Condição", kind: "condition", icon: "condition" }, { label: "Esperar", kind: "reminder", icon: "reminder" }] },
+    { title: "Dados e saída", category: "data", items: [{ label: "Respostas rápidas", kind: "quickReplies", icon: "quickReplies" }, { label: "Adicionar etiqueta", kind: "tagAction", icon: "tagAction", repeatable: true }, { label: "Conectar automação", kind: "automationLink", icon: "automationLink", repeatable: true }, { label: "Finalizar", kind: "end", icon: "end" }] },
   ];
 
   return (
@@ -859,7 +860,7 @@ function CustomNodeConfigEditor({ config, kind, onUpdate }: { config: FlowNodeCo
       {kind === "commentReply" ? (
         <>
           <DelayEditor
-            label="Atraso inteligente"
+            label="Espera inteligente"
             mode={delayMode}
             unit={delayUnit}
             value={delayValue}
@@ -871,7 +872,7 @@ function CustomNodeConfigEditor({ config, kind, onUpdate }: { config: FlowNodeCo
             onMinChange={(value) => onUpdate({ delayMin: value })}
             onMaxChange={(value) => onUpdate({ delayMax: value })}
           />
-          <label className="field"><span>Resposta no comentario</span><textarea className="input min-h-32" value={config.text ?? ""} onChange={(event) => onUpdate({ text: event.target.value })} placeholder="Ex: Te enviei no privado" /></label>
+          <label className="field"><span>Resposta no comentário</span><textarea className="input min-h-32" value={config.text ?? ""} onChange={(event) => onUpdate({ text: event.target.value })} placeholder="Ex: Te enviei no privado" /></label>
         </>
       ) : null}
 
@@ -890,45 +891,45 @@ function CustomNodeConfigEditor({ config, kind, onUpdate }: { config: FlowNodeCo
             onMinChange={(value) => onUpdate({ delayMin: value })}
             onMaxChange={(value) => onUpdate({ delayMax: value })}
           />
-          <label className="field"><span>Mensagem privada</span><textarea className="input min-h-36" value={config.text ?? ""} onChange={(event) => onUpdate({ text: event.target.value })} placeholder="Ex: Oi {{first_name}}, aqui esta o acesso" /></label>
+          <label className="field"><span>Mensagem privada</span><textarea className="input min-h-36" value={config.text ?? ""} onChange={(event) => onUpdate({ text: event.target.value })} placeholder="Ex: Oi {{first_name}}, aqui está o acesso" /></label>
         </>
       ) : null}
 
       {kind === "buttonMessage" ? (
         <div className="grid gap-4">
-          <label className="field"><span>Mensagem</span><textarea className="input min-h-28" value={config.text ?? ""} onChange={(event) => onUpdate({ text: event.target.value })} placeholder="Ex: Escolha uma opcao abaixo" /></label>
-          <label className="field"><span>Texto do botao</span><input className="input" maxLength={20} value={config.buttonLabel ?? ""} onChange={(event) => onUpdate({ buttonLabel: event.target.value })} placeholder="Ex: Acessar" /></label>
+          <label className="field"><span>Mensagem</span><textarea className="input min-h-28" value={config.text ?? ""} onChange={(event) => onUpdate({ text: event.target.value })} placeholder="Ex: Escolha uma opção abaixo" /></label>
+          <label className="field"><span>Texto do botão</span><input className="input" maxLength={20} value={config.buttonLabel ?? ""} onChange={(event) => onUpdate({ buttonLabel: event.target.value })} placeholder="Ex: Acessar" /></label>
           <label className="field"><span>URL</span><input className="input" type="url" value={config.url ?? ""} onChange={(event) => onUpdate({ url: event.target.value })} placeholder="https://..." /></label>
-          <label className="field"><span>Payload</span><input className="input" value={config.payload ?? ""} onChange={(event) => onUpdate({ payload: event.target.value })} placeholder="Ex: etapa:bonus" /></label>
+          <label className="field"><span>Código do botão</span><input className="input" value={config.payload ?? ""} onChange={(event) => onUpdate({ payload: event.target.value })} placeholder="Ex: etapa:bonus" /></label>
         </div>
       ) : null}
 
       {kind === "mediaMessage" ? (
         <div className="grid gap-4">
-          <label className="field"><span>Tipo de midia</span><select className="input" value={config.mediaType ?? "image"} onChange={(event) => onUpdate({ mediaType: event.target.value as MediaActionType })}><option value="image">Imagem</option><option value="gif">GIF</option><option value="audio">Audio</option></select></label>
-          <label className="field"><span>URL da midia</span><input className="input" type="url" value={config.mediaUrl ?? ""} onChange={(event) => onUpdate({ mediaUrl: event.target.value })} placeholder="https://..." /></label>
+          <label className="field"><span>Tipo de mídia</span><select className="input" value={config.mediaType ?? "image"} onChange={(event) => onUpdate({ mediaType: event.target.value as MediaActionType })}><option value="image">Imagem</option><option value="gif">GIF</option><option value="audio">Áudio</option></select></label>
+          <label className="field"><span>Endereço da mídia</span><input className="input" type="url" value={config.mediaUrl ?? ""} onChange={(event) => onUpdate({ mediaUrl: event.target.value })} placeholder="https://..." /></label>
           <label className="field"><span>Legenda ou apoio</span><textarea className="input min-h-24" value={config.text ?? ""} onChange={(event) => onUpdate({ text: event.target.value })} /></label>
         </div>
       ) : null}
 
       {kind === "reaction" ? (
         <div className="grid gap-4">
-          <label className="field"><span>Emoji da reacao</span><input className="input" maxLength={8} value={config.reactionEmoji ?? "<3"} onChange={(event) => onUpdate({ reactionEmoji: event.target.value })} /></label>
-          <p className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3 text-sm text-[var(--ms-muted)]">Usado para marcar a ultima mensagem recebida com uma reacao quando o executor do grafo for ativado.</p>
+          <label className="field"><span>Emoji da reação</span><input className="input" maxLength={8} value={config.reactionEmoji ?? "<3"} onChange={(event) => onUpdate({ reactionEmoji: event.target.value })} /></label>
+          <p className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3 text-sm text-[var(--ms-muted)]">Usado para marcar a última mensagem recebida com uma reação quando esta etapa for ativada.</p>
         </div>
       ) : null}
 
       {kind === "tagAction" ? (
         <div className="grid gap-4">
           <label className="field"><span>Etiqueta</span><input className="input" value={config.tagName ?? ""} onChange={(event) => onUpdate({ tagName: event.target.value })} placeholder="Ex: quente" /></label>
-          <p className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3 text-sm text-[var(--ms-muted)]">Este bloco prepara a acao de adicionar etiqueta ao lead ou usar etiqueta como entrada de remarketing.</p>
+          <p className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3 text-sm text-[var(--ms-muted)]">Este bloco prepara a ação de adicionar uma etiqueta ao contato ou usar a etiqueta como entrada de remarketing.</p>
         </div>
       ) : null}
 
       {kind === "automationLink" ? (
         <div className="grid gap-4">
-          <label className="field"><span>ID da automacao</span><input className="input" value={config.automationId ?? ""} onChange={(event) => onUpdate({ automationId: event.target.value })} placeholder="Cole o ID da automacao" /></label>
-          <p className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3 text-sm text-[var(--ms-muted)]">Permite preparar a passagem deste lead para outro fluxo.</p>
+          <label className="field"><span>ID da automação</span><input className="input" value={config.automationId ?? ""} onChange={(event) => onUpdate({ automationId: event.target.value })} placeholder="Cole o ID da automação" /></label>
+          <p className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3 text-sm text-[var(--ms-muted)]">Permite preparar a passagem deste contato para outro fluxo.</p>
         </div>
       ) : null}
     </div>
@@ -967,23 +968,23 @@ function TriggerPostPicker({
   return (
     <div className="grid gap-3">
       <SegmentedControl<"all" | "specific">
-        label="Post/Reel"
+        label="Post ou Reel"
         value={scope}
-        options={[{ label: "Todos", value: "all" }, { label: "Especificos", value: "specific" }]}
+        options={[{ label: "Todos", value: "all" }, { label: "Específicos", value: "specific" }]}
         onChange={(value) => onSelectPost(value === "all" ? "" : selectedPostId)}
       />
 
       {scope === "specific" ? (
         <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3">
           {selectedPostIds.length ? <p className="status-pill status-pill-green w-fit">{selectedPostIds.length} selecionado(s)</p> : null}
-          {mediaStatus === "idle" ? <p className="text-sm text-[var(--ms-muted)]">Conecte o Instagram para listar posts e reels.</p> : null}
+          {mediaStatus === "idle" ? <p className="text-sm text-[var(--ms-muted)]">Conecte o Instagram para listar os posts e Reels.</p> : null}
           {mediaStatus === "loading" ? (
             <div className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--ms-muted)]" aria-live="polite">
-              <Loader2 className="animate-spin" size={15} /> Carregando posts e reels...
+              <Loader2 className="animate-spin" size={15} /> Carregando posts e Reels...
             </div>
           ) : null}
           {mediaStatus === "error" ? <p className="text-sm text-red-500">{mediaError}</p> : null}
-          {mediaStatus === "ready" && !media.length ? <p className="text-sm text-[var(--ms-muted)]">Nenhum post ou reel retornado pela API.</p> : null}
+          {mediaStatus === "ready" && !media.length ? <p className="text-sm text-[var(--ms-muted)]">O Instagram ainda não mostrou posts nem Reels deste perfil.</p> : null}
 
           {mediaStatus === "ready" && media.length ? (
             <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
@@ -1000,17 +1001,17 @@ function TriggerPostPicker({
                     <div className="flex gap-3">
                       {imageUrl ? (
                         <img
-                          alt="Preview do post"
+                          alt="Prévia do post"
                           className="size-12 shrink-0 rounded-lg object-cover"
                           src={imageUrl}
                           onError={(event) => {
                             event.currentTarget.style.display = "none";
                           }}
                         />
-                      ) : <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-[var(--ms-surface-soft)] text-xs text-[var(--ms-muted)]">Midia</div>}
+                      ) : <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-[var(--ms-surface-soft)] text-xs text-[var(--ms-muted)]">Mídia</div>}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2 text-xs font-bold">
-                          <span className="text-emerald-700 dark:text-emerald-300">{item.media_type || "MIDIA"}</span>
+                          <span className="text-emerald-700 dark:text-emerald-300">{mediaTypeLabel(item.media_type)}</span>
                           <span className={selected ? "inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300" : "text-[var(--ms-muted)]"}>
                             {selected ? <Check size={13} /> : null}
                             {selected ? "Selecionado" : "Selecionar"}
@@ -1028,12 +1029,12 @@ function TriggerPostPicker({
 
           {missingPostIds.length ? (
             <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs font-semibold text-amber-700 dark:text-amber-200">
-              {missingPostIds.length === 1 ? "Um post salvo nao apareceu na lista atual." : `${missingPostIds.length} posts salvos nao apareceram na lista atual.`} Mantive o(s) ID(s) configurado(s) abaixo.
+              {missingPostIds.length === 1 ? "Um post salvo não apareceu na lista atual." : `${missingPostIds.length} posts salvos não apareceram na lista atual.`} Mantive o(s) ID(s) configurado(s) abaixo.
             </p>
           ) : null}
           <label className="field gap-1">
             <span>IDs manuais</span>
-            <textarea className="input min-h-24 py-2" placeholder="Cole um ID por linha ou separe por virgula" value={selectedPostId} onChange={(event) => onSelectPost(event.target.value)} />
+            <textarea className="input min-h-24 py-2" placeholder="Cole um ID por linha ou separe por vírgula" value={selectedPostId} onChange={(event) => onSelectPost(event.target.value)} />
           </label>
         </div>
       ) : null}
@@ -1070,10 +1071,10 @@ function KeywordsEditor({
   return (
     <div className="grid gap-4">
       <label className="field">
-        <span>Tipo de comparacao</span>
+        <span>Tipo de comparação</span>
         <select className="input" value={matchType} onChange={(event) => onMatchTypeChange(event.target.value as MatchType)}>
-          <option value="contains">Contem</option>
-          <option value="exact">Exato</option>
+          <option value="contains">Contém a palavra</option>
+          <option value="exact">Palavra exata</option>
           <option value="any">Qualquer mensagem</option>
         </select>
       </label>
@@ -1087,7 +1088,7 @@ function KeywordsEditor({
                 <CircleHelp size={14} />
               </TooltipTrigger>
               <TooltipContent side="right" className="max-w-64">
-                Nao diferencia maiusculas e minusculas. Ex: Eu quero, eu quero e EU QUERO acionam o mesmo fluxo.
+                Não diferencia maiúsculas e minúsculas. Ex: Eu quero, eu quero e EU QUERO acionam o mesmo fluxo.
               </TooltipContent>
             </Tooltip>
           </div>
@@ -1127,14 +1128,14 @@ function GreetingListEditor({
   return (
     <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-sm font-bold">Saudacoes aleatorias</span>
+        <span className="text-sm font-bold">Saudações aleatórias</span>
         <button className="btn-secondary h-9" onClick={onAdd} type="button"><Plus size={15} /> Adicionar</button>
       </div>
       <div className="grid gap-3">
         {greetings.map((greeting, index) => (
           <div className="grid gap-2" key={index}>
             <label className="field gap-1">
-              <span>{`Saudacao ${index + 1}`}</span>
+              <span>{`Saudação ${index + 1}`}</span>
               <input className="input h-10 py-0" value={greeting} onChange={(event) => onUpdate(index, event.target.value)} placeholder="Ex: Oii" />
             </label>
             {greetings.length > 1 ? (
@@ -1170,12 +1171,12 @@ function TextAlternativesEditor({
       <SegmentedControl<ReplyMode>
         label="Tipo de resposta"
         value={mode}
-        options={[{ label: "Fixa", value: "fixed" }, { label: "Aleatoria", value: "random" }]}
+        options={[{ label: "Fixa", value: "fixed" }, { label: "Aleatória", value: "random" }]}
         onChange={onModeChange}
       />
       <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm font-bold">Respostas no comentario</span>
+          <span className="text-sm font-bold">Respostas no comentário</span>
           {mode === "random" ? <button className="btn-secondary h-9" onClick={onAdd} type="button"><Plus size={15} /> Adicionar</button> : null}
         </div>
         <div className="grid gap-3">
@@ -1229,7 +1230,7 @@ function DelayEditor({
       <SegmentedControl<DelayMode>
         label={label}
         value={mode}
-        options={[{ label: "Simples", value: "fixed" }, { label: "Randomico", value: "random" }]}
+        options={[{ label: "Simples", value: "fixed" }, { label: "Aleatório", value: "random" }]}
         onChange={onModeChange}
       />
       <label className="field">
@@ -1244,8 +1245,8 @@ function DelayEditor({
         <label className="field"><span>Tempo</span><input className="input" min="0" type="number" value={value} onChange={(event) => onValueChange(event.target.value)} /></label>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="field"><span>Minimo</span><input className="input" min="0" type="number" value={min} onChange={(event) => onMinChange(event.target.value)} /></label>
-          <label className="field"><span>Maximo</span><input className="input" min="0" type="number" value={max} onChange={(event) => onMaxChange(event.target.value)} /></label>
+          <label className="field"><span>Mínimo</span><input className="input" min="0" type="number" value={min} onChange={(event) => onMinChange(event.target.value)} /></label>
+          <label className="field"><span>Máximo</span><input className="input" min="0" type="number" value={max} onChange={(event) => onMaxChange(event.target.value)} /></label>
         </div>
       )}
     </div>
@@ -1286,10 +1287,10 @@ function QuickRepliesEditor({
 }) {
   return (
     <div className="grid gap-4">
-      <label className="field"><span>Resposta rapida unica</span><input className="input" value={formState.quick_reply_label} onChange={(event) => onUpdate("quick_reply_label", event.target.value)} /></label>
+      <label className="field"><span>Resposta rápida única</span><input className="input" value={formState.quick_reply_label} onChange={(event) => onUpdate("quick_reply_label", event.target.value)} /></label>
       <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm font-bold">Botoes</span>
+          <span className="text-sm font-bold">Botões</span>
           <button className="btn-secondary h-9" disabled={formState.quick_replies.length >= 13} onClick={onAdd} type="button">
             <Plus size={15} />
             Adicionar
@@ -1300,8 +1301,8 @@ function QuickRepliesEditor({
           <div className="grid gap-3">
             {formState.quick_replies.map((reply, index) => (
               <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface)] p-3" key={index}>
-                <label className="field"><span>Titulo</span><input className="input" maxLength={20} value={reply.title} onChange={(event) => onUpdateQuickReply(index, "title", event.target.value)} /></label>
-                <label className="field"><span>Payload</span><input className="input" value={reply.payload} onChange={(event) => onUpdateQuickReply(index, "payload", event.target.value)} /></label>
+                <label className="field"><span>Título</span><input className="input" maxLength={20} value={reply.title} onChange={(event) => onUpdateQuickReply(index, "title", event.target.value)} /></label>
+                <label className="field"><span>Código do botão</span><input className="input" value={reply.payload} onChange={(event) => onUpdateQuickReply(index, "payload", event.target.value)} /></label>
                 <button className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 text-sm font-bold text-red-600" onClick={() => onRemove(index)} type="button">
                   <Trash2 size={15} />
                   Excluir
@@ -1309,7 +1310,7 @@ function QuickRepliesEditor({
               </div>
             ))}
           </div>
-        ) : <p className="text-sm text-[var(--ms-muted)]">Nenhum botao configurado.</p>}
+        ) : <p className="text-sm text-[var(--ms-muted)]">Nenhum botão configurado.</p>}
       </div>
     </div>
   );
@@ -1330,7 +1331,7 @@ function VariableBox() {
 
   return (
     <div className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4">
-      <div className="flex items-center gap-2 text-sm font-bold"><Sparkles size={15} /> Variaveis</div>
+      <div className="flex items-center gap-2 text-sm font-bold"><Sparkles size={15} /> Variáveis</div>
       <div className="mt-3 grid gap-2">
         {variables.map((variable) => {
           const copied = copiedTag === variable.tag;
@@ -1508,11 +1509,11 @@ function createInitialEdges(automation?: Automation): UaiFlowEdge[] {
 
   return [
     createEdge("trigger", "keywords"),
-    createEdge("keywords", "publicReply", "comentario"),
-    createEdge("keywords", "condition", "dm/story"),
+    createEdge("keywords", "publicReply", "comentário"),
+    createEdge("keywords", "condition", "direct/story"),
     createEdge("publicReply", "condition"),
     createEdge("condition", "dm", "segue", "yes"),
-    createEdge("condition", "end", "nao segue", "no"),
+    createEdge("condition", "end", "não segue", "no"),
     createEdge("dm", "quickReplies"),
     createEdge("quickReplies", "link"),
     createEdge("link", "reminder"),
@@ -1650,7 +1651,7 @@ function createEdge(source: string, target: string, label?: string, sourceHandle
 function normalizeEdgeSourceHandle(edge: FlowEdgeDefinition) {
   if (edge.source !== "condition") return edge.sourceHandle;
   if (edge.sourceHandle === "yes" || edge.sourceHandle === "no") return edge.sourceHandle;
-  const label = String(edge.label ?? "").toLowerCase();
+  const label = String(edge.label ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   if (label.includes("nao") || label.includes("bloqueado") || edge.target === "end") return "no";
   return "yes";
 }
@@ -1658,12 +1659,12 @@ function normalizeEdgeSourceHandle(edge: FlowEdgeDefinition) {
 function conditionHandleLabel(source: string, sourceHandle?: string) {
   if (source !== "condition") return undefined;
   if (sourceHandle === "yes") return "segue";
-  if (sourceHandle === "no") return "nao segue";
+  if (sourceHandle === "no") return "não segue";
   return undefined;
 }
 function translateHandle(handle: string) {
   if (handle === "yes") return "segue";
-  if (handle === "no") return "nao segue";
+  if (handle === "no") return "não segue";
   return handle;
 }
 function connectionLabel(connection: Connection) {
@@ -1680,7 +1681,7 @@ function buildNodeData(kind: FlowNodeKind, state: FlowFormState, config?: FlowNo
     trigger: {
       kind,
       title: "Gatilho",
-      subtitle: triggers || "Comentario",
+      subtitle: triggers || "Comentário",
       summary: postSelectionSummary(state.post_id),
       badge: state.active ? "ON" : "OFF",
       active: state.active,
@@ -1697,36 +1698,36 @@ function buildNodeData(kind: FlowNodeKind, state: FlowFormState, config?: FlowNo
     },
     publicReply: {
       kind,
-      title: "Comentario",
-      subtitle: state.public_reply_mode === "random" ? "Resposta aleatoria" : "Resposta fixa",
-      summary: publicReplies.length ? publicReplies[0] : "Sem resposta publica configurada.",
+      title: "Comentário",
+      subtitle: state.public_reply_mode === "random" ? "Resposta aleatória" : "Resposta fixa",
+      summary: publicReplies.length ? publicReplies[0] : "Sem resposta pública configurada.",
       badge: state.public_reply_mode === "random" ? String(publicReplies.length) : "fixa",
       active: publicReplies.length > 0,
       config,
     },
     condition: {
       kind,
-      title: "Condicao",
+      title: "Condição",
       subtitle: "Seguidor",
-      summary: state.require_follower ? "Confere se o lead segue antes de liberar." : "Fluxo liberado sem checagem de seguidor.",
+      summary: state.require_follower ? "Confere se o contato segue antes de liberar." : "Fluxo liberado sem checagem de seguidor.",
       badge: state.require_follower ? "ON" : "OFF",
       active: state.require_follower,
       config,
     },
     dm: {
       kind,
-      title: "DM inicial",
+      title: "Mensagem inicial",
       subtitle: formatDelaySummary(state.reply_delay_mode, state.reply_delay_value, state.reply_delay_min, state.reply_delay_max, state.reply_delay_unit),
-      summary: state.welcome_dm || "Sem DM inicial configurada.",
+      summary: state.welcome_dm || "Sem mensagem inicial configurada.",
       badge: state.reply_delay_mode === "random" ? "rand" : "fixo",
       active: Boolean(state.welcome_dm),
       config,
     },
     quickReplies: {
       kind,
-      title: "Respostas rapidas",
-      subtitle: state.quick_reply_label || "Botao unico",
-      summary: quickReplies.length ? quickReplies.map((reply) => reply.title).join(", ") : "Nenhum botao configurado.",
+      title: "Respostas rápidas",
+      subtitle: state.quick_reply_label || "Botão único",
+      summary: quickReplies.length ? quickReplies.map((reply) => reply.title).join(", ") : "Nenhum botão configurado.",
       badge: String(quickReplies.length),
       active: quickReplies.length > 0 || Boolean(state.quick_reply_label),
       config,
@@ -1734,7 +1735,7 @@ function buildNodeData(kind: FlowNodeKind, state: FlowFormState, config?: FlowNo
     link: {
       kind,
       title: "Link",
-      subtitle: state.link_button_label || "Botao",
+      subtitle: state.link_button_label || "Botão",
       summary: state.link_url || state.link_text || "Sem link configurado.",
       badge: state.link_url ? "URL" : "vazio",
       active: Boolean(state.link_url),
@@ -1753,16 +1754,16 @@ function buildNodeData(kind: FlowNodeKind, state: FlowFormState, config?: FlowNo
       kind,
       title: "Fim",
       subtitle: "Encerramento",
-      summary: "O lead permanece disponivel na caixa de entrada e nos contatos.",
+      summary: "O contato continua disponível na caixa de entrada e nos contatos.",
       badge: "fim",
       active: true,
       config,
     },
     commentReply: {
       kind,
-      title: "Responder comentario",
+      title: "Responder comentário",
       subtitle: formatConfigDelay(cfg),
-      summary: cfg.text || "Configure a resposta publica do comentario.",
+      summary: cfg.text || "Configure a resposta pública do comentário.",
       badge: "coment",
       active: Boolean(cfg.text),
       config: cfg,
@@ -1778,27 +1779,27 @@ function buildNodeData(kind: FlowNodeKind, state: FlowFormState, config?: FlowNo
     },
     buttonMessage: {
       kind,
-      title: "Botao / link / payload",
-      subtitle: cfg.buttonLabel || "Botao configuravel",
-      summary: cfg.url || cfg.payload || cfg.text || "Configure URL, payload ou texto do botao.",
-      badge: cfg.url ? "URL" : cfg.payload ? "payload" : "botao",
+      title: "Botão / link / código do botão",
+      subtitle: cfg.buttonLabel || "Botão configurável",
+      summary: cfg.url || cfg.payload || cfg.text || "Configure o endereço, o código ou o texto do botão.",
+      badge: cfg.url ? "URL" : cfg.payload ? "código" : "botão",
       active: Boolean(cfg.buttonLabel && (cfg.url || cfg.payload)),
       config: cfg,
     },
     mediaMessage: {
       kind,
-      title: "Enviar midia",
+      title: "Enviar mídia",
       subtitle: translateMediaType(cfg.mediaType ?? "image"),
-      summary: cfg.mediaUrl || cfg.text || "Configure a URL da midia.",
+      summary: cfg.mediaUrl || cfg.text || "Configure o endereço da mídia.",
       badge: cfg.mediaType ?? "image",
       active: Boolean(cfg.mediaUrl),
       config: cfg,
     },
     reaction: {
       kind,
-      title: "Enviar reacao",
-      subtitle: "Reacao na mensagem",
-      summary: cfg.reactionEmoji ? `Reagir com ${cfg.reactionEmoji}` : "Configure o emoji da reacao.",
+      title: "Enviar reação",
+      subtitle: "Reação na mensagem",
+      summary: cfg.reactionEmoji ? `Reagir com ${cfg.reactionEmoji}` : "Configure o emoji da reação.",
       badge: cfg.reactionEmoji || "emoji",
       active: Boolean(cfg.reactionEmoji),
       config: cfg,
@@ -1807,16 +1808,16 @@ function buildNodeData(kind: FlowNodeKind, state: FlowFormState, config?: FlowNo
       kind,
       title: "Etiqueta",
       subtitle: "Contato / remarketing",
-      summary: cfg.tagName ? `Adicionar tag ${cfg.tagName}` : "Configure a etiqueta do lead.",
+      summary: cfg.tagName ? `Adicionar etiqueta ${cfg.tagName}` : "Configure a etiqueta do contato.",
       badge: "tag",
       active: Boolean(cfg.tagName),
       config: cfg,
     },
     automationLink: {
       kind,
-      title: "Conectar automacao",
-      subtitle: "Proximo fluxo",
-      summary: cfg.automationId ? `Enviar para ${cfg.automationId}` : "Configure a automacao de destino.",
+      title: "Conectar automação",
+      subtitle: "Próximo fluxo",
+      summary: cfg.automationId ? `Enviar para ${cfg.automationId}` : "Configure a automação de destino.",
       badge: "fluxo",
       active: Boolean(cfg.automationId),
       config: cfg,
@@ -1832,7 +1833,7 @@ function formatConfigDelay(config: FlowNodeConfig) {
 
 function translateMediaType(type: MediaActionType) {
   if (type === "gif") return "GIF";
-  if (type === "audio") return "Audio";
+  if (type === "audio") return "Áudio";
   return "Imagem";
 }
 
@@ -1852,8 +1853,8 @@ function getNodeCategory(kind: FlowNodeKind): FlowNodeCategory {
 function getCategoryTheme(category: FlowNodeCategory) {
   const themes: Record<FlowNodeCategory, { label: string; accent: string; soft: string; border: string; ring: string }> = {
     trigger: { label: "Gatilho", accent: "#10b981", soft: "rgba(16,185,129,0.14)", border: "rgba(16,185,129,0.38)", ring: "rgba(16,185,129,0.2)" },
-    action: { label: "Acao Instagram", accent: "#3b82f6", soft: "rgba(59,130,246,0.16)", border: "rgba(59,130,246,0.38)", ring: "rgba(59,130,246,0.22)" },
-    logic: { label: "Logica", accent: "#f59e0b", soft: "rgba(245,158,11,0.16)", border: "rgba(245,158,11,0.38)", ring: "rgba(245,158,11,0.2)" },
+    action: { label: "Ação no Instagram", accent: "#3b82f6", soft: "rgba(59,130,246,0.16)", border: "rgba(59,130,246,0.38)", ring: "rgba(59,130,246,0.22)" },
+    logic: { label: "Lógica", accent: "#f59e0b", soft: "rgba(245,158,11,0.16)", border: "rgba(245,158,11,0.38)", ring: "rgba(245,158,11,0.2)" },
     data: { label: "Dados", accent: "#ec4899", soft: "rgba(236,72,153,0.15)", border: "rgba(236,72,153,0.34)", ring: "rgba(236,72,153,0.2)" },
     control: { label: "Controle", accent: "#8b5cf6", soft: "rgba(139,92,246,0.16)", border: "rgba(139,92,246,0.36)", ring: "rgba(139,92,246,0.22)" },
   };
@@ -1902,17 +1903,17 @@ function getFlowMetrics(nodes: UaiFlowNode[]) {
 
 function translateTrigger(trigger: AutomationTrigger) {
   const labels: Record<AutomationTrigger, string> = {
-    comments: "Comentario",
+    comments: "Comentário",
     story: "Story",
-    dm: "DM",
+    dm: "Mensagem no direct",
   };
   return labels[trigger];
 }
 
 function translateMatchType(matchType: MatchType) {
   const labels: Record<MatchType, string> = {
-    contains: "Contem",
-    exact: "Exato",
+    contains: "Contém a palavra",
+    exact: "Palavra exata",
     any: "Qualquer mensagem",
   };
   return labels[matchType];
@@ -1983,7 +1984,7 @@ function joinPostIds(postIds: string[]) {
 
 function postSelectionSummary(value: string) {
   const postIds = splitPostIds(value);
-  if (!postIds.length) return "Todos os posts/reels do perfil selecionado.";
-  if (postIds.length === 1) return `Post/Reel ${postIds[0]}`;
-  return `${postIds.length} posts/reels selecionados.`;
+  if (!postIds.length) return "Todos os posts e Reels do perfil selecionado.";
+  if (postIds.length === 1) return `Post ou Reel ${postIds[0]}`;
+  return `${postIds.length} posts e Reels selecionados.`;
 }
