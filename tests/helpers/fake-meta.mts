@@ -144,6 +144,10 @@ export function installFakeMeta(): FakeMeta {
       return json({ data: fake.feed.slice(0, limit) });
     }
 
+    // Mensagens diretas e respostas privadas (POST /{ig-user-id}/messages) e resposta pública a comentário (POST /{comment-id}/replies).
+    if (path.endsWith("/messages") && method === "POST") return json({ recipient_id: "destinatario", message_id: `mid-${++seq}` });
+    if (path.endsWith("/replies") && method === "POST") return json({ id: `reply-${++seq}` });
+
     if (path.endsWith("/comments") && method === "POST") return json({ id: `comment-${++seq}` });
     if (path.endsWith("/insights")) return json({ data: [] });
 

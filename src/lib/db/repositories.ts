@@ -1270,6 +1270,21 @@ export async function releaseQueueJobs(ids: string[]) {
   );
 }
 
+/**
+ * Adia jobs que estavam "sending" (o limite de envios por hora do perfil foi atingido): voltam para a fila
+ * para `availableAt`, sem gastar tentativa, com uma nota em português para a tela.
+ */
+export async function deferQueueJobs(ids: string[], availableAt: Date, note: string) {
+  if (!ids.length) return;
+  await query(
+    `update public.queue
+     set status = 'pending', claimed_at = null, attempts = greatest(attempts - 1, 0),
+         available_at = $2, last_error = $3
+     where id = any($1::uuid[]) and status = 'sending'`,
+    [ids, availableAt, note.slice(0, 500)],
+  );
+}
+
 export async function markJobSent(id: string) {
   await query("update public.queue set status = 'sent', sent_at = now(), last_error = null where id = $1", [id]);
 }
@@ -1317,6 +1332,28 @@ export async function sentDmCountLastHour(accountId?: string | null) {
     accountId ? [accountId] : [],
   );
   return Number(rows[0]?.count ?? 0);
+}
+
+/**
+ * Próximo horário em que o perfil pode mandar mais uma mensagem direta (limite de 200 por hora):
+ * 1 h e 5 s depois do 200º envio mais recente (é quando ele sai da janela de 1 h). No mínimo daqui a 1 minuto.
+ */
+export async function nextDmSlot(accountId?: string | null): Promise<Date> {
+  const { rows } = await query<{ slot: Date }>(
+    `select greatest(
+              coalesce((
+                select q.sent_at + interval '1 hour 5 seconds'
+                from public.queue q
+                where ($1::uuid is null or q.account_id = $1) and q.status = 'sent' and q.send_type in ('dm', 'private_reply')
+                  and q.sent_at >= now() - interval '1 hour'
+                order by q.sent_at desc
+                offset 199 limit 1
+              ), now()),
+              now() + interval '1 minute'
+            ) as slot`,
+    [accountId ?? null],
+  );
+  return rows[0].slot;
 }
 
 const CONTACT_SUMMARY_COLUMNS = `c.id, c.account_id, ia.instagram_username as account_username,

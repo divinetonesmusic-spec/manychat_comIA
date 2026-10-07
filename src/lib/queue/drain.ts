@@ -1,10 +1,12 @@
 ﻿import {
   claimQueueJobs,
+  deferQueueJobs,
   getConfig,
   getTemplateContext,
   markExpiredDmsSkipped,
   markJobFailed,
   markJobSent,
+  nextDmSlot,
   recoverStaleQueueJobs,
   releaseQueueJobs,
   sentDmCountLastHour,
@@ -26,6 +28,8 @@ const BATCH_SIZE = 5;
 /**
  * Envia a fila em lotes pequenos e respeita um limite de tempo (serverless: Netlify/Render cortam em ~10 s).
  * O que não couber fica "pending" e sai no próximo minuto. Jobs presos em "sending" voltam para a fila.
+ * Perfil que bateu no limite de 200 mensagens por hora: as mensagens diretas dele esperam o próximo horário
+ * livre (sem gastar tentativa e sem virar "failed"); outros perfis e respostas públicas seguem normais.
  */
 export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(process.env.DRAIN_BUDGET_MS || 6000)) {
   const deadline = Date.now() + budgetMs;
@@ -36,51 +40,79 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
   let processed = 0;
   let sent = 0;
   let failed = 0;
+  let deferred = 0;
   let stoppedEarly = false;
+  // Perfis que já bateram no limite neste ciclo: as próximas mensagens deles esperam sem consultar o banco de novo.
+  const atLimit = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
 
   while (processed < total) {
     if (deadline - Date.now() < 1500) { stoppedEarly = true; break; }
     const jobs = await claimQueueJobs(Math.min(BATCH_SIZE, total - processed));
     if (!jobs.length) break;
 
-    for (const [index, job] of jobs.entries()) {
-      if (deadline - Date.now() < 800) {
-        // Sem tempo: devolve o resto do lote sem gastar tentativa.
-        await releaseQueueJobs(jobs.slice(index).map((item) => item.id));
-        stoppedEarly = true;
-        break;
-      }
-      processed += 1;
-      const config = await getConfig(job.account_id);
-      if (!config.instagram_access_token || !config.instagram_user_id) {
-        await markJobFailed(job.id, "Instagram nao conectado para este perfil");
-        failed += 1;
-        continue;
-      }
+    try {
+      for (const [index, job] of jobs.entries()) {
+        if (deadline - Date.now() < 800) {
+          // Sem tempo: devolve o resto do lote sem gastar tentativa.
+          await releaseQueueJobs(jobs.slice(index).map((item) => item.id));
+          stoppedEarly = true;
+          break;
+        }
+        processed += 1;
+        const config = await getConfig(job.account_id);
+        if (!config.instagram_access_token || !config.instagram_user_id) {
+          await markJobFailed(job.id, "Instagram nao conectado para este perfil");
+          failed += 1;
+          continue;
+        }
 
-      const countsTowardDmLimit = job.send_type === "dm" || job.send_type === "private_reply";
-      const hourlyCount = countsTowardDmLimit ? await sentDmCountLastHour(config.account_id) : 0;
-      if (hourlyCount >= MAX_AUTOMATED_DMS_PER_HOUR) {
-        await markJobFailed(job.id, "Limite horario de seguranca atingido para este perfil");
-        failed += 1;
-        continue;
-      }
+        const countsTowardDmLimit = job.send_type === "dm" || job.send_type === "private_reply";
+        if (countsTowardDmLimit) {
+          const limitKey = config.account_id ?? "";
+          let wait = atLimit.get(limitKey);
+          if (!wait && (await sentDmCountLastHour(config.account_id)) >= MAX_AUTOMATED_DMS_PER_HOUR) {
+            const availableAt = await nextDmSlot(config.account_id);
+            wait = {
+              availableAt,
+              note: `Limite de ${MAX_AUTOMATED_DMS_PER_HOUR} mensagens por hora deste perfil: sai às ${formatSaoPauloTime(availableAt)}.`,
+              ids: [],
+            };
+            atLimit.set(limitKey, wait);
+          }
+          if (wait) {
+            wait.ids.push(job.id);
+            deferred += 1;
+            continue;
+          }
+        }
 
-      try {
-        await sendJob(job, config.instagram_user_id, config.instagram_access_token);
-        await markJobSent(job.id);
-        sent += 1;
-      } catch (error) {
-        failed += 1;
-        await markJobFailed(job.id, error instanceof Error ? error.message : "Erro desconhecido ao enviar");
-      }
+        try {
+          await sendJob(job, config.instagram_user_id, config.instagram_access_token);
+          await markJobSent(job.id);
+          sent += 1;
+        } catch (error) {
+          failed += 1;
+          await markJobFailed(job.id, error instanceof Error ? error.message : "Erro desconhecido ao enviar");
+        }
 
-      await delay(SEND_DELAY_MS);
+        await delay(SEND_DELAY_MS);
+      }
+    } finally {
+      // Adiadas do lote, de uma vez só (também se algo falhar no meio: elas não podem ficar presas em "sending").
+      for (const wait of atLimit.values()) {
+        const ids = wait.ids.splice(0);
+        await deferQueueJobs(ids, wait.availableAt, wait.note);
+      }
     }
     if (stoppedEarly) break;
   }
 
-  return { processed, sent, failed, stoppedEarly };
+  return { processed, sent, failed, deferred, stoppedEarly };
+}
+
+/** Hora e minuto no horário de São Paulo (ex.: "14:05"), para as notas que a pessoa lê. */
+function formatSaoPauloTime(date: Date) {
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
 }
 
 async function sendJob(job: QueueJob, instagramUserId: string, accessToken: string) {

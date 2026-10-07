@@ -39,6 +39,7 @@ async function runDrain(request: NextRequest) {
     processed: 0,
     sent: 0,
     failed: 0,
+    deferred: 0,
     stoppedEarly: true,
     error: error instanceof Error ? error.message : "Erro na fila",
   }));
