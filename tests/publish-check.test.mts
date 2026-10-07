@@ -36,4 +36,35 @@ describe("conferência do feed (achar o Reel que já saiu)", () => {
     ];
     assert.equal(findMatchingMedia(feed, { caption: "Legenda", since })?.id, "primeira");
   });
+
+  // Onda final: nunca pegar o post de outro (1º comentário e automação cairiam nele).
+  test("legenda vazia nunca casa (Stories e posts sem legenda não aparecem como 'já saiu')", () => {
+    const feed = [
+      { id: "sem-legenda", caption: "", timestamp: "2026-10-07T12:01:00+0000" },
+      { id: "sem-campo", timestamp: "2026-10-07T12:02:00+0000" },
+    ];
+    assert.equal(findMatchingMedia(feed, { caption: "", since }), null);
+    assert.equal(findMatchingMedia(feed, { caption: "  \n ", since }), null);
+  });
+
+  test("ignora mídias que já são de outro post do UaiFlow", () => {
+    const feed = [
+      { id: "de-outro-post", caption: "Legenda", timestamp: "2026-10-07T12:01:00+0000" },
+      { id: "desta-vez", caption: "Legenda", timestamp: "2026-10-07T12:03:00+0000" },
+    ];
+    assert.equal(findMatchingMedia(feed, { caption: "Legenda", since, excludeIds: new Set(["de-outro-post"]) })?.id, "desta-vez");
+    assert.equal(findMatchingMedia(feed, { caption: "Legenda", since, excludeIds: new Set(["de-outro-post", "desta-vez"]) }), null);
+  });
+
+  test("prefere a mídia do horário do pedido em diante; a folga de 10 min antes é só reserva", () => {
+    const antes = { id: "antes", caption: "Legenda", timestamp: "2026-10-07T11:55:00+0000" };
+    const depois = { id: "depois", caption: "Legenda", timestamp: "2026-10-07T12:04:00+0000" };
+    assert.equal(findMatchingMedia([antes, depois], { caption: "Legenda", since })?.id, "depois");
+    // sem nada depois do pedido: usa a folga, e fica com a mais perto do pedido
+    const maisAntes = { id: "mais-antes", caption: "Legenda", timestamp: "2026-10-07T11:52:00+0000" };
+    assert.equal(findMatchingMedia([maisAntes, antes], { caption: "Legenda", since })?.id, "antes");
+    // a Meta corta os milissegundos: o mesmo segundo do pedido conta como "depois"
+    const mesmoSegundo = { id: "mesmo-segundo", caption: "Legenda", timestamp: "2026-10-07T12:00:00+0000" };
+    assert.equal(findMatchingMedia([antes, mesmoSegundo], { caption: "Legenda", since: new Date("2026-10-07T12:00:00.700Z") })?.id, "mesmo-segundo");
+  });
 });

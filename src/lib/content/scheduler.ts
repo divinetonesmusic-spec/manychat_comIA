@@ -4,6 +4,7 @@ import {
   claimPostNow,
   failContentPost,
   getContentPost,
+  listClaimedMediaIds,
   listPostsForMediaCleanup,
   listPostsMissingAfterPublish,
   listPostsNeedingInsights,
@@ -435,11 +436,16 @@ function publishRequestedRecently(post: ContentPost) {
   return Date.now() - new Date(post.publish_requested_at).getTime() < PUBLISH_RECHECK_MS;
 }
 
-/** Procura no feed do perfil o post que já saiu (mesma legenda, depois do pedido). Erro da Meta sobe para quem chamou. */
+/**
+ * Procura no feed do perfil o post que já saiu (mesma legenda, a partir do pedido), sem pegar mídia que já é
+ * de outro post do UaiFlow. Erro da Meta sobe para quem chamou.
+ */
 async function findPublishedMedia(post: ContentPost, config: Config): Promise<FeedMedia | null> {
   const feed = await listRecentInstagramMedia(config.instagram_user_id as string, config.instagram_access_token as string, 10);
   const since = new Date(post.publish_requested_at ?? post.publishing_started_at ?? post.scheduled_at ?? post.created_at);
-  return findMatchingMedia(feed.data ?? [], { caption: post.caption, since });
+  const data = feed.data ?? [];
+  const excludeIds = await listClaimedMediaIds(data.map((media) => media.id), post.id);
+  return findMatchingMedia(data, { caption: post.caption, since, excludeIds });
 }
 
 export type EarlierPublishCheck =

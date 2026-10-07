@@ -131,6 +131,49 @@ describe("publicação segura (U-PUB-01, com a migração 0003)", { skip: semBan
     assert.equal(post.published_media_id, "media-velho");
   });
 
+  test("(onda final) mídia do feed que já é de outro post (mesma legenda, pouco antes do pedido): não é usada, e o 1º comentário e a automação não caem nela", async () => {
+    // o outro post já fez o 1º comentário e não tem automação: qualquer chamada na mídia dele viria do post cortado
+    await insertPost(db, accountId, { status: "published", published_media_id: "media-de-outro-post", published_at: new Date(Date.now() - 6 * 60_000), first_comment: "", keyword: "" });
+    meta.feed.push({ id: "media-de-outro-post", caption: LEGENDA, timestamp: metaTimestamp(new Date(Date.now() - 6 * 60_000)), permalink: "https://www.instagram.com/reel/outro/" });
+    const id = await insertPost(db, accountId, {
+      status: "publishing",
+      container_id: "container-cortado",
+      publishing_started_at: new Date(Date.now() - 5 * 60_000),
+      publish_requested_at: new Date(Date.now() - 4 * 60_000),
+    });
+    meta.containerStatus.set("container-cortado", "PUBLISHED");
+
+    await scheduler.runContentCycle(8000);
+    const post = await readPost(db, id);
+    assert.equal(post.status, "published", "PUBLISHED continua sendo sucesso");
+    assert.equal(post.published_media_id, null, "não pegou a mídia do outro post");
+    assert.equal(post.last_error, "Publicado; não consegui buscar o link");
+    assert.equal(meta.calls.filter((call) => call.path.includes("media-de-outro-post")).length, 0, "nenhum comentário na mídia do outro post");
+    assert.equal((await db.sql("select 1 from public.automations where post_id = 'media-de-outro-post'")).length, 0);
+    assert.equal(meta.count("/media_publish"), 0);
+  });
+
+  test("(onda final) Story sem legenda com pedido cortado: um post sem legenda do feed não faz ele virar publicado", async () => {
+    meta.feed.push({ id: "media-sem-legenda", caption: "", timestamp: metaTimestamp(new Date(Date.now() - 2 * 60_000)), permalink: "https://www.instagram.com/p/sem-legenda/" });
+    const id = await insertPost(db, accountId, {
+      publish_type: "story_image",
+      caption: "",
+      first_comment: "",
+      keyword: "",
+      media_url: "https://midia.teste.invalid/uaiflow/story.jpg",
+      status: "publishing",
+      container_id: "container-story",
+      publishing_started_at: new Date(Date.now() - 5 * 60_000),
+      publish_requested_at: new Date(Date.now() - 4 * 60_000),
+    });
+
+    await scheduler.runContentCycle(8000);
+    const post = await readPost(db, id);
+    assert.notEqual(post.published_media_id, "media-sem-legenda");
+    assert.equal(meta.count("/media_publish"), 1, "o Story não tinha saído: pede de novo (1 vez)");
+    assert.equal(post.status, "published");
+  });
+
   test("container PUBLISHED sem a mídia no feed: marca publicado sem link, com nota, e nunca publica de novo", async () => {
     const id = await insertPost(db, accountId, { status: "publishing", container_id: "container-sem-feed", publishing_started_at: new Date() });
     meta.containerStatus.set("container-sem-feed", "PUBLISHED");

@@ -215,6 +215,16 @@ export async function markPublishRequested(id: string) {
   return true;
 }
 
+/** Ids de mídia do Instagram que já pertencem a outro post do UaiFlow (a conferência do feed não pode pegá-los). */
+export async function listClaimedMediaIds(mediaIds: string[], exceptPostId: string): Promise<Set<string>> {
+  if (!mediaIds.length) return new Set();
+  const { rows } = await query<{ media_id: string }>(
+    "select published_media_id as media_id from public.content_posts where published_media_id = any($1::text[]) and id <> $2",
+    [mediaIds, exceptPostId],
+  );
+  return new Set(rows.map((row) => row.media_id));
+}
+
 /** Trava curta: só um "relógio" mexe no post por vez (cron, tela aberta e Molde podem rodar juntos). */
 export async function tryLockPost(id: string, seconds = 60) {
   const { rows } = await query<{ id: string }>(

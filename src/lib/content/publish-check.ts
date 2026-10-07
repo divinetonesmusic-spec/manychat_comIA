@@ -23,14 +23,23 @@ export function parseMetaTimestamp(value: string | null | undefined): Date | nul
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Entre as mídias recentes, a primeira que saiu com a mesma legenda depois do pedido de publicação. */
-export function findMatchingMedia(feed: FeedMedia[], input: { caption: string; since: Date }): FeedMedia | null {
+/**
+ * Entre as mídias recentes, a que saiu com a mesma legenda por causa deste pedido de publicação.
+ * - Legenda vazia nunca casa (Stories não aparecem no feed e posts sem legenda são todos iguais).
+ * - `excludeIds`: mídias que já pertencem a outro post do UaiFlow nunca são escolhidas.
+ * - Prefere a primeira mídia do segundo do pedido em diante; a folga de 10 min antes do pedido (relógios
+ *   diferentes) é só reserva, e nela fica a mais perto do pedido.
+ */
+export function findMatchingMedia(feed: FeedMedia[], input: { caption: string; since: Date; excludeIds?: Set<string> }): FeedMedia | null {
   const caption = normalizeCaption(input.caption);
-  const since = input.since.getTime() - PUBLISH_MATCH_SLACK_MS;
+  if (!caption) return null;
+  const since = Math.floor(input.since.getTime() / 1000) * 1000; // a Meta corta os milissegundos
   const matches = feed
-    .filter((media) => normalizeCaption(media.caption) === caption)
+    .filter((media) => !input.excludeIds?.has(media.id) && normalizeCaption(media.caption) === caption)
     .map((media) => ({ media, at: parseMetaTimestamp(media.timestamp)?.getTime() ?? Number.NaN }))
-    .filter((item) => !Number.isNaN(item.at) && item.at >= since)
-    .sort((a, b) => a.at - b.at);
-  return matches[0]?.media ?? null;
+    .filter((item) => !Number.isNaN(item.at) && item.at >= since - PUBLISH_MATCH_SLACK_MS);
+  const after = matches.filter((item) => item.at >= since).sort((a, b) => a.at - b.at);
+  if (after.length) return after[0].media;
+  const before = matches.sort((a, b) => b.at - a.at);
+  return before[0]?.media ?? null;
 }
