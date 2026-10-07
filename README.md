@@ -56,6 +56,7 @@ npm run release:check # verifica o pacote antes de publicar
 - [Onboarding](docs/ONBOARDING.md)
 - [Transferencia](docs/TRANSFER.md)
 - [Checklist de release](docs/RELEASE_CHECKLIST.md)
+- [Avisos no Telegram, monitor e cópia do banco](docs/AVISOS_E_COPIA.md)
 
 ## Segredos
 
