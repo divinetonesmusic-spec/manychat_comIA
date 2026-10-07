@@ -25,4 +25,8 @@ const falsas: Record<string, string> = {
 
 for (const [nome, valor] of Object.entries(falsas)) process.env[nome] = valor;
 
+// Avisos do Telegram começam desligados; cada teste que precisa liga com valores falsos.
+delete process.env.TELEGRAM_BOT_TOKEN;
+delete process.env.TELEGRAM_CHAT_ID;
+
 export {};

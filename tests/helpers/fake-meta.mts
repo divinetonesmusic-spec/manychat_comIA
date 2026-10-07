@@ -1,5 +1,5 @@
 /**
- * Meta (Instagram Graph), login do Instagram e R2 simulados: troca o fetch global por um falso.
+ * Meta (Instagram Graph), login do Instagram, R2 e Telegram simulados: troca o fetch global por um falso.
  * Qualquer endereço fora da lista é recusado na hora, para nenhum teste falar com a internet.
  * Baseado no simulador da auditoria (fetch-mock.cjs), com estado em memória por teste.
  */
@@ -25,11 +25,19 @@ export type FakeMeta = {
   feedFails: boolean;
   /** Perfil devolvido pelo login do Instagram (GET /me). */
   profile: { user_id: string; username: string; name?: string };
+  /** Validade (em segundos) do token devolvido pela renovação. O padrão é 60 dias. */
+  refreshExpiresIn: number;
+  /** Se definido, a criação de container (POST /{ig-user-id}/media) responde este erro da Meta. */
+  createMediaError: string | null;
+  /** Avisos recebidos pelo Telegram falso (POST api.telegram.org/bot<token>/sendMessage). */
+  telegram: { token: string; body: Record<string, unknown> }[];
+  /** Falha do Telegram falso: "rede" (sem conexão) ou uma resposta de erro da API. */
+  telegramFails: null | "rede" | { status: number; description: string };
   reset: () => void;
   restore: () => void;
 };
 
-const SIMULATED_HOSTS = /(^|\.)instagram\.com$|(^|\.)facebook\.com$|r2\.cloudflarestorage\.com$|\.invalid$/;
+const SIMULATED_HOSTS = /(^|\.)instagram\.com$|(^|\.)facebook\.com$|r2\.cloudflarestorage\.com$|\.invalid$|^api\.telegram\.org$/;
 
 export function installFakeMeta(): FakeMeta {
   const realFetch = globalThis.fetch;
@@ -46,6 +54,10 @@ export function installFakeMeta(): FakeMeta {
     cutAfterPublish: false,
     feedFails: false,
     profile: { user_id: "17840000000000001", username: "conta_nova" },
+    refreshExpiresIn: 5_184_000,
+    createMediaError: null,
+    telegram: [],
+    telegramFails: null,
     reset: () => {
       fake.calls.length = 0;
       fake.containerStatus.clear();
@@ -54,6 +66,10 @@ export function installFakeMeta(): FakeMeta {
       fake.refreshFails.clear();
       fake.cutAfterPublish = false;
       fake.feedFails = false;
+      fake.refreshExpiresIn = 5_184_000;
+      fake.createMediaError = null;
+      fake.telegram.length = 0;
+      fake.telegramFails = null;
       containerCaption.clear();
     },
     restore: () => {
@@ -77,6 +93,16 @@ export function installFakeMeta(): FakeMeta {
 
     if (url.hostname.endsWith("r2.cloudflarestorage.com")) return new Response(null, { status: 204 });
 
+    // Telegram (avisos): /bot<token>/sendMessage
+    if (url.hostname === "api.telegram.org") {
+      const match = path.match(/^\/bot([^/]+)\/sendMessage$/);
+      if (!match || method !== "POST") return json({ ok: false, error_code: 404, description: "Not Found" }, 404);
+      if (fake.telegramFails === "rede") throw new TypeError("fetch failed (Telegram fora do ar, simulado)");
+      if (fake.telegramFails) return json({ ok: false, error_code: fake.telegramFails.status, description: fake.telegramFails.description }, fake.telegramFails.status);
+      fake.telegram.push({ token: match[1], body });
+      return json({ ok: true, result: { message_id: fake.telegram.length } });
+    }
+
     // Login do Instagram (troca do código por token curto e longo)
     if (url.hostname === "api.instagram.com" && path === "/oauth/access_token") {
       return json({ access_token: "IGAA-TESTE-CURTO", user_id: Number(fake.profile.user_id) });
@@ -88,7 +114,7 @@ export function installFakeMeta(): FakeMeta {
     if (path === "/refresh_access_token") {
       const token = url.searchParams.get("access_token") || "";
       if (fake.refreshFails.has(token)) return json({ error: { message: "Error validating access token: Session has expired" } }, 400);
-      return json({ access_token: `IGAA-TESTE-RENOVADO-${++seq}`, token_type: "bearer", expires_in: 5_184_000 });
+      return json({ access_token: `IGAA-TESTE-RENOVADO-${++seq}`, token_type: "bearer", expires_in: fake.refreshExpiresIn });
     }
 
     if (path.endsWith("/media_publish") && method === "POST") {
@@ -106,6 +132,7 @@ export function installFakeMeta(): FakeMeta {
     }
 
     if (path.endsWith("/media") && method === "POST") {
+      if (fake.createMediaError) return json({ error: { message: fake.createMediaError } }, 400);
       const containerId = `container-${++seq}`;
       containerCaption.set(containerId, String(body.caption ?? ""));
       return json({ id: containerId });
