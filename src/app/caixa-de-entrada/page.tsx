@@ -106,10 +106,10 @@ function ConversationList({
   selectedContactId: string | null;
 }) {
   const filters = [
-    { key: "all", label: "Todas", count: contacts.length },
-    { key: "active", label: "Ativas", count: activeContacts },
-    { key: "pending", label: "Esperando", count: pendingContacts },
-    { key: "failed", label: "Com erro", count: failedContacts },
+    { key: "all", label: "Todas", count: contacts.length, hint: "Todas as conversas" },
+    { key: "active", label: "Ativas", count: activeContacts, hint: "Conversas com a automação ligada" },
+    { key: "pending", label: "Esperando", count: pendingContacts, hint: "Mensagens esperando para sair" },
+    { key: "failed", label: "Com erro", count: failedContacts, hint: "Conversas com mensagem que deu erro" },
   ];
 
   return (
@@ -140,6 +140,7 @@ function ConversationList({
                 className={selected ? "grid h-16 min-w-0 content-center rounded-xl bg-[var(--ms-primary)] px-1.5 py-2 text-center text-white dark:text-[#101522]" : "grid h-16 min-w-0 content-center rounded-xl px-1.5 py-2 text-center text-[var(--ms-muted)] hover:bg-[var(--ms-surface-soft)]"}
                 href={inboxHref({ accountId: activeAccountId, q: query, filter: item.key })}
                 key={item.key}
+                title={item.hint}
               >
                 <span className="truncate text-xs font-bold">{item.label}</span>
                 <span className={selected ? "mt-0.5 text-sm font-black" : "mt-0.5 text-sm font-bold opacity-75"}>{item.count}</span>
@@ -185,7 +186,7 @@ function ConversationItem({ contact, href, selected }: { contact: ContactSummary
           <p className={contact.pending_count ? "mt-1 truncate text-sm font-bold" : "mt-1 truncate text-sm text-[var(--ms-muted)]"}>{preview}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center gap-1 rounded-md bg-pink-500/10 px-2 py-1 text-xs font-bold text-pink-600 dark:text-pink-300"><Camera size={12} /> Instagram</span>
-            {contact.pending_count ? <span className="rounded-md bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">{contact.pending_count} esperando</span> : null}
+            {contact.pending_count ? <span className="rounded-md bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-700 dark:text-amber-300" title="Mensagens esperando para sair">{contact.pending_count} esperando</span> : null}
             {isPaused(contact) ? <span className="rounded-md bg-orange-500/15 px-2 py-1 text-xs font-bold text-orange-700 dark:text-orange-300">pausado</span> : null}
           </div>
         </div>

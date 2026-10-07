@@ -125,9 +125,14 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     assert.match(conectado, />Fechar</);
     const negado = await abrir("?instagram_error=access_denied");
     assert.match(negado, /Você não autorizou o Instagram\. Nada mudou; tente de novo quando quiser\./);
-    const outro = await abrir(`?instagram_error=${encodeURIComponent("Invalid redirect uri")}`);
+    const outro = await abrir(`?instagram_error=${encodeURIComponent("Something odd happened")}`);
     assert.match(outro, /Não consegui conectar o Instagram\./);
-    assert.match(outro, /Invalid redirect uri/);
+    assert.match(outro, /Something odd happened/);
+    const conhecido = await abrir(`?instagram_error=${encodeURIComponent("Instagram Graph v23.0: This authorization code has expired")}`);
+    assert.match(conhecido, /A autorização do Instagram venceu ou já foi usada\./);
+    const aviso = conhecido.match(/role="alert"[\s\S]*?<\/div>/)?.[0] ?? "";
+    assert.match(aviso, /venceu ou já foi usada/);
+    assert.doesNotMatch(aviso, /authorization code has expired/, "o aviso não mostra o texto em inglês");
     const limpo = await abrir("");
     assert.doesNotMatch(limpo, /O Instagram foi conectado|Não consegui conectar o Instagram|Você não autorizou/);
   });
@@ -159,7 +164,7 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     const detalhes = html.match(/<details[^>]*>\s*<summary[^>]*>Avançado: configuração na Meta<\/summary>/);
     assert.ok(detalhes, "falta o bloco recolhido");
     assert.doesNotMatch(detalhes[0], /\bopen\b/);
-    assert.ok(html.indexOf("Avançado: configuração na Meta") < html.indexOf("Abrir Meta Developer"), "o botão fica dentro do bloco");
+    assert.ok(html.indexOf("Avançado: configuração na Meta") < html.indexOf("Abrir o painel da Meta (avançado)"), "o botão fica dentro do bloco");
   });
 
   test("U-UX-03: o login não oferece mais 'Criar conta' (e a rota /cadastro continua abrindo)", async () => {
@@ -168,6 +173,22 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     assert.doesNotMatch(login, /Criar conta|Nao tem uma conta/);
     const cadastro = await fetch(`${BASE}/cadastro`);
     assert.equal(cadastro.status, 200);
+  });
+
+  test("U-UX-01: Início e Caixa de entrada falam em português simples (sem Fila, Eventos, payload nem Webhook)", async () => {
+    for (const pagina of ["/dashboard", "/caixa-de-entrada"]) {
+      const html = await (await fetch(`${BASE}${pagina}`, { headers: { cookie } })).text();
+      assert.match(html, /ruthie_teste/, `${pagina}: a tela não mostrou os dados de teste`);
+      assert.match(html, /Mensagens esperando para sair/, `${pagina}: falta "Mensagens esperando para sair"`);
+      assert.doesNotMatch(html, />Fila</, `${pagina}: ainda mostra "Fila"`);
+      assert.doesNotMatch(html, />Eventos</, `${pagina}: ainda mostra "Eventos"`);
+      assert.doesNotMatch(html, /payload/, `${pagina}: a palavra payload aparece`);
+      assert.doesNotMatch(html, /Webhook/, `${pagina}: a palavra Webhook aparece`);
+    }
+    const inicio = await (await fetch(`${BASE}/dashboard`, { headers: { cookie } })).text();
+    assert.match(inicio, /Comentários e mensagens recebidos/);
+    assert.match(inicio, /Visão geral/);
+    assert.doesNotMatch(inicio, /Visao geral|Nova automacao|Ver inbox/);
   });
 
   test("API de trocar o perfil principal (chamada pelo navegador)", async () => {
