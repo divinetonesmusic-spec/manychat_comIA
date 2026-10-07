@@ -15,6 +15,10 @@ export const semBanco: string | false = TEST_DATABASE_URL
   ? false
   : "sem TEST_DATABASE_URL: teste com banco pulado (veja tests/README.md)";
 
+if (!TEST_DATABASE_URL && process.env.TESTES_EXIGEM_BANCO === "1") {
+  // Na CI os testes de banco não podem ser pulados em silêncio.
+  throw new Error("TESTES_EXIGEM_BANCO=1, mas TEST_DATABASE_URL não está definida: os testes de banco não podem ser pulados.");
+}
 if (!TEST_DATABASE_URL) {
   console.warn("[aviso] TEST_DATABASE_URL não definida: os testes que precisam de Postgres serão pulados.");
 }

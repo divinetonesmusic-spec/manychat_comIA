@@ -34,3 +34,38 @@ jobs:
           INSTAGRAM_APP_SECRET: ci-meta-placeholder
           INSTAGRAM_REDIRECT_URI: https://example.com/api/oauth/callback
           WEBHOOK_VERIFY_TOKEN: ci-webhook-placeholder-with-more-than-32-characters
+
+  # Testes automáticos (npm test) com um Postgres 16 só para eles. Cada arquivo de teste cria e apaga o
+  # seu próprio banco (tests/helpers/db.mts). Nenhum teste pode ser pulado aqui.
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      TESTES_EXIGEM_BANCO: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Testes (com banco; nenhum pode ser pulado)
+        shell: bash
+        run: |
+          npm test 2>&1 | tee resultado-dos-testes.txt
+          if grep -Eq '# SKIP|^[[:space:]]*﹣ ' resultado-dos-testes.txt; then
+            echo "::error::Algum teste foi pulado. Na CI todos os testes precisam rodar."
+            exit 1
+          fi

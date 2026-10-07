@@ -24,6 +24,8 @@ Cada arquivo de teste cria um banco novo e vazio (`uaiflow_teste_...`), aplica `
 
 Se o Postgres local não tiver SSL (o normal), o teste já liga `sslmode=disable` sozinho.
 
+Na CI do GitHub (`.github/workflows/ci.yml`, job `testes`) os testes rodam com um Postgres 16 e `TESTES_EXIGEM_BANCO=1`: com essa variável, faltar o `TEST_DATABASE_URL` é erro (em vez de pular os testes de banco), e o passo falha se algum teste aparecer como pulado.
+
 ## Conferir se algum token do Instagram vaza para o navegador (depois do build)
 
 Este teste sobe o UaiFlow de verdade (`next start`) com contas falsas cujo token é `IGAA-TESTE-VAZOU-...`, abre as telas com uma sessão de administrador e procura o token no HTML que o navegador recebe (o HTML inclui os dados entregues aos componentes "use client"). O servidor do teste só consegue falar com o próprio computador.
