@@ -45,3 +45,7 @@ next-env.d.ts
 /instagram-skill/
 /logo/
 /referencia/
+
+# arquivos temporários do servidor de prints local
+/srv.pid
+/srv.log
