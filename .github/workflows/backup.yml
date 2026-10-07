@@ -1,0 +1,90 @@
+name: Cópia semanal do banco
+
+# Toda semana (domingo, 06:23 UTC) e na mão: copia o banco do Supabase (schema public, onde ficam todos os
+# dados do UaiFlow), compacta, criptografa com a senha BACKUP_PASSPHRASE e guarda aqui no GitHub por 90 dias.
+# O repositório é público: a cópia NUNCA sobe sem criptografia, e a URL do banco nunca aparece no registro.
+# Passo a passo (criar os segredos, baixar e abrir uma cópia): docs/AVISOS_E_COPIA.md
+on:
+  schedule:
+    - cron: "23 6 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  copia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Conferir os segredos
+        id: segredos
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::warning title=Cópia não feita::Falta o segredo SUPABASE_DB_URL no GitHub (Settings > Secrets and variables > Actions). Nada foi copiado. Passo a passo em docs/AVISOS_E_COPIA.md."
+            echo "fazer=nao" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error title=Falta a senha da cópia::Crie o segredo BACKUP_PASSPHRASE no GitHub. Sem ele a cópia não é feita: ela nunca sobe sem criptografia."
+            exit 1
+          fi
+          echo "fazer=sim" >> "$GITHUB_OUTPUT"
+
+      - name: Copiar, compactar e criptografar
+        id: copia
+        if: steps.segredos.outputs.fazer == 'sim'
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          nome="uaiflow-banco-$(date -u +%Y-%m-%d)"
+          arquivo="$nome.sql.gz.enc"
+          # pg_dump do Postgres 17 (copia servidores 15, 16 e 17). A URL entra no container pelo nome da
+          # variável (-e), nunca na linha de comando; a senha da cópia vai para o openssl pelo ambiente.
+          docker run --rm -e SUPABASE_DB_URL postgres:17 \
+            sh -c 'exec pg_dump --dbname="$SUPABASE_DB_URL" --no-owner --no-privileges --schema=public' \
+            | gzip -9 \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt -pass env:BACKUP_PASSPHRASE -out "$arquivo"
+          # Confere a cópia: abre de novo com a mesma senha e testa o gzip.
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -pass env:BACKUP_PASSPHRASE -in "$arquivo" | gzip -t
+          echo "Cópia pronta e conferida: $arquivo ($(du -h "$arquivo" | cut -f1))."
+          echo "nome=$nome" >> "$GITHUB_OUTPUT"
+          echo "arquivo=$arquivo" >> "$GITHUB_OUTPUT"
+
+      - name: Guardar a cópia criptografada (90 dias)
+        if: steps.segredos.outputs.fazer == 'sim'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.copia.outputs.nome }}
+          path: ${{ steps.copia.outputs.arquivo }}
+          retention-days: 90
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Avisar no Telegram que a cópia falhou
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          EXECUCAO_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Sem os segredos TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID no GitHub: o aviso fica só no e-mail do GitHub."
+            exit 0
+          fi
+          texto=$(printf 'UaiFlow: a cópia semanal do banco falhou.\nVeja o que aconteceu: %s' "$EXECUCAO_URL")
+          resposta=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${texto}" \
+            -d "disable_web_page_preview=true") || resposta="000"
+          if [ "$resposta" = "200" ]; then echo "Aviso enviado no Telegram."; else echo "::warning::Não consegui mandar o aviso no Telegram (resposta $resposta)."; fi

@@ -117,3 +117,99 @@ describe("monitor (.github/workflows/monitor.yml)", () => {
     assert.match(run.telegram[0].find((arg) => arg.startsWith("text=")) ?? "", /Motivo: O site respondeu com erro 502/);
   });
 });
+
+describe("cópia semanal do banco (.github/workflows/backup.yml)", () => {
+  const { workflow, steps, step } = loadWorkflow("backup.yml");
+
+  test("roda todo domingo às 06:23 UTC e também na mão", () => {
+    assert.deepEqual(workflow.on.schedule, [{ cron: "23 6 * * 0" }]);
+    assert.ok("workflow_dispatch" in workflow.on);
+    assert.deepEqual(workflow.permissions, { contents: "read" });
+  });
+
+  test("pg_dump do Postgres 17 (imagem postgres:17), sem dono nem permissões, gzip e openssl com a senha pelo ambiente", () => {
+    const copia = step("copia").run ?? "";
+    assert.match(copia, /docker run --rm -e SUPABASE_DB_URL postgres:17 /);
+    assert.match(copia, /pg_dump [^\n]*--no-owner --no-privileges/);
+    assert.match(copia, /\| gzip -9 \\\n\s*\| openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt -pass env:BACKUP_PASSPHRASE -out "\$arquivo"/);
+    assert.equal(step("copia").shell, "bash", "pipefail: se o pg_dump falhar, o passo falha");
+  });
+
+  test("guarda só o arquivo criptografado, por 90 dias, e só quando a cópia deu certo", () => {
+    const upload = steps.find((candidate) => candidate.uses?.startsWith("actions/upload-artifact@"));
+    assert.ok(upload);
+    assert.equal(upload.if, "steps.segredos.outputs.fazer == 'sim'");
+    assert.equal(upload.with?.path, "${{ steps.copia.outputs.arquivo }}");
+    assert.equal(upload.with?.["retention-days"], 90);
+    assert.equal(upload.with?.["if-no-files-found"], "error");
+    assert.match(step("copia").run ?? "", /arquivo="\$nome\.sql\.gz\.enc"/);
+  });
+
+  test("nenhum passo imprime a URL do banco", () => {
+    for (const candidate of steps) {
+      const run = candidate.run ?? "";
+      assert.doesNotMatch(run, /secrets\./, `"${candidate.name}": segredo dentro do script (use env:)`);
+      assert.doesNotMatch(run, /set -x|set -o xtrace|bash -x/, `"${candidate.name}": modo que imprime os comandos`);
+      assert.doesNotMatch(run, /\bprintenv\b|^\s*env\s*$|\bdeclare -p\b|^\s*set\s*$/m, `"${candidate.name}": comando que lista as variáveis`);
+      // Cada lugar onde o valor da variável é usado ($SUPABASE_DB_URL) ou repassado (-e SUPABASE_DB_URL).
+      const usos = run.split("\n").filter((text) => /\$\{?SUPABASE_DB_URL|-e SUPABASE_DB_URL/.test(text));
+      for (const line of usos) {
+        const permitido =
+          /^\s*if \[ -z "\$SUPABASE_DB_URL" \]; then$/.test(line) ||
+          /^\s*docker run --rm -e SUPABASE_DB_URL postgres:17 \\$/.test(line) ||
+          /^\s*sh -c 'exec pg_dump --dbname="\$SUPABASE_DB_URL" [^']*' \\$/.test(line) ||
+          /^\s*#/.test(line);
+        assert.ok(permitido, `"${candidate.name}": uso não previsto da URL do banco: ${line.trim()}`);
+      }
+    }
+    for (const candidate of steps) {
+      for (const [name, value] of Object.entries(candidate.env ?? {})) {
+        if (value.includes("secrets.SUPABASE_DB_URL")) assert.equal(name, "SUPABASE_DB_URL");
+      }
+    }
+  });
+
+  test("scripts com sintaxe válida", () => assertBashSyntax("backup.yml", steps));
+
+  test("sem SUPABASE_DB_URL: só avisa e termina com sucesso (nada é copiado)", () => {
+    const run = runStep(step("segredos"), { SUPABASE_DB_URL: "", BACKUP_PASSPHRASE: "" });
+    assert.equal(run.status, 0, run.output);
+    assert.equal(run.outputs.fazer, "nao");
+    assert.match(run.output, /::warning.*SUPABASE_DB_URL/);
+  });
+
+  test("com SUPABASE_DB_URL e sem BACKUP_PASSPHRASE: falha com mensagem clara (nunca sobe sem criptografia)", () => {
+    const run = runStep(step("segredos"), { SUPABASE_DB_URL: "postgresql://usuario:senha-teste@banco.invalid:5432/postgres", BACKUP_PASSPHRASE: "" });
+    assert.equal(run.status, 1);
+    assert.equal(run.outputs.fazer, undefined);
+    assert.match(run.output, /::error.*BACKUP_PASSPHRASE.*nunca sobe sem criptografia/);
+    assert.doesNotMatch(run.output, /senha-teste|banco\.invalid/);
+  });
+
+  test("com os dois segredos: segue para a cópia", () => {
+    const run = runStep(step("segredos"), { SUPABASE_DB_URL: "postgresql://usuario:senha-teste@banco.invalid:5432/postgres", BACKUP_PASSPHRASE: "uma senha forte" });
+    assert.equal(run.status, 0);
+    assert.equal(run.outputs.fazer, "sim");
+    assert.doesNotMatch(run.output, /senha-teste|banco\.invalid/);
+  });
+
+  test("se algo falhar: aviso no Telegram com o link da execução (se os segredos existirem)", () => {
+    const aviso = steps.find((candidate) => candidate.if === "failure()");
+    assert.ok(aviso?.run);
+    const dir = mkdtempSync(path.join(tmpdir(), "uaiflow-backup-"));
+    const run = runStep(aviso, {
+      TELEGRAM_BOT_TOKEN: "123456789:TESTE-token-falso-do-robo",
+      TELEGRAM_CHAT_ID: "987654321",
+      EXECUCAO_URL: "https://github.com/dono/repo/actions/runs/1",
+      CURL_FALSO_DIR: dir,
+    }, { fakeBin: fakeCommands({ curl: FAKE_CURL }) });
+    assert.equal(run.status, 0, run.output);
+    const [chamada] = telegramCalls(dir);
+    assert.ok(chamada?.includes("chat_id=987654321"));
+    assert.equal(chamada.find((arg) => arg.startsWith("text=")), "text=UaiFlow: a cópia semanal do banco falhou.\nVeja o que aconteceu: https://github.com/dono/repo/actions/runs/1");
+
+    const semSegredos = runStep(aviso, { TELEGRAM_BOT_TOKEN: "", TELEGRAM_CHAT_ID: "", EXECUCAO_URL: "x", CURL_FALSO_DIR: dir }, { fakeBin: fakeCommands({ curl: FAKE_CURL }) });
+    assert.equal(semSegredos.status, 0);
+    assert.equal(telegramCalls(dir).length, 1, "sem os segredos não tenta mandar");
+  });
+});
