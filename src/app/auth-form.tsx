@@ -185,13 +185,11 @@ export function AuthForm({ mode, next = "/dashboard" }: Props) {
                   {loading === "password" ? <Loader2 className="animate-spin" /> : null}
                   {loading === "password" ? "Entrando..." : isSignup ? "Criar minha conta" : "Entrar na UaiFlow"}
                 </Button>
-                <FieldDescription className="text-center">
-                  {isSignup ? (
-                    <>Ja tem uma conta? <Link href="/login">Entrar agora</Link></>
-                  ) : (
-                    <>Nao tem uma conta? <Link href="/cadastro">Criar conta gratuitamente</Link></>
-                  )}
-                </FieldDescription>
+                {isSignup ? (
+                  <FieldDescription className="text-center">
+                    Ja tem uma conta? <Link href="/login">Entrar agora</Link>
+                  </FieldDescription>
+                ) : null}
               </Field>
             </FieldGroup>
           </form>

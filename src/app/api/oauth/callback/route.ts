@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppBaseUrl } from "@/lib/env";
 import { saveInstagramConfig } from "@/lib/db/repositories";
 import { verifyOAuthState } from "@/lib/oauth-state";
+import { INVALID_STATE_MESSAGE } from "@/lib/instagram-retorno";
 import {
   exchangeCodeForLongToken,
   getInstagramProfile,
@@ -9,8 +10,6 @@ import {
 } from "@/lib/instagram/client";
 
 export const runtime = "nodejs";
-
-const INVALID_STATE_MESSAGE = "O link de conexão com o Instagram venceu ou não é válido. Abra a conexão de novo pela tela Perfis.";
 
 /**
  * Volta do Instagram. Continua pública (o Instagram chama direto), mas só aceita `state` assinado pelo

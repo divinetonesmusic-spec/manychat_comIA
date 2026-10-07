@@ -289,8 +289,9 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
 
   return (
     <div className="grid gap-6">
-      <section className="panel p-5 sm:p-6">
-        <div className="grid gap-5 xl:grid-cols-[1fr_440px] xl:items-start">
+      <details className="panel">
+        <summary className="cursor-pointer select-none p-5 text-base font-bold sm:px-6">Avançado: configuração na Meta</summary>
+        <div className="grid gap-5 px-5 pb-5 sm:px-6 sm:pb-6 xl:grid-cols-[1fr_440px] xl:items-start">
           <div>
             <p className="eyebrow">Antes de conectar</p>
             <h2 className="mt-1 text-2xl font-bold">Siga a ordem certa para adicionar um Instagram</h2>
@@ -310,7 +311,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
             </div>
           </div>
         </div>
-      </section>
+      </details>
       <section className="panel p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">
@@ -487,7 +488,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
         </section>
       </section>
 
-      <div className="sticky bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface)]/95 p-3 shadow-lg backdrop-blur">
+      <div className="md:sticky md:bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface)]/95 p-3 shadow-lg backdrop-blur">
         {notice ? <p className={notice.tone === "success" ? "status-pill status-pill-green" : "status-pill text-red-500"}>{notice.tone === "success" ? <Check size={14} /> : null}{notice.text}</p> : <p className="text-sm text-[var(--ms-muted)]">Payloads postback tambem funcionam como gatilho. Ex: payload 1 dispara fluxo com palavra-chave 1.</p>}
         <button className="btn-primary" disabled={busy === "save"} type="button" onClick={() => saveSettings()}>{busy === "save" ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}{busy === "save" ? "Salvando..." : "Salvar perfil"}</button>
       </div>
