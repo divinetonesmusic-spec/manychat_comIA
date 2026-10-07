@@ -17,7 +17,7 @@ export function ContactPauseControls({ contactId, paused }: { contactId: string;
         body: JSON.stringify(paused ? { paused: false } : { paused: true, reason: "Atendimento humano" }),
       });
 
-      if (!response.ok) throw new Error("Nao consegui atualizar a pausa.");
+      if (!response.ok) throw new Error("Não consegui atualizar a pausa.");
       router.refresh();
     } finally {
       setBusy(false);
@@ -32,7 +32,7 @@ export function ContactPauseControls({ contactId, paused }: { contactId: string;
       type="button"
     >
       {busy ? <Loader2 className="animate-spin" size={15} /> : paused ? <Play size={15} /> : <Pause size={15} />}
-      {paused ? "Despausar" : "Pausar humano"}
+      {paused ? "Voltar ao automático" : "Pausar automático"}
     </button>
   );
 }

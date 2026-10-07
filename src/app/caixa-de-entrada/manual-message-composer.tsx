@@ -35,13 +35,13 @@ export function ManualMessageComposer({ contact, currentPath }: Props) {
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
 
       if (!response.ok) {
-        throw new Error(payload.error || "Nao consegui enviar a mensagem.");
+        throw new Error(payload.error || "Não consegui enviar a mensagem.");
       }
 
       setText("");
       router.refresh();
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Nao consegui enviar a mensagem.");
+      setError(sendError instanceof Error ? sendError.message : "Não consegui enviar a mensagem.");
     } finally {
       setSending(false);
     }
@@ -76,7 +76,7 @@ export function ManualMessageComposer({ contact, currentPath }: Props) {
               <button className="icon-button border-0 bg-transparent" disabled type="button" aria-label="Emoji" title="Emoji"><Smile size={18} /></button>
               <button className="icon-button border-0 bg-transparent" disabled type="button" aria-label="Anexar" title="Anexar"><Paperclip size={18} /></button>
               <button className="icon-button border-0 bg-transparent" disabled type="button" aria-label="Imagem" title="Imagem"><ImageIcon size={18} /></button>
-              <button className="icon-button border-0 bg-transparent" disabled type="button" aria-label="Audio" title="Audio"><Mic size={18} /></button>
+              <button className="icon-button border-0 bg-transparent" disabled type="button" aria-label="Áudio" title="Áudio"><Mic size={18} /></button>
             </div>
             <span className="shrink-0 text-[11px] font-semibold text-[var(--ms-muted)]">{text.length}/{MAX_MESSAGE_LENGTH}</span>
           </div>
@@ -87,7 +87,7 @@ export function ManualMessageComposer({ contact, currentPath }: Props) {
               <input name="paused" type="hidden" value={contact.human_paused_at ? "false" : "true"} />
               <button className="btn-secondary h-10 w-full min-w-0 justify-center px-3 text-sm" type="submit">
                 {contact.human_paused_at ? <Play className="shrink-0" size={16} /> : <PauseCircle className="shrink-0" size={16} />}
-                <span className="truncate">{contact.human_paused_at ? "Retomar auto" : "Pausar auto"}</span>
+                <span className="truncate">{contact.human_paused_at ? "Retomar automático" : "Pausar automático"}</span>
               </button>
             </form>
             <button className="btn-primary h-10 w-full min-w-0 justify-center px-3 text-sm" disabled={!canSend} onClick={() => void sendMessage()} type="button">

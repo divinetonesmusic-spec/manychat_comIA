@@ -12,7 +12,7 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
-import { AppFrame, formatDate } from "../app-frame";
+import { AppFrame, eventTypeLabel, formatDate } from "../app-frame";
 import { ManualMessageComposer } from "./manual-message-composer";
 import {
   getConfig,
@@ -108,8 +108,8 @@ function ConversationList({
   const filters = [
     { key: "all", label: "Todas", count: contacts.length },
     { key: "active", label: "Ativas", count: activeContacts },
-    { key: "pending", label: "Pend.", count: pendingContacts },
-    { key: "failed", label: "Falhas", count: failedContacts },
+    { key: "pending", label: "Esperando", count: pendingContacts },
+    { key: "failed", label: "Com erro", count: failedContacts },
   ];
 
   return (
@@ -170,7 +170,7 @@ function ConversationList({
 
 function ConversationItem({ contact, href, selected }: { contact: ContactSummary; href: string; selected: boolean }) {
   const name = contactLabel(contact);
-  const preview = contact.last_event_text || contact.last_queue_error || contact.last_event_type || "Sem mensagem recente";
+  const preview = contact.last_event_text || contact.last_queue_error || (contact.last_event_type ? eventTypeLabel(contact.last_event_type) : "Sem mensagem recente");
   const lastActivity = contact.last_queue_at || contact.last_event_at || contact.updated_at;
 
   return (
@@ -185,7 +185,7 @@ function ConversationItem({ contact, href, selected }: { contact: ContactSummary
           <p className={contact.pending_count ? "mt-1 truncate text-sm font-bold" : "mt-1 truncate text-sm text-[var(--ms-muted)]"}>{preview}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center gap-1 rounded-md bg-pink-500/10 px-2 py-1 text-xs font-bold text-pink-600 dark:text-pink-300"><Camera size={12} /> Instagram</span>
-            {contact.pending_count ? <span className="rounded-md bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">{contact.pending_count} pend.</span> : null}
+            {contact.pending_count ? <span className="rounded-md bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-700 dark:text-amber-300">{contact.pending_count} esperando</span> : null}
             {isPaused(contact) ? <span className="rounded-md bg-orange-500/15 px-2 py-1 text-xs font-bold text-orange-700 dark:text-orange-300">pausado</span> : null}
           </div>
         </div>
@@ -201,7 +201,7 @@ function ConversationPane({ contact, messages, currentPath }: { contact: Contact
         <div className="max-w-sm">
           <MessageCircle className="mx-auto text-[var(--ms-muted)]" size={36} />
           <h2 className="mt-4 text-xl font-bold">Nenhuma conversa selecionada</h2>
-          <p className="mt-2 text-sm text-[var(--ms-muted)]">Quando comentarios ou DMs chegarem pelo webhook, eles aparecem aqui em formato de atendimento.</p>
+          <p className="mt-2 text-sm text-[var(--ms-muted)]">Quando chegarem comentários ou mensagens no direct, eles aparecem aqui para você atender.</p>
         </div>
       </section>
     );
@@ -216,13 +216,13 @@ function ConversationPane({ contact, messages, currentPath }: { contact: Contact
             <h2 className="truncate text-base font-bold">{contactLabel(contact)}</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--ms-muted)]">
               <span className="inline-flex items-center gap-1"><Camera size={12} /> @{contact.account_username ?? "perfil"}</span>
-              <span>{isPaused(contact) ? "Atendimento humano" : "Automacao ativa"}</span>
+              <span>{isPaused(contact) ? "Atendimento humano" : "Automação ativa"}</span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="icon-button" type="button" aria-label="Automacoes" title="Automacoes"><Workflow size={17} /></button>
-          <button className="icon-button" type="button" aria-label="Acao rapida" title="Acao rapida"><Zap size={17} /></button>
+          <button className="icon-button" type="button" aria-label="Automações" title="Automações"><Workflow size={17} /></button>
+          <button className="icon-button" type="button" aria-label="Ação rápida" title="Ação rápida"><Zap size={17} /></button>
         </div>
       </div>
 
@@ -291,17 +291,17 @@ function ContactProfilePanel({ contact, automations, currentPath }: { contact: C
         <h2 className="mt-4 truncate text-lg font-bold">{contactLabel(contact)}</h2>
         <p className="mt-1 truncate text-sm text-[var(--ms-muted)]">{contact.instagram_username ? `@${contact.instagram_username}` : `ID ${contact.instagram_user_id}`}</p>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <span className={contact.is_user_follow_business ? "status-pill status-pill-green justify-center" : "status-pill justify-center"}>Segue perfil</span>
-          <span className={contact.is_business_follow_user ? "status-pill status-pill-green justify-center" : "status-pill justify-center"}>Perfil segue</span>
+          <span className={contact.is_user_follow_business ? "status-pill status-pill-green justify-center" : "status-pill justify-center"}>Segue você</span>
+          <span className={contact.is_business_follow_user ? "status-pill status-pill-green justify-center" : "status-pill justify-center"}>Você segue</span>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-5">
         <PanelBlock icon={<UserRound size={17} />} title="Contato">
-          <InfoRow label="Instagram ID" value={contact.instagram_user_id} />
-          <InfoRow label="Conta" value={contact.account_username ? `@${contact.account_username}` : "Perfil padrao"} />
+          <InfoRow label="ID no Instagram" value={contact.instagram_user_id} />
+          <InfoRow label="Conta" value={contact.account_username ? `@${contact.account_username}` : "Perfil principal"} />
           <InfoRow label="Primeiro contato" value={formatDate(contact.first_contact_at)} />
-          <InfoRow label="Ultima resposta" value={formatDate(contact.last_response_at)} />
+          <InfoRow label="Última resposta" value={formatDate(contact.last_response_at)} />
         </PanelBlock>
 
         <PanelBlock icon={<Tag size={17} />} title="Tags">
@@ -323,20 +323,20 @@ function ContactProfilePanel({ contact, automations, currentPath }: { contact: C
           </form>
         </PanelBlock>
 
-        <PanelBlock icon={<Workflow size={17} />} title="Automacoes">
+        <PanelBlock icon={<Workflow size={17} />} title="Automações">
           <div className="grid gap-2">
             {relatedAutomations.length ? relatedAutomations.map((name, index) => (
               <div className="flex items-center justify-between rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3" key={`${name}-${index}`}>
                 <span className="truncate text-sm font-bold">{name}</span>
                 {index === 0 && contact.last_automation_name ? <Bot className="text-[var(--ms-primary)]" size={16} /> : <Workflow className="text-[var(--ms-muted)]" size={16} />}
               </div>
-            )) : <p className="text-sm text-[var(--ms-muted)]">Sem automacao associada.</p>}
+            )) : <p className="text-sm text-[var(--ms-muted)]">Sem automação ligada a este contato.</p>}
           </div>
         </PanelBlock>
 
         <PanelBlock icon={<PauseCircle size={17} />} title="Atendimento">
           <div className="grid gap-2 text-sm">
-            <InfoRow label="Status" value={isPaused(contact) ? "Pausado para humano" : "Automacao ativa"} />
+            <InfoRow label="Status" value={isPaused(contact) ? "Pausado: atendimento humano" : "Automação ativa"} />
             {contact.human_pause_reason ? <InfoRow label="Motivo" value={contact.human_pause_reason} /> : null}
             {contact.human_paused_until ? <InfoRow label="Retorno" value={formatDate(contact.human_paused_until)} /> : null}
           </div>
@@ -374,7 +374,7 @@ function Avatar({ contact, size }: { contact: ContactSummary; size: "sm" | "md" 
   return (
     <div className={`relative shrink-0 ${sizeClass}`}>
       {contact.instagram_profile_picture_url ? (
-        <img alt="Foto do lead" className="h-full w-full rounded-full object-cover" src={contact.instagram_profile_picture_url} />
+        <img alt="Foto do contato" className="h-full w-full rounded-full object-cover" src={contact.instagram_profile_picture_url} />
       ) : (
         <div className="flex h-full w-full items-center justify-center rounded-full bg-[var(--ms-primary)]/10 text-sm font-black text-[var(--ms-primary)]">{initials}</div>
       )}
@@ -414,7 +414,7 @@ function getParam(value: string | string[] | undefined) {
 }
 
 function contactLabel(contact: ContactSummary) {
-  return contact.instagram_name || (contact.instagram_username ? `@${contact.instagram_username}` : `Lead ${contact.instagram_user_id.slice(-6)}`);
+  return contact.instagram_name || (contact.instagram_username ? `@${contact.instagram_username}` : `Contato ${contact.instagram_user_id.slice(-6)}`);
 }
 
 function getInitials(contact: ContactSummary) {
@@ -438,11 +438,11 @@ function translateMessageStatus(status: string) {
     delivered: "Entregue",
     failed: "Erro",
     pending: "Pendente",
-    processing: "Processando",
-    queued: "Na fila",
+    processing: "Enviando",
+    queued: "Esperando para sair",
     read: "Lida",
     sending: "Enviando",
-    sent: "Enviado",
+    sent: "Enviada",
     skipped: "Ignorado",
   };
 
