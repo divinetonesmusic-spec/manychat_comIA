@@ -114,9 +114,9 @@ export function postFailedMessage(post: FailedPostInfo, motivo: string, origin?:
 }
 
 /** Aviso de post que acabou de passar para "Com erro". Nunca lança erro. */
-export async function notifyPostFailed(post: FailedPostInfo, motivo: string, origin?: string | null) {
+export async function notifyPostFailed(post: FailedPostInfo, motivo: string, origin?: string | null, options: { timeoutMs?: number } = {}) {
   try {
-    return await sendTelegram(postFailedMessage(post, motivo, origin));
+    return await sendTelegram(postFailedMessage(post, motivo, origin), options);
   } catch {
     return { ok: false, reason: "error", error: "Falha ao montar o aviso." } as const;
   }

@@ -193,4 +193,112 @@ describe("aviso de post que não saiu", { skip: semBanco }, () => {
     assert.equal(meta.telegram.length, 1);
     assert.match(textos()[0], new RegExp(`Abra: https://pedido\\.teste/conteudo\\?accountId=${accountId}$`));
   });
+
+  /**
+   * Rodada 1: os avisos do ciclo saem juntos, no fim, em paralelo e dentro do orçamento que sobrou.
+   * Telegram travado (nunca responde) + 3 posts falhando: o ciclo não pode passar do orçamento.
+   */
+  describe("Telegram travado", () => {
+    let chamadasAoTelegram = 0;
+    let fetchAnterior: typeof fetch;
+
+    beforeEach(async () => {
+      chamadasAoTelegram = 0;
+      fetchAnterior = globalThis.fetch;
+      globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if (url.hostname !== "api.telegram.org") return fetchAnterior(input, init);
+        chamadasAoTelegram += 1;
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("abortado", "AbortError")));
+        });
+      }) as typeof fetch;
+      // 3 caminhos diferentes para "Com erro": preso depois de 3 tentativas, container ERROR e criação recusada.
+      await insertPost(db, accountId, { title: "Preso", status: "publishing", attempts: 3, publishing_started_at: new Date(Date.now() - 20 * 60_000) });
+      await insertPost(db, accountId, { title: "Recusado", status: "publishing", container_id: "container-ruim", publishing_started_at: new Date() });
+      await insertPost(db, accountId, { title: "Agendado" });
+      meta.containerStatus.set("container-ruim", "ERROR");
+      meta.createMediaError = "Invalid parameter: video_url download failed";
+    });
+
+    const silenciarConsole = () => {
+      const originais = { error: console.error, warn: console.warn };
+      console.error = () => undefined;
+      console.warn = () => undefined;
+      return () => Object.assign(console, originais);
+    };
+
+    const restaurarFetch = () => {
+      globalThis.fetch = fetchAnterior;
+    };
+
+    test("relógio com orçamento de 3 s: termina dentro do orçamento (+ margem pequena), os 3 viram 'Com erro' e os 3 avisos são tentados juntos", async () => {
+      const restaurar = silenciarConsole();
+      try {
+        const inicio = Date.now();
+        const result = await scheduler.runContentCycle(3000);
+        const duracao = Date.now() - inicio;
+        assert.ok(duracao < 3000 + 300, `o ciclo levou ${duracao} ms`);
+        assert.equal(result.failed, 2, "criação recusada + container ERROR (o preso é contado pela recuperação)");
+      } finally {
+        restaurar();
+        restaurarFetch();
+      }
+      const posts = await db.sql<{ status: string }>("select status from public.content_posts");
+      assert.deepEqual(posts.map((post) => post.status), ["failed", "failed", "failed"]);
+      assert.equal(chamadasAoTelegram, 3, "1 aviso por post, todos tentados");
+    });
+
+    test("/api/queue/drain (orçamento de 3 s): responde dentro do orçamento e grava o batimento", async () => {
+      await db.sql("delete from public.app_status");
+      process.env.CRON_BUDGET_MS = "3000";
+      const restaurar = silenciarConsole();
+      try {
+        const inicio = Date.now();
+        const response = await drainRoute.POST(request("/api/queue/drain", { method: "POST", headers: { "x-worker-secret": process.env.WORKER_SECRET as string } }));
+        const duracao = Date.now() - inicio;
+        assert.equal(response.status, 200);
+        assert.ok(duracao < 3000 + 300, `o drain levou ${duracao} ms`);
+      } finally {
+        delete process.env.CRON_BUDGET_MS;
+        restaurar();
+        restaurarFetch();
+      }
+      const [batimento] = await db.sql<{ segundos: number }>("select extract(epoch from now() - atualizado_em)::float as segundos from public.app_status where chave = 'relogio'");
+      assert.ok(batimento && batimento.segundos < 30, "batimento gravado");
+      assert.equal(chamadasAoTelegram, 3);
+    });
+
+    test("'Publicar agora' com a Meta recusando: responde dentro do orçamento do pedido (4 s)", async () => {
+      const restaurar = silenciarConsole();
+      try {
+        const inicio = Date.now();
+        const response = await contentRoute.POST(request("/api/content", {
+          json: { accountId, title: "Na hora", publishType: "reel_video", mediaUrl: "https://midia.teste.invalid/uaiflow/quebrado.mp4", caption: "x", publishNow: true },
+        }));
+        const duracao = Date.now() - inicio;
+        assert.equal(response.status, 502);
+        assert.ok(duracao < 4000 + 300, `o pedido levou ${duracao} ms`);
+      } finally {
+        restaurar();
+        restaurarFetch();
+      }
+      assert.equal(chamadasAoTelegram, 1);
+    });
+
+    test("tela Conteúdo (ciclo leve de 3,5 s no GET /api/content): responde dentro do orçamento", async () => {
+      const restaurar = silenciarConsole();
+      try {
+        const inicio = Date.now();
+        const response = await contentRoute.GET(request(`/api/content?accountId=${accountId}`));
+        const duracao = Date.now() - inicio;
+        assert.equal(response.status, 200);
+        assert.ok(duracao < 3500 + 500, `a tela esperou ${duracao} ms`);
+      } finally {
+        restaurar();
+        restaurarFetch();
+      }
+      assert.equal(chamadasAoTelegram, 3);
+    });
+  });
 });
