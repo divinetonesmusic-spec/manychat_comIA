@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getConfig, updateToken } from "@/lib/db/repositories";
-import { refreshLongLivedToken } from "@/lib/instagram/client";
+import { refreshAllInstagramTokens } from "@/lib/instagram/token-refresh";
 
 export const runtime = "nodejs";
 
@@ -23,14 +22,24 @@ async function refresh(request: NextRequest) {
     return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
   }
 
-  const config = await getConfig();
-  if (!config.instagram_access_token) {
-    return NextResponse.json({ ok: false, error: "Instagram nao conectado" }, { status: 409 });
+  // Renova TODAS as contas, cada uma com a sua tentativa. Os avisos de falha e de token vencendo
+  // (menos de 10 dias) saem de tokenRefreshAlerts(resultados), em src/lib/instagram/token-refresh.ts.
+  const resultados = await refreshAllInstagramTokens();
+  if (!resultados.length) {
+    return NextResponse.json({ ok: false, error: "Instagram nao conectado", contas: [] }, { status: 409 });
   }
 
-  const token = await refreshLongLivedToken(config.instagram_access_token);
-  const expiresAt = new Date(Date.now() + token.expires_in * 1000);
-  await updateToken({ accessToken: token.access_token, expiresAt });
-
-  return NextResponse.json({ ok: true, expiresAt: expiresAt.toISOString() });
+  const renovadas = resultados.filter((resultado) => resultado.ok).length;
+  return NextResponse.json(
+    {
+      // ok = todas renovadas; o status HTTP é 200 se pelo menos uma renovou e 500 só se todas falharam.
+      ok: renovadas === resultados.length,
+      contas: resultados.map((resultado) =>
+        resultado.ok
+          ? { username: resultado.username, ok: true, expiresAt: resultado.expiresAt }
+          : { username: resultado.username, ok: false, erro: resultado.error },
+      ),
+    },
+    { status: renovadas > 0 ? 200 : 500 },
+  );
 }
