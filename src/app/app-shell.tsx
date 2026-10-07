@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { Bell, Bot, CircleHelp, Contact, GitBranch, Home, ImageIcon, Inbox, Plus, Search, Settings, UserCircle, Workflow } from "lucide-react";
+import { Bot, CircleHelp, Contact, GitBranch, Home, ImageIcon, Inbox, Plus, Settings, UserCircle, Workflow } from "lucide-react";
 import { SignOutButton } from "./sign-out-button";
 import { ThemeToggle } from "./theme-toggle";
 import { BrandMark } from "@/components/brand-mark";
 import type { PublicInstagramAccount } from "@/lib/instagram/public-account";
 import { hrefWithAccount } from "@/lib/account-routing";
+import { mensagemRetornoInstagram, PARAMETROS_RETORNO_INSTAGRAM } from "@/lib/instagram-retorno";
 import {
   Sidebar,
   SidebarContent,
@@ -43,15 +44,18 @@ type AppShellProps = {
 };
 
 const navigation = [
-  { key: "inicio", label: "Inicial", icon: Home, href: "/dashboard" },
+  { key: "inicio", label: "Início", icon: Home, href: "/dashboard" },
   { key: "inbox", label: "Caixa de entrada", icon: Inbox, href: "/caixa-de-entrada" },
-  { key: "automacoes", label: "Automacoes", icon: Workflow, href: "/automacoes" },
-  { key: "fluxos", label: "Fluxos", icon: GitBranch, href: "/fluxos" },
-  { key: "conteudo", label: "Conteudo", icon: ImageIcon, href: "/conteudo" },
-  { key: "perfis", label: "Perfis", icon: UserCircle, href: "/perfis" },
+  { key: "conteudo", label: "Conteúdo", icon: ImageIcon, href: "/conteudo" },
   { key: "contatos", label: "Contatos", icon: Contact, href: "/contatos" },
+  { key: "automacoes", label: "Automações", icon: Workflow, href: "/automacoes" },
+  { key: "perfis", label: "Perfis", icon: UserCircle, href: "/perfis" },
+] as const;
+
+const advancedNavigation = [
+  { key: "fluxos", label: "Fluxos", icon: GitBranch, href: "/fluxos" },
   { key: "ai", label: "Assistente UaiFlow", icon: Bot, href: "/automacoes#ai" },
-  { key: "configuracoes", label: "Configuracoes", icon: Settings, href: "/configuracoes" },
+  { key: "configuracoes", label: "Configurações", icon: Settings, href: "/configuracoes" },
 ] as const;
 
 export function AppShell({ active, connected, accounts = [], activeAccountId = null, children }: AppShellProps) {
@@ -72,6 +76,15 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
     const query = params.toString();
     router.push(`${pathname}${query ? `?${query}` : ""}`);
     router.refresh();
+  }
+
+  const retorno = mensagemRetornoInstagram(searchParams);
+
+  function closeInstagramNotice() {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const name of PARAMETROS_RETORNO_INSTAGRAM) params.delete(name);
+    const query = params.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}`);
   }
 
   return (
@@ -123,6 +136,29 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupLabel>Avançado</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {advancedNavigation.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <SidebarMenuItem key={item.key}>
+                        <SidebarMenuButton
+                          isActive={active === item.key}
+                          tooltip={item.label}
+                          render={<Link href={accountHref(item.href)} />}
+                          className="data-[active=true]:bg-[var(--ms-primary)] data-[active=true]:text-white dark:data-[active=true]:text-[#101522]"
+                        >
+                          <Icon />
+                          <span>{item.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
           </SidebarContent>
 
           <SidebarSeparator />
@@ -148,10 +184,6 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
             <div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <SidebarTrigger className="text-[var(--ms-muted)] hover:bg-[var(--ms-surface-soft)]" />
-                <div className="relative hidden w-full max-w-md sm:block">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ms-muted)]" size={17} />
-                  <input className="search-input" placeholder="Buscar automacoes, contatos ou eventos" />
-                </div>
               </div>
 
               <div className="flex min-w-0 items-center gap-2">
@@ -164,9 +196,6 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
                 ) : null}
                 <span className={connected ? "status-pill status-pill-green" : "status-pill"}>{connected ? "Conectado" : "Desconectado"}</span>
                 <ThemeToggle />
-                <button className="icon-button" type="button" aria-label="Notificacoes" title="Notificacoes">
-                  <Bell size={18} />
-                </button>
                 <Link className="btn-primary hidden sm:inline-flex" href={accountHref("/automacoes/nova")}>
                   <Plus size={16} />
                   Nova automacao
@@ -175,7 +204,45 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
             </div>
           </header>
 
-          <div className="mx-auto grid w-full max-w-[1500px] gap-4 px-3 py-3 sm:px-4 lg:px-5">{children}</div>
+          {accounts.length ? (
+            <div className="border-b border-[var(--ms-border)] bg-[var(--ms-surface)] px-4 py-3 md:hidden">
+              {accounts.length > 1 ? (
+                <>
+                  <label className="mb-1 block text-xs font-semibold text-[var(--ms-muted)]" htmlFor="perfil-do-instagram-celular">Perfil do Instagram</label>
+                  <select id="perfil-do-instagram-celular" className="input h-11 w-full py-0 text-base leading-normal" value={selectedAccountId ?? ""} onChange={(event) => changeAccount(event.target.value)}>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>{`@${account.instagram_username}${account.is_default ? " (principal)" : ""}`}</option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <p className="text-sm">
+                  <span className="block text-xs font-semibold text-[var(--ms-muted)]">Perfil do Instagram</span>
+                  <span className="font-semibold">{`@${accounts[0].instagram_username}`}</span>
+                </p>
+              )}
+            </div>
+          ) : null}
+
+          <div className="mx-auto grid w-full max-w-[1500px] gap-4 px-3 py-3 sm:px-4 lg:px-5">
+            {retorno ? (
+              <div
+                role={retorno.tom === "erro" ? "alert" : "status"}
+                className={
+                  retorno.tom === "sucesso"
+                    ? "flex items-start justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-emerald-800 dark:text-emerald-200"
+                    : "flex items-start justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-700 dark:text-red-200"
+                }
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{retorno.texto}</p>
+                  {retorno.detalhe ? <p className="mt-1 break-words text-xs opacity-80">{retorno.detalhe}</p> : null}
+                </div>
+                <button className="btn-secondary shrink-0" type="button" onClick={closeInstagramNotice}>Fechar</button>
+              </div>
+            ) : null}
+            {children}
+          </div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

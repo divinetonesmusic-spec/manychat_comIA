@@ -118,6 +118,58 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     assert.match(semNada.headers.get("location") ?? "", /\/login\?/, "sem sessão e sem link: vai para o login do UaiFlow");
   });
 
+  test("U-UX-03: a volta do Instagram mostra o aviso no topo (conectado, não autorizou, outro motivo) e sem parâmetros não mostra nada", async () => {
+    const abrir = async (query: string) => (await fetch(`${BASE}/perfis${query}`, { headers: { cookie } })).text();
+    const conectado = await abrir("?instagram_connected=1");
+    assert.match(conectado, /Pronto! O Instagram foi conectado\./);
+    assert.match(conectado, />Fechar</);
+    const negado = await abrir("?instagram_error=access_denied");
+    assert.match(negado, /Você não autorizou o Instagram\. Nada mudou; tente de novo quando quiser\./);
+    const outro = await abrir(`?instagram_error=${encodeURIComponent("Invalid redirect uri")}`);
+    assert.match(outro, /Não consegui conectar o Instagram\./);
+    assert.match(outro, /Invalid redirect uri/);
+    const limpo = await abrir("");
+    assert.doesNotMatch(limpo, /O Instagram foi conectado|Não consegui conectar o Instagram|Você não autorizou/);
+  });
+
+  test("U-UX-02: /dashboard traz o seletor de perfil do celular com as duas contas (a principal marcada)", async () => {
+    const html = await (await fetch(`${BASE}/dashboard`, { headers: { cookie } })).text();
+    const seletor = html.match(/<select[^>]*id="perfil-do-instagram-celular"[^>]*>([\s\S]*?)<\/select>/);
+    assert.ok(seletor, "não achei o seletor do celular");
+    assert.match(html, /Perfil do Instagram/);
+    assert.match(seletor[1], /@ruthie_teste[^<]*\(principal\)/);
+    assert.match(seletor[1], /@payoff_teste</);
+    assert.doesNotMatch(seletor[1], /@payoff_teste[^<]*\(principal\)/);
+    assert.match(html, /<div class="[^"]*md:hidden[^"]*"><label[^>]*>Perfil do Instagram<\/label><select[^>]*id="perfil-do-instagram-celular"/, "o seletor do celular fica escondido a partir de 768 px");
+  });
+
+  test("U-UX-01/03: o menu traz o grupo Avançado; sem busca nem sino no topo", async () => {
+    const html = await (await fetch(`${BASE}/dashboard`, { headers: { cookie } })).text();
+    assert.match(html, />Avançado</);
+    for (const rotulo of ["Início", "Caixa de entrada", "Conteúdo", "Contatos", "Automações", "Perfis", "Fluxos", "Assistente UaiFlow", "Configurações"]) {
+      assert.ok(html.includes(`<span>${rotulo}</span>`), `falta o item do menu: ${rotulo}`);
+    }
+    assert.ok(html.indexOf("<span>Perfis</span>") < html.indexOf(">Avançado<"), "Perfis fica no grupo principal, antes do Avançado");
+    assert.ok(html.indexOf(">Avançado<") < html.indexOf("<span>Fluxos</span>"), "Fluxos fica depois do título Avançado");
+    assert.doesNotMatch(html, /search-input|Buscar automacoes|aria-label="Notificacoes"/);
+  });
+
+  test("U-UX-03: /perfis traz o passo a passo da Meta recolhido", async () => {
+    const html = await (await fetch(`${BASE}/perfis`, { headers: { cookie } })).text();
+    const detalhes = html.match(/<details[^>]*>\s*<summary[^>]*>Avançado: configuração na Meta<\/summary>/);
+    assert.ok(detalhes, "falta o bloco recolhido");
+    assert.doesNotMatch(detalhes[0], /\bopen\b/);
+    assert.ok(html.indexOf("Avançado: configuração na Meta") < html.indexOf("Abrir Meta Developer"), "o botão fica dentro do bloco");
+  });
+
+  test("U-UX-03: o login não oferece mais 'Criar conta' (e a rota /cadastro continua abrindo)", async () => {
+    const login = await (await fetch(`${BASE}/login`)).text();
+    assert.match(login, /Entrar na UaiFlow/);
+    assert.doesNotMatch(login, /Criar conta|Nao tem uma conta/);
+    const cadastro = await fetch(`${BASE}/cadastro`);
+    assert.equal(cadastro.status, 200);
+  });
+
   test("API de trocar o perfil principal (chamada pelo navegador)", async () => {
     const response = await fetch(`${BASE}/api/instagram-accounts/${secondAccountId}/default`, { method: "POST", headers: { cookie } });
     const text = await response.text();
