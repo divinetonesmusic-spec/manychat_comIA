@@ -238,7 +238,7 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
                   <p className="text-sm font-semibold">{retorno.texto}</p>
                   {retorno.detalhe ? <p className="mt-1 break-words text-xs opacity-80">{retorno.detalhe}</p> : null}
                 </div>
-                <button className="btn-secondary shrink-0" type="button" onClick={closeInstagramNotice}>Fechar</button>
+                <button className="btn-secondary h-11 shrink-0 md:h-auto" type="button" onClick={closeInstagramNotice}>Fechar</button>
               </div>
             ) : null}
             {children}

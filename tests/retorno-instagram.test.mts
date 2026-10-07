@@ -23,12 +23,59 @@ describe("mensagemRetornoInstagram", () => {
     assert.deepEqual(mensagemRetornoInstagram(params("instagram_connected=1")), { tom: "sucesso", texto: "Pronto! O Instagram foi conectado." });
   });
 
-  test("a pessoa não autorizou (access_denied, user_denied, 'denied' no texto)", () => {
+  test("a pessoa não autorizou (access_denied, user_denied, 'user denied' no texto)", () => {
     const esperado = { tom: "erro", texto: "Você não autorizou o Instagram. Nada mudou; tente de novo quando quiser." };
     assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=access_denied")), esperado);
     assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=user_denied")), esperado);
     assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=" + encodeURIComponent("The user denied your request."))), esperado);
     assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=ACCESS_DENIED")), esperado);
+    assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=" + encodeURIComponent("The User Denied your request"))), esperado);
+  });
+
+  test("'denied' solto não é a pessoa recusando: mostra a frase geral com o motivo embaixo", () => {
+    for (const motivo of ["permission denied by server", "Request denied by firewall", "denied"]) {
+      assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=" + encodeURIComponent(motivo))), {
+        tom: "erro",
+        texto: "Não consegui conectar o Instagram.",
+        detalhe: motivo,
+      });
+    }
+  });
+
+  test("erros conhecidos da Meta/da rota viram uma frase curta em português, sem o texto em inglês", () => {
+    const casos: Array<[string, RegExp]> = [
+      // troca do código pela conexão (dados do aplicativo)
+      ["Instagram Graph v23.0: Invalid OAuth redirect uri", /Confira o ID, a chave e o endereço de retorno/],
+      ["Instagram Graph v23.0: Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request", /Confira o ID, a chave e o endereço de retorno/],
+      ["Instagram Graph v23.0: Invalid client_secret", /Confira o ID, a chave e o endereço de retorno/],
+      ["Missing INSTAGRAM_APP_SECRET environment variable.", /Confira o ID, a chave e o endereço de retorno/],
+      // código inválido ou vencido
+      ["Instagram Graph v23.0: Invalid authorization code", /A autorização do Instagram venceu ou já foi usada/],
+      ["Instagram Graph v23.0: This authorization code has expired", /A autorização do Instagram venceu ou já foi usada/],
+      ["Instagram Graph v23.0: Matching code was not found or was already used", /A autorização do Instagram venceu ou já foi usada/],
+      // conta que não é profissional
+      ["Instagram Graph v23.0: Only Instagram professional accounts are supported", /precisa ser profissional/],
+      ["The account must be a business or creator account", /precisa ser profissional/],
+      // faltou permissão
+      ["Instagram Graph v23.0: (#10) Application does not have permission for this action", /Faltou alguma permissão/],
+      ["Instagram Graph v23.0: Insufficient developer role", /Faltou alguma permissão/],
+      ["Instagram Graph v23.0: Invalid scope: instagram_business_basic", /Faltou alguma permissão/],
+      // troca pela conexão longa
+      ["Instagram Graph v23.0: Invalid OAuth access token.", /trocar a autorização por uma conexão duradoura/],
+      ["Instagram Graph v23.0: Error validating access token: Session has expired", /trocar a autorização por uma conexão duradoura/],
+      // internet
+      ["fetch failed", /Não consegui falar com o Instagram agora/],
+      ["connect ETIMEDOUT 157.240.0.1:443", /Não consegui falar com o Instagram agora/],
+      ["getaddrinfo ENOTFOUND graph.instagram.com", /Não consegui falar com o Instagram agora/],
+      ["Instagram Graph v23.0: 503 Service Unavailable network error", /Não consegui falar com o Instagram agora/],
+    ];
+    for (const [motivo, esperado] of casos) {
+      const resultado = mensagemRetornoInstagram(params("instagram_error=" + encodeURIComponent(motivo)));
+      assert.equal(resultado?.tom, "erro", motivo);
+      assert.match(resultado?.texto ?? "", esperado, motivo);
+      assert.equal(resultado?.detalhe, undefined, `sem texto em inglês embaixo: ${motivo}`);
+      assert.doesNotMatch(resultado?.texto ?? "", /[A-Za-z]+ (?:the|was|is|has|does) /, `frase em português: ${motivo}`);
+    }
   });
 
   test("missing_code", () => {
@@ -41,10 +88,10 @@ describe("mensagemRetornoInstagram", () => {
   });
 
   test("outro motivo: mensagem simples e o motivo (até 200 caracteres) numa linha menor", () => {
-    assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=" + encodeURIComponent("Invalid OAuth redirect uri"))), {
+    assert.deepEqual(mensagemRetornoInstagram(params("instagram_error=" + encodeURIComponent("Something odd happened"))), {
       tom: "erro",
       texto: "Não consegui conectar o Instagram.",
-      detalhe: "Invalid OAuth redirect uri",
+      detalhe: "Something odd happened",
     });
     const longo = "x".repeat(500);
     const resultado = mensagemRetornoInstagram(params(`instagram_error=${longo}`));
