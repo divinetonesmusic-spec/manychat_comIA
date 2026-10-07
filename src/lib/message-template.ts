@@ -3,12 +3,12 @@ export type MessageTemplateContext = Record<string, string | number | boolean | 
 const VARIABLE_PATTERN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
 export const availableMessageVariables = [
-  { key: "username", label: "Usuario do Instagram" },
+  { key: "username", label: "Usuário do Instagram" },
   { key: "name", label: "Nome retornado pela Meta" },
   { key: "first_name", label: "Primeiro nome" },
   { key: "instagram_user_id", label: "ID do lead" },
   { key: "is_follower", label: "Segue o perfil" },
-  { key: "automation_name", label: "Nome da automacao" },
+  { key: "automation_name", label: "Nome da automação" },
   { key: "profile_url", label: "URL do perfil" },
 ] as const;
 

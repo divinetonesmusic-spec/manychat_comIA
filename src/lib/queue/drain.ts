@@ -61,7 +61,7 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
         processed += 1;
         const config = await getConfig(job.account_id);
         if (!config.instagram_access_token || !config.instagram_user_id) {
-          await markJobFailed(job.id, "Instagram nao conectado para este perfil");
+          await markJobFailed(job.id, "Instagram não conectado para este perfil");
           failed += 1;
           continue;
         }

@@ -344,7 +344,7 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
       sendType: "dm",
       payload: {
         type: "link",
-        text: "Aqui esta o link que voce pediu:",
+        text: "Aqui está o link que você pediu:",
         buttonLabel: text || "Acessar agora",
         url: payload,
       },
@@ -510,7 +510,7 @@ async function safeGetInstagramUserProfile(userId: string, accessToken: string):
 
 function buildFollowerConfirmationText(text: string, configuredGreetings: string[] | null | undefined) {
   const greetings = configuredGreetings?.map((item) => item.trim()).filter(Boolean) ?? [];
-  const availableGreetings = greetings.length ? greetings : ["Oii", "Ola", "Eii", "Eae", "Opa"];
+  const availableGreetings = greetings.length ? greetings : ["Oii", "Olá", "Eii", "Eae", "Opa"];
   const greeting = availableGreetings[Math.floor(Math.random() * availableGreetings.length)];
   return `${greeting} ${text}`.trim();
 }

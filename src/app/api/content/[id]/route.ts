@@ -12,7 +12,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function GET(_request: NextRequest, { params }: Params) {
   const { id } = await params;
   const post = await getContentPost(id);
-  return post ? NextResponse.json({ data: post }) : NextResponse.json({ error: "Post nao encontrado." }, { status: 404 });
+  return post ? NextResponse.json({ data: post }) : NextResponse.json({ error: "Post não encontrado." }, { status: 404 });
 }
 
 /** Edita/reagenda. body.action: "publish_now" | "cancel" | "retry" (opcional). */

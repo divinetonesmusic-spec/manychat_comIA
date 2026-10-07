@@ -116,10 +116,10 @@ export function cleanFileName(name: string) {
 /** Cria a chave do arquivo e os links: upload (PUT, 1 h) e o endereço público que a Meta vai ler. */
 export function createUploadTarget(input: { fileName: string; contentType: string; size?: number; folder?: string }) {
   const config = getR2Config();
-  if (!config) throw new Error("O armazenamento de midia (Cloudflare R2) ainda nao foi configurado.");
+  if (!config) throw new Error("O armazenamento de mídia (Cloudflare R2) ainda não foi configurado.");
   const extension = ALLOWED_TYPES[input.contentType];
-  if (!extension) throw new Error("Tipo de arquivo nao aceito. Use MP4, MOV, JPG, PNG ou WEBP.");
-  if (input.size && input.size > MAX_UPLOAD_BYTES) throw new Error("Arquivo grande demais (maximo 1 GB).");
+  if (!extension) throw new Error("Tipo de arquivo não aceito. Use MP4, MOV, JPG, PNG ou WEBP.");
+  if (input.size && input.size > MAX_UPLOAD_BYTES) throw new Error("Arquivo grande demais (máximo 1 GB).");
 
   const month = new Date().toISOString().slice(0, 7);
   const base = cleanFileName(input.fileName.replace(/\.[a-z0-9]+$/i, ""));

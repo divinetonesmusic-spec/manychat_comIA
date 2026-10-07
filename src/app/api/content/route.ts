@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const fromDate = new Date(from);
     const toDate = new Date(to);
     if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-      return NextResponse.json({ error: "Intervalo de datas invalido." }, { status: 400 });
+      return NextResponse.json({ error: "Intervalo de datas inválido." }, { status: 400 });
     }
     return NextResponse.json({ data: await listContentPostsInRange({ accountId, from: fromDate, to: toDate }) });
   }

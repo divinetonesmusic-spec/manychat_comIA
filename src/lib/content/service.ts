@@ -22,7 +22,7 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean): 
   const config = await getConfig(input.accountId);
   const needsInstagram = publishNow || Boolean(input.scheduledAt);
   if (needsInstagram && (!config.account_id || !config.instagram_user_id || !config.instagram_access_token)) {
-    throw new ContentError("Instagram nao conectado para este perfil. Conecte o perfil antes de agendar ou publicar.");
+    throw new ContentError("Instagram não conectado para este perfil. Conecte o perfil antes de agendar ou publicar.");
   }
   const pkg: PostPackage = { ...input, accountId: config.account_id ?? input.accountId ?? null };
 
@@ -35,8 +35,8 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean): 
       if (existing.status === "published" || existing.status === "publishing") {
         throw new ContentError(
           existing.status === "published"
-            ? "Este item ja foi publicado. Para postar de novo, mande como um item novo."
-            : "Este item esta sendo publicado agora. Espere 1 minuto.",
+            ? "Este item já foi publicado. Para postar de novo, mande como um item novo."
+            : "Este item está sendo publicado agora. Espere 1 minuto.",
           409,
         );
       }
@@ -55,10 +55,10 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean): 
 
 export async function editPost(id: string, input: Partial<PostPackage>, publishNow: boolean) {
   const current = await getContentPost(id);
-  if (!current) throw new ContentError("Post nao encontrado.", 404);
+  if (!current) throw new ContentError("Post não encontrado.", 404);
   if ((publishNow || input.scheduledAt) && current.account_id) {
     const config = await getConfig(current.account_id);
-    if (!config.instagram_user_id || !config.instagram_access_token) throw new ContentError("Instagram nao conectado para este perfil.");
+    if (!config.instagram_user_id || !config.instagram_access_token) throw new ContentError("Instagram não conectado para este perfil.");
   }
   if (current.status !== "published" && current.status !== "publishing") {
     const alreadyPublished = await ensureNotPublishedYet(current);
@@ -69,7 +69,7 @@ export async function editPost(id: string, input: Partial<PostPackage>, publishN
     try {
       post = await updatePlannedPost(id, input);
     } catch (error) {
-      throw new ContentError(error instanceof Error ? error.message : "Nao deu para editar.", 409);
+      throw new ContentError(error instanceof Error ? error.message : "Não deu para editar.", 409);
     }
   }
   if (publishNow) post = await publishPostNow(id);
@@ -92,16 +92,16 @@ async function ensureNotPublishedYet(post: ContentPost): Promise<ContentPost | n
 
 export async function cancelPost(id: string) {
   const post = await cancelPlannedPost(id);
-  if (!post) throw new ContentError("So da para cancelar rascunho, agendado ou com erro.", 409);
+  if (!post) throw new ContentError("Só dá para cancelar rascunho, agendado ou com erro.", 409);
   return post;
 }
 
 /** Apaga o registro e a mídia guardada no R2 (o post no Instagram, se publicado, continua lá). */
 export async function removePost(id: string) {
   const current = await getContentPost(id);
-  if (!current) throw new ContentError("Post nao encontrado.", 404);
+  if (!current) throw new ContentError("Post não encontrado.", 404);
   const removed = await deleteContentPost(id);
-  if (!removed) throw new ContentError("Este post esta sendo publicado agora. Espere 1 minuto e tente de novo.", 409);
+  if (!removed) throw new ContentError("Este post está sendo publicado agora. Espere 1 minuto e tente de novo.", 409);
 
   const keys = new Set<string>(current.media_keys ?? []);
   if (!current.media_deleted_at) {

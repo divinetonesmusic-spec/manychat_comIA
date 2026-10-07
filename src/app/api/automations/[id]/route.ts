@@ -53,7 +53,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     flow_edges: optionalFlowEdges(body.flow_edges),
   });
 
-  if (!automation) return NextResponse.json({ error: "Automacao nao encontrada." }, { status: 404 });
+  if (!automation) return NextResponse.json({ error: "Automação não encontrada." }, { status: 404 });
   return NextResponse.json({ data: automation });
 }
 

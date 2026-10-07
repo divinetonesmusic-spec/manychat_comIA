@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "UaiFlow",
     short_name: "UaiFlow",
-    description: "Automacoes de Instagram em PT-BR para comentarios, DMs e links.",
+    description: "Automações de Instagram em português para comentários, mensagens e links.",
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",

@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   const config = await getConfig(accountId);
 
   if (!config.instagram_user_id || !config.instagram_access_token) {
-    return NextResponse.json({ error: "Instagram nao conectado." }, { status: 400 });
+    return NextResponse.json({ error: "Instagram não conectado." }, { status: 400 });
   }
 
   const checks: DiagnosticCheck[] = [];
@@ -31,20 +31,20 @@ export async function GET(request: NextRequest) {
   checks.push(checkTokenDate(config.token_expires_at));
 
   const [profile, media, subscriptions, persistentMenu, iceBreakers] = await Promise.all([
-    runCheck("profile", "Token e perfil", async () => {
+    runCheck("profile", "Conexão e perfil", async () => {
       const result = await getInstagramProfile(config.instagram_access_token as string);
       return `Conectado como @${result.username}.`;
     }),
-    runCheck("media", "Posts e reels", async () => {
+    runCheck("media", "Posts e Reels", async () => {
       const result = await listInstagramMedia(config.instagram_user_id as string, config.instagram_access_token as string);
       const count = result.data?.length ?? 0;
-      return count ? `${count} midia(s) retornada(s).` : "Conexao ok, mas nenhuma midia retornou.";
+      return count ? `${count} ${count === 1 ? "post ou Reel encontrado" : "posts e Reels encontrados"}.` : "Conexão ok, mas o Instagram ainda não mostrou posts nem Reels.";
     }),
-    runCheck("webhook", "Webhook", async () => {
+    runCheck("webhook", "Aviso de novas mensagens", async () => {
       const result = await getInstagramSubscribedApps(config.instagram_user_id as string, config.instagram_access_token as string);
       const count = result.data?.length ?? 0;
-      if (count > 0) return `Inscricao ativa na Meta. ${config.webhook_subscribed_at ? `Salva localmente desde ${formatDate(config.webhook_subscribed_at)}.` : "Sem data local salva."}`;
-      return config.webhook_subscribed_at ? "Data local existe, mas a Meta nao retornou inscricao ativa." : "Nenhuma inscricao ativa retornada pela Meta.";
+      if (count > 0) return `Ligado na Meta. ${config.webhook_subscribed_at ? `Salvo aqui desde ${formatDate(config.webhook_subscribed_at)}.` : "Sem data salva aqui."}`;
+      return config.webhook_subscribed_at ? "Aqui consta como ligado, mas a Meta não retornou o aviso de novas mensagens." : "Nenhum aviso de novas mensagens ligado, segundo a Meta.";
     }),
     runCheck("persistent_menu", "Menu principal", async () => {
       const result = await getInstagramMessengerProfile({
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
         fields: "persistent_menu",
       });
       const hasMenu = Boolean(result.data?.[0]?.persistent_menu);
-      return hasMenu ? "Menu publicado encontrado na Meta." : "GET respondeu, mas nao ha menu publicado.";
+      return hasMenu ? "Menu publicado encontrado na Meta." : "A Meta respondeu, mas não há menu publicado.";
     }),
     runCheck("ice_breakers", "Iniciadores", async () => {
       const result = await getInstagramMessengerProfile({
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
         fields: "ice_breakers",
       });
       const hasIceBreakers = Boolean(result.data?.[0]?.ice_breakers);
-      return hasIceBreakers ? "Iniciadores publicados encontrados na Meta." : "GET respondeu, mas nao ha iniciadores publicados.";
+      return hasIceBreakers ? "Iniciadores publicados encontrados na Meta." : "A Meta respondeu, mas não há iniciadores publicados.";
     }),
   ]);
 
@@ -81,27 +81,27 @@ export async function GET(request: NextRequest) {
 
 function checkTokenDate(value: string | null): DiagnosticCheck {
   if (!value) {
-    return { key: "token_expiry", label: "Validade do token", status: "warn", detail: "Sem data de expiracao salva." };
+    return { key: "token_expiry", label: "Validade da conexão", status: "warn", detail: "Sem data de vencimento salva." };
   }
 
   const expiresAt = new Date(value).getTime();
   const days = Math.ceil((expiresAt - Date.now()) / 86_400_000);
 
   if (days <= 0) {
-    return { key: "token_expiry", label: "Validade do token", status: "error", detail: "Token expirado. Reconecte o perfil." };
+    return { key: "token_expiry", label: "Validade da conexão", status: "error", detail: "A conexão venceu. Reconecte o perfil." };
   }
 
   if (days <= 7) {
-    return { key: "token_expiry", label: "Validade do token", status: "warn", detail: `Expira em ${days} dia(s). Atualize permissoes em breve.` };
+    return { key: "token_expiry", label: "Validade da conexão", status: "warn", detail: `Vence em ${days} dia(s). Toque em Atualizar permissões em breve.` };
   }
 
-  return { key: "token_expiry", label: "Validade do token", status: "ok", detail: `Expira em ${days} dia(s).` };
+  return { key: "token_expiry", label: "Validade da conexão", status: "ok", detail: `Vence em ${days} dia(s).` };
 }
 
 async function runCheck(key: string, label: string, action: () => Promise<string>): Promise<DiagnosticCheck> {
   try {
     const detail = await action();
-    const status: CheckStatus = detail.includes("nao ha") || detail.includes("nao retornou") || detail.includes("Sem data") ? "warn" : "ok";
+    const status: CheckStatus = detail.includes("não há") || detail.includes("não retornou") || detail.includes("Sem data") ? "warn" : "ok";
     return { key, label, status, detail };
   } catch (error) {
     return { key, label, status: "error", detail: translateMetaError(error) };
@@ -121,15 +121,15 @@ function translateMetaError(error: unknown) {
   const message = error instanceof Error ? error.message : "Erro desconhecido.";
 
   if (message.includes("Session has expired") || message.includes("Error validating access token")) {
-    return "Token expirado ou invalido. Reconecte o perfil.";
+    return "A conexão venceu ou não é válida. Reconecte o perfil.";
   }
 
   if (message.includes("Unsupported request") || message.includes("permission")) {
-    return "A Meta recusou a chamada. Verifique permissao do perfil, modo de teste e escopos concedidos.";
+    return "A Meta recusou o pedido. Confira as permissões do perfil e se o app está em modo de teste.";
   }
 
   if (message.includes("User consent is required")) {
-    return "Consentimento do usuario necessario. O lead precisa iniciar a conversa ou tocar em menu/iniciador.";
+    return "A pessoa precisa aceitar antes. Ela deve iniciar a conversa ou tocar em um botão do menu ou dos iniciadores.";
   }
 
   return message.replace(/^Instagram Graph v\d+\.\d+:\s*/i, "Meta: ");

@@ -17,16 +17,16 @@ async function refresh(request: NextRequest) {
   const expected = process.env.WORKER_SECRET;
 
   if (!expected && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "Defina WORKER_SECRET nas variaveis do servidor." }, { status: 503 });
+    return NextResponse.json({ error: "Defina WORKER_SECRET nas variáveis do servidor." }, { status: 503 });
   }
   if (expected && providedSecret !== expected) {
-    return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
+    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
   // Renova TODAS as contas, cada uma com a sua tentativa.
   const resultados = await refreshAllInstagramTokens();
   if (!resultados.length) {
-    return NextResponse.json({ ok: false, error: "Instagram nao conectado", contas: [] }, { status: 409 });
+    return NextResponse.json({ ok: false, error: "Instagram não conectado", contas: [] }, { status: 409 });
   }
 
   // Aviso no Telegram (se configurado): contas que não renovaram e contas vencendo em menos de 10 dias.

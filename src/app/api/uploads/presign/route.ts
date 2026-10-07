@@ -15,6 +15,6 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ data: target });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Nao deu para preparar o envio." }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Não deu para preparar o envio." }, { status: 400 });
   }
 }

@@ -9,13 +9,13 @@ export async function GET(request: NextRequest) {
     const config = await getConfig(request.nextUrl.searchParams.get("accountId"));
 
     if (!config.instagram_access_token || !config.instagram_user_id) {
-      return NextResponse.json({ data: [], error: "Instagram nao conectado" }, { status: 409 });
+      return NextResponse.json({ data: [], error: "Instagram não conectado" }, { status: 409 });
     }
 
     const media = await listInstagramMedia(config.instagram_user_id, config.instagram_access_token);
     return NextResponse.json(media);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Nao consegui carregar posts e reels.";
+    const message = error instanceof Error ? error.message : "Não consegui carregar os posts e Reels.";
     console.error("[api/media]", message);
 
     return NextResponse.json(

@@ -21,13 +21,13 @@ export async function POST(request: NextRequest, { params }: Props) {
   }
 
   if (text.length > MAX_MANUAL_MESSAGE_LENGTH) {
-    return NextResponse.json({ error: `A mensagem deve ter ate ${MAX_MANUAL_MESSAGE_LENGTH} caracteres.` }, { status: 400 });
+    return NextResponse.json({ error: `A mensagem deve ter até ${MAX_MANUAL_MESSAGE_LENGTH} caracteres.` }, { status: 400 });
   }
 
   const target = await getManualMessageTarget(id);
 
   if (!target) {
-    return NextResponse.json({ error: "Contato nao encontrado." }, { status: 404 });
+    return NextResponse.json({ error: "Contato não encontrado." }, { status: 404 });
   }
 
   if (!target.recipient_id || !target.sender_id || !target.access_token) {

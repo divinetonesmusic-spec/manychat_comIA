@@ -20,7 +20,7 @@ export type MatchType = "contains" | "exact" | "any";
 export type DelayMode = "fixed" | "random";
 export type ReplyMode = "fixed" | "random";
 export type SendType = "private_reply" | "dm" | "public_reply";
-const defaultFollowerConfirmationGreetings = ["Oii", "Ola", "Eii", "Eae", "Opa"];
+const defaultFollowerConfirmationGreetings = ["Oii", "Olá", "Eii", "Eae", "Opa"];
 
 export type QuickReply = {
   title: string;
@@ -621,7 +621,7 @@ export async function createAutomation(input: Partial<Automation>) {
     returning *`,
     [
       accountId,
-      input.name || "Nova automacao",
+      input.name || "Nova automação",
       input.active ?? true,
       input.triggers?.length ? input.triggers : ["comments"],
       input.keywords ?? [],
@@ -629,10 +629,10 @@ export async function createAutomation(input: Partial<Automation>) {
       input.post_id || null,
       input.public_replies ?? [],
       input.public_reply_mode || "random",
-      input.welcome_dm || "Oi! Toque no botao abaixo para receber o link.",
+      input.welcome_dm || "Oi! Toque no botão abaixo para receber o link.",
       input.quick_reply_label || "Quero receber",
       JSON.stringify(input.quick_replies ?? []),
-      input.link_text || "Aqui esta o link que voce pediu:",
+      input.link_text || "Aqui está o link que você pediu:",
       input.link_button_label || "Abrir link",
       input.link_url || "",
       replyDelaySeconds,
@@ -1590,7 +1590,7 @@ export async function copyProfileConfiguration(input: {
   includeAutomations?: boolean;
 }) {
   if (input.sourceAccountId === input.targetAccountId) {
-    throw new Error("Escolha perfis diferentes para copiar configuracoes.");
+    throw new Error("Escolha perfis diferentes para copiar as configurações.");
   }
 
   const [sourceAccount, targetAccount, sourceSettings, sourceAutomations] = await Promise.all([
@@ -1600,7 +1600,7 @@ export async function copyProfileConfiguration(input: {
     input.includeAutomations ? listAutomations(input.sourceAccountId) : Promise.resolve([]),
   ]);
 
-  if (!sourceAccount || !targetAccount) throw new Error("Perfil de origem ou destino nao encontrado.");
+  if (!sourceAccount || !targetAccount) throw new Error("Perfil de origem ou destino não encontrado.");
 
   const automationIdMap = new Map<string, string>();
 
@@ -1609,7 +1609,7 @@ export async function copyProfileConfiguration(input: {
       ...automation,
       id: undefined,
       account_id: input.targetAccountId,
-      name: `${automation.name} (copia)`,
+      name: `${automation.name} (cópia)`,
       created_at: undefined,
       updated_at: undefined,
     });
@@ -1682,7 +1682,7 @@ function reactionPayloadText(payload: Record<string, unknown>) {
 
   const action = findPayloadString(reaction, ["action"]);
   if (action && ["remove", "removed", "unreact", "delete", "deleted"].includes(action.toLowerCase())) {
-    return "Removeu a reacao";
+    return "Removeu a reação";
   }
 
   const value = findPayloadString(reaction, ["emoji", "reaction", "type"]);

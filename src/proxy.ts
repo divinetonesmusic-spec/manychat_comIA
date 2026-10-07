@@ -65,7 +65,7 @@ export async function proxy(request: NextRequest) {
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json(
-      { error: "Sessao expirada. Entre novamente para continuar." },
+      { error: "Sessão expirada. Entre novamente para continuar." },
       { status: 401 },
     );
   }

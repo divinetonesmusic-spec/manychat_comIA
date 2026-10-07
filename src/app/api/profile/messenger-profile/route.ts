@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const accountId = request.nextUrl.searchParams.get("accountId");
   const config = await getConfig(accountId);
   if (!config.instagram_user_id || !config.instagram_access_token) {
-    return NextResponse.json({ error: "Instagram nao conectado." }, { status: 400 });
+    return NextResponse.json({ error: "Instagram não conectado." }, { status: 400 });
   }
 
   const data = await getInstagramMessengerProfile({
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   const [config, settings] = await Promise.all([getConfig(accountId), getProfileSettings(accountId)]);
 
   if (!config.instagram_user_id || !config.instagram_access_token) {
-    return NextResponse.json({ error: "Instagram nao conectado." }, { status: 400 });
+    return NextResponse.json({ error: "Instagram não conectado." }, { status: 400 });
   }
 
   if (kind === "ice_breakers") {
@@ -61,7 +61,7 @@ export async function DELETE(request: NextRequest) {
   const kind = parseKind(request.nextUrl.searchParams.get("kind"));
   const config = await getConfig(request.nextUrl.searchParams.get("accountId"));
   if (!config.instagram_user_id || !config.instagram_access_token) {
-    return NextResponse.json({ error: "Instagram nao conectado." }, { status: 400 });
+    return NextResponse.json({ error: "Instagram não conectado." }, { status: 400 });
   }
 
   await deleteInstagramMessengerProfile({

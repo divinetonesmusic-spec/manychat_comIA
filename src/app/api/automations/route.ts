@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json()) as Record<string, unknown>;
   const automation = await createAutomation({
     account_id: optionalString(body.account_id),
-    name: stringOr(body.name, "Nova automacao"),
+    name: stringOr(body.name, "Nova automação"),
     active: body.active !== false,
     triggers: triggerArrayOr(body.triggers, ["comments"]),
     keywords: arrayOr(body.keywords, []),
@@ -29,10 +29,10 @@ export async function POST(request: NextRequest) {
     post_id: stringOr(body.post_id, "") || null,
     public_replies: arrayOr(body.public_replies, []),
     public_reply_mode: replyModeOr(body.public_reply_mode, 'random'),
-    welcome_dm: stringOr(body.welcome_dm, "Oi! Toque no botao abaixo para receber o link."),
+    welcome_dm: stringOr(body.welcome_dm, "Oi! Toque no botão abaixo para receber o link."),
     quick_reply_label: stringOr(body.quick_reply_label, "Quero receber"),
     quick_replies: quickRepliesOr(body.quick_replies),
-    link_text: stringOr(body.link_text, "Aqui esta o link que voce pediu:"),
+    link_text: stringOr(body.link_text, "Aqui está o link que você pediu:"),
     link_button_label: stringOr(body.link_button_label, "Abrir link"),
     link_url: stringOr(body.link_url, ""),
     reply_delay_seconds: numberOr(body.reply_delay_seconds, 0),
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     non_follower_dm: stringOr(body.non_follower_dm, "Primeiro precisa me seguir para receber o acesso, depois que me seguir digite novamente a palavra que enviou acima."),
     non_follower_button_label: stringOr(body.non_follower_button_label, "Seguir no Insta"),
     follower_confirmation_text: stringOr(body.follower_confirmation_text, "Digite Eu Quero aqui em baixo para liberar."),
-    follower_confirmation_greetings: arrayOr(body.follower_confirmation_greetings, ["Oii", "Ola", "Eii", "Eae", "Opa"]),
+    follower_confirmation_greetings: arrayOr(body.follower_confirmation_greetings, ["Oii", "Olá", "Eii", "Eae", "Opa"]),
     flow_nodes: flowNodesOr(body.flow_nodes),
     flow_edges: flowEdgesOr(body.flow_edges),
   });

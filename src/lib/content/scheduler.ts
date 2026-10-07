@@ -533,7 +533,7 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
         match_type: "contains",
         post_id: mediaId,
         public_replies: Array.from(new Set(publicReplies)).slice(0, 8),
-        welcome_dm: post.dm_text || "Oi! Toque no botao abaixo para receber.",
+        welcome_dm: post.dm_text || "Oi! Toque no botão abaixo para receber.",
         quick_reply_label: (options.quickReplyLabel || "").slice(0, 20) || undefined,
         link_text: options.linkText || undefined,
         link_url: post.link_url || "",

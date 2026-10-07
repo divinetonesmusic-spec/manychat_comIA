@@ -92,7 +92,7 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
   const current = await getContentPost(id);
   if (!current) return null;
   if (!EDITABLE_STATUSES.includes(current.status)) {
-    throw new Error("Este post ja esta sendo publicado ou ja foi publicado; nao da para editar.");
+    throw new Error("Este post já está sendo publicado ou já foi publicado; não dá para editar.");
   }
 
   const next = {
@@ -118,7 +118,7 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
   const status = next.scheduled_at ? "scheduled" : "draft";
   const newMedia = input.mediaUrl !== undefined || input.mediaItems !== undefined;
   if (current.media_deleted_at && !newMedia) {
-    throw new Error("A midia deste post ja foi apagada do armazenamento. Envie o arquivo de novo antes de reagendar.");
+    throw new Error("A mídia deste post já foi apagada do armazenamento. Envie o arquivo de novo antes de reagendar.");
   }
 
   // Conteúdo novo, tentativa nova: some o container antigo e o registro do pedido de publicação (0003).

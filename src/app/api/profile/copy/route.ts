@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ data: result });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Nao consegui copiar as configuracoes.";
+    const message = error instanceof Error ? error.message : "Não consegui copiar as configurações.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
