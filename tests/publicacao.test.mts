@@ -188,6 +188,7 @@ describe("publicação segura (U-PUB-01, com a migração 0003)", { skip: semBan
     let post = await readPost(db, id);
     assert.equal(post.status, "publishing");
     assert.equal(post.published_media_id, null);
+    assert.equal(post.last_error, "A Meta publicou. Buscando o link do post.", "nota clara enquanto espera");
     assert.equal(meta.count("/media_publish"), 0);
 
     meta.feedFails = false;

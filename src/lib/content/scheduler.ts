@@ -284,16 +284,17 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
   // PUBLISHED é final: se o feed não responder, espera o próximo relógio para pegar o id (1º comentário,
   // automação e resultados dependem dele). Só desiste do link depois de 2 h.
   if (status.status_code === "PUBLISHED") {
-    let media: FeedMedia | null;
+    let media: FeedMedia | null = null;
+    let feedOk = true;
     try {
       media = await findPublishedMedia(post, config);
-    } catch (error) {
-      if (!tooOld) throw error;
-      media = null;
+    } catch {
+      feedOk = false;
     }
-    if (!media && !tooOld && publishRequestedRecently(post)) {
+    // feed fora do ar, ou pedido recente e o post ainda não apareceu: continua "publicando" e confere no próximo relógio
+    if (!tooOld && (!feedOk || (!media && publishRequestedRecently(post)))) {
       await touchContentPost(post.id, "A Meta publicou. Buscando o link do post.");
-      return "waiting"; // o feed pode demorar alguns minutos para mostrar o post
+      return "waiting";
     }
     await finishPublished(post, config, media, { locked: true });
     return "published";
