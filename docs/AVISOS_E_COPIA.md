@@ -105,7 +105,13 @@ Sem `SUPABASE_DB_URL`, a cópia só avisa que não foi feita e termina sem erro.
    psql -d uaiflow_copia -f uaiflow-banco.sql
    psql -d uaiflow_copia -c "select status, count(*) from content_posts group by status;"
    ```
-   Alguns erros como `schema "auth" does not exist` ou `schema "public" already exists` são normais. A parte `auth` só existe dentro do Supabase, e as tabelas e os dados do UaiFlow entram assim mesmo.
+   Alguns erros são normais e não atrapalham:
+   - `schema "auth" does not exist` (a parte `auth` só existe dentro do Supabase);
+   - `schema "public" already exists`;
+   - `invalid command \restrict` e `invalid command \unrestrict` (o psql do Mac é mais antigo que o pg_dump que fez a cópia);
+   - `unrecognized configuration parameter "transaction_timeout"` (a cópia vem do pg_dump 17 e o Postgres do Mac é mais antigo).
+
+   As tabelas e os dados do UaiFlow entram assim mesmo.
 8. Para recolocar a cópia num Supabase (numa emergência), crie um projeto novo e rode `psql "ENDEREÇO-DO-SESSION-POOLER-DO-PROJETO-NOVO" -f uaiflow-banco.sql`. Não faça isso por cima do banco que está em uso sem pedir ajuda antes.
 
 ## Parte 8: o que fazer quando chega um aviso
