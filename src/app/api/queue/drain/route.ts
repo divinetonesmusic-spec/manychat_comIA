@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { drainQueue } from "@/lib/queue/drain";
 import { runContentCycle } from "@/lib/content/scheduler";
+import { recordClockBeat } from "@/lib/health";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -46,6 +47,9 @@ async function runDrain(request: NextRequest) {
   const content = await runContentCycle(remaining, { origin: request.nextUrl.origin }).catch((error: unknown) => ({
     error: error instanceof Error ? error.message : "Erro no planner",
   }));
+
+  // Batimento para o /api/health (migração 0004). Falha ignorada: sem a 0004 o relógio segue normal.
+  await recordClockBeat({ ms: Date.now() - startedAt });
 
   return NextResponse.json({ ok: true, ...queue, content, ms: Date.now() - startedAt });
 }

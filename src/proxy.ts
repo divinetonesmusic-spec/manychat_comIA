@@ -22,6 +22,7 @@ const PUBLIC_PREFIXES = [
   "/api/webhook",
   "/api/queue/drain",
   "/api/token/refresh",
+  "/api/health", // saúde do relógio para o monitor; não mostra segredo nem @ de conta
   "/api/molde", // protegido pelo MOLDE_API_TOKEN dentro das rotas
 ];
 
