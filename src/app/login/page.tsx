@@ -5,6 +5,7 @@ import { AuthForm } from "../auth-form";
 import { BrandMark } from "@/components/brand-mark";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { translateAuthError } from "@/lib/auth-errors";
+import { safeNextPath } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Entrar | UaiFlow",
@@ -16,7 +17,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string; next?: string }>;
 }) {
   const params = await searchParams;
-  const next = params.next && params.next.startsWith("/") ? params.next : "/dashboard";
+  const next = safeNextPath(params.next);
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
 

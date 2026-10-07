@@ -1,12 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { translateAuthError } from "@/lib/auth-errors";
+import { safeNextPath } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const next = requestUrl.searchParams.get("next") || "/dashboard";
-  let response = NextResponse.redirect(new URL(next.startsWith("/") ? next : "/dashboard", request.url));
+  const next = safeNextPath(requestUrl.searchParams.get("next"));
+  let response = NextResponse.redirect(new URL(next, request.url));
 
   if (code) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.redirect(new URL(next.startsWith("/") ? next : "/dashboard", request.url));
+          response = NextResponse.redirect(new URL(next, request.url));
           cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
         },
       },

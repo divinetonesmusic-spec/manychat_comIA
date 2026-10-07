@@ -21,10 +21,21 @@ export function isValidAdminPassword(password: string) {
   return Boolean(expected && expected.length >= 12 && password === expected);
 }
 
-/** Só caminhos internos ("/dashboard"), nunca "//site" ou endereços de fora. */
+/**
+ * Só caminhos internos ("/dashboard"), nunca "//site", "/\site" ou endereços de fora.
+ * Também barra barra invertida, tab e quebra de linha: o navegador troca "\" por "/" e ignora tab/quebra,
+ * então "/\site" e "/<tab>/site" virariam "//site".
+ */
 export function safeNextPath(value: string | null | undefined, fallback = "/dashboard") {
   const next = String(value || "");
-  return next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : fallback;
+  if (!next.startsWith("/") || next.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(next)) return fallback;
+  try {
+    // confere do jeito que o navegador vai ler: tem que continuar no mesmo endereço
+    if (new URL(next, "https://uaiflow.invalid").host !== "uaiflow.invalid") return fallback;
+  } catch {
+    return fallback;
+  }
+  return next;
 }
 
 /** Lista opcional de e-mails que podem entrar (ALLOWED_EMAILS=a@x.com,b@y.com). Vazia = qualquer conta do Supabase. */

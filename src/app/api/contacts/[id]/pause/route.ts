@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { setContactHumanPause } from "@/lib/db/repositories";
+import { safeNextPath } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, { params }: Props) {
   const hours = Number(formData.get("hours") || 0);
   const until = paused && Number.isFinite(hours) && hours > 0 ? new Date(Date.now() + hours * 60 * 60 * 1000) : null;
   const reason = String(formData.get("reason") || "Atendimento humano");
-  const next = safeNextPath(String(formData.get("next") || "/caixa-de-entrada"));
+  const next = safeNextPath(String(formData.get("next") || ""), "/caixa-de-entrada");
 
   await setContactHumanPause({
     contactId: id,
@@ -40,8 +41,4 @@ export async function POST(request: NextRequest, { params }: Props) {
   });
 
   return NextResponse.redirect(new URL(next, request.url));
-}
-
-function safeNextPath(value: string) {
-  return value.startsWith("/") && !value.startsWith("//") ? value : "/caixa-de-entrada";
 }

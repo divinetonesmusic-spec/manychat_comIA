@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addContactTag, removeContactTag } from "@/lib/db/repositories";
+import { safeNextPath } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest, { params }: Props) {
   const formData = await request.formData();
   const action = String(formData.get("action") || "add");
   const tag = String(formData.get("tag") || "");
-  const next = safeNextPath(String(formData.get("next") || "/caixa-de-entrada"));
+  const next = safeNextPath(String(formData.get("next") || ""), "/caixa-de-entrada");
 
   if (action === "remove") {
     await removeContactTag(id, tag);
@@ -21,8 +22,4 @@ export async function POST(request: NextRequest, { params }: Props) {
   }
 
   return NextResponse.redirect(new URL(next, request.url));
-}
-
-function safeNextPath(value: string) {
-  return value.startsWith("/") && !value.startsWith("//") ? value : "/caixa-de-entrada";
 }
