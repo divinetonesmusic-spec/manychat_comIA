@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Edit3, Loader2, Pause, Play, RefreshCw, Trash2, Workflow } from "lucide-react";
 import { hrefWithAccount } from "@/lib/account-routing";
 import type { Automation, FlowLog } from "@/lib/db/repositories";
+import { matchLabel, triggerLabel } from "@/lib/rotulos";
 
 type Props = {
   initialAutomations: Automation[];
@@ -268,16 +269,6 @@ function translateSendType(sendType: string) {
     dm: "Direct",
   };
   return labels[sendType] || sendType;
-}
-
-function triggerLabel(trigger: string) {
-  const labels: Record<string, string> = { comments: "Comentário", story: "Resposta a story", dm: "Mensagem no direct" };
-  return labels[trigger] || trigger;
-}
-
-function matchLabel(matchType: string) {
-  const labels: Record<string, string> = { contains: "contém a palavra", exact: "palavra exata", any: "qualquer mensagem" };
-  return labels[matchType] || matchType;
 }
 
 function formatDate(value: string) {

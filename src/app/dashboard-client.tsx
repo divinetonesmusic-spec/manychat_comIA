@@ -18,6 +18,7 @@ import {
   Workflow,
 } from "lucide-react";
 import type { Automation } from "@/lib/db/repositories";
+import { matchLabel, mediaTypeLabel, triggerLabel } from "@/lib/rotulos";
 
 type Props = {
   initialAutomations: Automation[];
@@ -70,32 +71,32 @@ type AutomationTemplate = {
 };
 
 const editorSteps = [
-  { id: "post", label: "Post/Reel", description: "Escolha onde a automacao vai escutar comentarios." },
-  { id: "trigger", label: "Gatilho", description: "Defina palavras-chave, origem e tipo de comparacao." },
-  { id: "public", label: "Resposta publica", description: "Confirme no comentario que a mensagem foi enviada." },
-  { id: "dm", label: "DM e link", description: "Monte a conversa privada com botao e destino." },
-  { id: "reminder", label: "Lembrete", description: "Crie uma segunda mensagem dentro da janela de 24h." },
+  { id: "post", label: "Post/Reel", description: "Escolha onde a automação vai ficar de olho nos comentários." },
+  { id: "trigger", label: "Quando acontece", description: "Defina as palavras-chave, onde vale e como comparar." },
+  { id: "public", label: "Resposta pública", description: "Avise no comentário que a mensagem foi enviada." },
+  { id: "dm", label: "Mensagem e link", description: "Monte a conversa privada com botão e destino." },
+  { id: "reminder", label: "Lembrete", description: "Crie uma segunda mensagem, dentro do prazo de 24 horas." },
 ] as const;
 
 const automationTemplates: AutomationTemplate[] = [
   {
     id: "comment-follower-gate",
-    title: "Comentario + verifica seguidor",
+    title: "Comentário + verifica seguidor",
     category: "Seguidores",
-    description: "Responde o comentario, verifica se a pessoa segue o perfil e so libera o acesso para seguidores.",
+    description: "Responde o comentário, verifica se a pessoa segue o perfil e só libera o acesso para seguidores.",
     status: "ready",
-    flow: ["Comentario", "Verifica seguidor", "Segue?", "DM condicional"],
+    flow: ["Comentário", "Verifica seguidor", "Segue?", "Mensagem condicional"],
     values: {
-      name: "Comentario com acesso para seguidores",
+      name: "Comentário com acesso para seguidores",
       triggers: ["comments"],
       keywords: "eu quero\nquero\nacesso\nliberar",
       match_type: "contains",
-      public_replies: "Te mandei as instrucoes no direct.\nDa uma olhada no seu direct.",
+      public_replies: "Te mandei as instruções no direct.\nDá uma olhada no seu direct.",
       welcome_dm: "Digite Eu Quero aqui em baixo para liberar.",
       quick_reply_label: "Eu Quero",
-      link_text: "Clique no botao para receber o acesso:",
+      link_text: "Clique no botão para receber o acesso:",
       link_button_label: "Acessar agora",
-      reminder_text: "Passando para lembrar do acesso que liberei para voce.",
+      reminder_text: "Passando para lembrar do acesso que liberei para você.",
       reminder_delay_minutes: "720",
       require_follower: true,
       non_follower_dm: "Primeiro precisa me seguir para receber o acesso, depois que me seguir digite novamente a palavra que enviou acima.",
@@ -105,20 +106,20 @@ const automationTemplates: AutomationTemplate[] = [
   },
   {
     id: "comment-dm-button",
-    title: "Comentario + DM com botao",
+    title: "Comentário + mensagem com botão",
     category: "Mais usado",
-    description: "Detecta palavra-chave no comentario, responde publicamente e envia o primeiro direct com botao.",
+    description: "Percebe a palavra-chave no comentário, responde no comentário e envia a primeira mensagem no direct com botão.",
     status: "ready",
-    flow: ["Webhook", "Keyword", "Comentario", "DM", "Botao"],
+    flow: ["Palavra-chave", "Comentário", "Mensagem", "Botão"],
     values: {
-      name: "Comentario para DM com link",
+      name: "Comentário para mensagem com link",
       triggers: ["comments"],
       keywords: "quero\naula\nebook\nlink",
       match_type: "contains",
-      public_replies: "Te mandei no direct.\nAcabei de enviar para voce.",
-      welcome_dm: "Oi! Vi seu comentario. Toque no botao abaixo para receber o link.",
+      public_replies: "Te mandei no direct.\nAcabei de enviar para você.",
+      welcome_dm: "Oi! Vi seu comentário. Toque no botão abaixo para receber o link.",
       quick_reply_label: "Quero receber",
-      link_text: "Aqui esta o link que voce pediu:",
+      link_text: "Aqui está o link que você pediu:",
       link_button_label: "Acessar agora",
       reminder_text: "Passando para lembrar do link que te enviei.",
       reminder_delay_minutes: "1440",
@@ -132,20 +133,20 @@ const automationTemplates: AutomationTemplate[] = [
     id: "dm-keyword",
     title: "Palavra-chave no Direct",
     category: "Direct",
-    description: "Quando a pessoa chama no direct com uma palavra-chave, o fluxo responde com botao e link.",
+    description: "Quando a pessoa escreve uma palavra-chave no direct, o fluxo responde com botão e link.",
     status: "ready",
-    flow: ["DM", "Keyword", "Resposta", "Botao"],
+    flow: ["Direct", "Palavra-chave", "Resposta", "Botão"],
     values: {
-      name: "Keyword no direct",
+      name: "Palavra-chave no direct",
       triggers: ["dm"],
-      keywords: "preco\nvalor\nmentoria\ncatalogo",
+      keywords: "preço\nvalor\nmentoria\ncatálogo",
       match_type: "contains",
       public_replies: "",
-      welcome_dm: "Oi! Vi sua mensagem. Toque no botao para continuar.",
+      welcome_dm: "Oi! Vi sua mensagem. Toque no botão para continuar.",
       quick_reply_label: "Ver detalhes",
-      link_text: "Aqui esta a pagina com as informacoes:",
-      link_button_label: "Abrir pagina",
-      reminder_text: "Conseguiu ver as informacoes? Posso te ajudar por aqui.",
+      link_text: "Aqui está a página com as informações:",
+      link_button_label: "Abrir página",
+      reminder_text: "Conseguiu ver as informações? Posso te ajudar por aqui.",
       reminder_delay_minutes: "720",
       require_follower: false,
       non_follower_dm: "Primeiro precisa me seguir para receber o acesso, depois que me seguir digite novamente a palavra que enviou acima.",
@@ -157,20 +158,20 @@ const automationTemplates: AutomationTemplate[] = [
     id: "story-reply",
     title: "Resposta de story",
     category: "Stories",
-    description: "Transforma respostas em stories em uma conversa guiada no direct.",
+    description: "Transforma as respostas aos stories em uma conversa guiada no direct.",
     status: "ready",
-    flow: ["Story", "Resposta", "DM", "Botao"],
+    flow: ["Story", "Resposta", "Mensagem", "Botão"],
     values: {
       name: "Resposta de story para direct",
       triggers: ["story"],
       keywords: "quero\nsim\nmanda\nlink",
       match_type: "contains",
       public_replies: "",
-      welcome_dm: "Que bom que voce respondeu o story. Toque no botao para receber o material.",
+      welcome_dm: "Que bom que você respondeu o story. Toque no botão para receber o material.",
       quick_reply_label: "Receber material",
-      link_text: "Perfeito. Aqui esta o material:",
+      link_text: "Perfeito. Aqui está o material:",
       link_button_label: "Acessar material",
-      reminder_text: "Ainda da tempo de ver o material que te mandei.",
+      reminder_text: "Ainda dá tempo de ver o material que te mandei.",
       reminder_delay_minutes: "1440",
       require_follower: false,
       non_follower_dm: "Primeiro precisa me seguir para receber o acesso, depois que me seguir digite novamente a palavra que enviou acima.",
@@ -180,20 +181,20 @@ const automationTemplates: AutomationTemplate[] = [
   },
   {
     id: "public-private-reply",
-    title: "Comentario publico + resposta privada",
-    category: "Comentarios",
-    description: "Responde no post e leva a conversa para o direct sem disparar para base fria.",
+    title: "Comentário público + resposta privada",
+    category: "Comentários",
+    description: "Responde no post e leva a conversa para o direct, sem mandar mensagem para quem não conhece você.",
     status: "ready",
-    flow: ["Comentario", "Resposta publica", "Resposta privada"],
+    flow: ["Comentário", "Resposta pública", "Resposta privada"],
     values: {
-      name: "Comentario publico e resposta privada",
+      name: "Comentário público e resposta privada",
       triggers: ["comments"],
       keywords: "info\ninteresse\nquero",
       match_type: "contains",
-      public_replies: "Te respondi no direct.\nEnviei as informacoes no seu direct.",
-      welcome_dm: "Oi! Passei aqui para te enviar as informacoes que voce pediu no comentario.",
+      public_replies: "Te respondi no direct.\nEnviei as informações no seu direct.",
+      welcome_dm: "Oi! Passei aqui para te enviar as informações que você pediu no comentário.",
       quick_reply_label: "Continuar",
-      link_text: "Aqui esta o proximo passo:",
+      link_text: "Aqui está o próximo passo:",
       link_button_label: "Abrir",
       reminder_text: "",
       reminder_delay_minutes: "1440",
@@ -205,22 +206,22 @@ const automationTemplates: AutomationTemplate[] = [
   },
   {
     id: "follow-up-direct",
-    title: "Follow-up no Direct",
-    category: "Recuperacao",
-    description: "Depois do primeiro contato, agenda um lembrete dentro da janela permitida pela Meta.",
+    title: "Lembrete no direct",
+    category: "Recuperação",
+    description: "Depois do primeiro contato, agenda um lembrete dentro do prazo permitido pelo Instagram.",
     status: "ready",
-    flow: ["Trigger", "DM", "Espera", "Lembrete"],
+    flow: ["Quando acontece", "Mensagem", "Espera", "Lembrete"],
     values: {
-      name: "Follow-up de lead no direct",
+      name: "Lembrete para contato no direct",
       triggers: ["dm"],
-      keywords: "quero\ninteressei\nmais informacoes",
+      keywords: "quero\ninteressei\nmais informações",
       match_type: "contains",
       public_replies: "",
-      welcome_dm: "Oi! Vou te mandar as informacoes agora. Se preferir, toque no botao abaixo.",
+      welcome_dm: "Oi! Vou te mandar as informações agora. Se preferir, toque no botão abaixo.",
       quick_reply_label: "Receber",
-      link_text: "Aqui esta o link combinado:",
+      link_text: "Aqui está o link combinado:",
       link_button_label: "Ver agora",
-      reminder_text: "Passando para saber se voce conseguiu acessar o link.",
+      reminder_text: "Passando para saber se você conseguiu acessar o link.",
       reminder_delay_minutes: "360",
       require_follower: false,
       non_follower_dm: "Primeiro precisa me seguir para receber o acesso, depois que me seguir digite novamente a palavra que enviou acima.",
@@ -230,20 +231,20 @@ const automationTemplates: AutomationTemplate[] = [
   },
   {
     id: "outbound-webhook",
-    title: "Webhook externo",
-    category: "Roadmap",
-    description: "Enviar lead, tag ou evento para CRM, Zapier ou n8n. Precisa de uma nova etapa tecnica.",
+    title: "Enviar para outro sistema",
+    category: "Em breve",
+    description: "Enviar o contato, a etiqueta ou o aviso para outro sistema (CRM, Zapier ou n8n). Ainda precisa de uma etapa técnica.",
     status: "planned",
-    flow: ["Evento", "Filtro", "Webhook externo"],
+    flow: ["Aviso", "Filtro", "Outro sistema"],
     values: {
-      name: "Webhook externo",
+      name: "Enviar para outro sistema",
       triggers: ["comments"],
-      keywords: "lead",
+      keywords: "contato",
       match_type: "contains",
       public_replies: "",
       welcome_dm: "Recebi seu contato e vou te responder por aqui.",
       quick_reply_label: "Continuar",
-      link_text: "Proximo passo:",
+      link_text: "Próximo passo:",
       link_button_label: "Abrir",
       reminder_text: "",
       reminder_delay_minutes: "1440",
@@ -262,7 +263,7 @@ export function DashboardClient({
   showFlowList = true,
   showTemplates = true,
   initialTemplateId,
-  editorTitle = "Nova automacao",
+  editorTitle = "Nova automação",
   accountId = null,
 }: Props) {
   const [automations, setAutomations] = useState(initialAutomations);
@@ -293,9 +294,9 @@ export function DashboardClient({
         const contentType = response.headers.get("content-type") || "";
         const payload = contentType.includes("application/json")
           ? ((await response.json()) as { data?: InstagramMedia[]; error?: string })
-          : { error: "Sessao expirada. Entre novamente para carregar posts e reels." };
+          : { error: "Sua sessão expirou. Entre de novo para carregar os posts e Reels." };
 
-        if (!response.ok) throw new Error(payload.error || "Nao consegui carregar posts.");
+        if (!response.ok) throw new Error(payload.error || "Não consegui carregar os posts.");
         return payload.data ?? [];
       })
       .then((items) => {
@@ -305,7 +306,7 @@ export function DashboardClient({
       })
       .catch((error) => {
         if (!active) return;
-        setMediaError(error instanceof Error ? error.message : "Nao consegui carregar posts e reels agora. Tente atualizar a pagina em alguns instantes.");
+        setMediaError(error instanceof Error ? error.message : "Não consegui carregar os posts e Reels agora. Atualize a página daqui a pouco.");
         setMediaStatus("error");
       });
 
@@ -325,7 +326,7 @@ export function DashboardClient({
   function applyTemplate(template: AutomationTemplate, options?: { silent?: boolean; scroll?: boolean }) {
     if (template.status === "planned") {
       setSelectedTemplateId(template.id);
-      setNotice({ tone: "error", text: "Este modelo ainda precisa de uma evolucao tecnica antes de virar fluxo." });
+      setNotice({ tone: "error", text: "Este modelo ainda não está pronto para virar um fluxo." });
       return;
     }
 
@@ -359,7 +360,7 @@ export function DashboardClient({
 
     if (!template.values.triggers.includes("comments")) setSelectedPostId("");
 
-    if (!options?.silent) setNotice({ tone: "success", text: `Modelo "${template.title}" aplicado. Complete a URL e revise as mensagens.` });
+    if (!options?.silent) setNotice({ tone: "success", text: `Modelo "${template.title}" aplicado. Complete o link e revise as mensagens.` });
     if (options?.scroll !== false) {
       window.requestAnimationFrame(() => {
         document.getElementById("step-trigger")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -375,7 +376,7 @@ export function DashboardClient({
     const form = new FormData(formElement);
     const payload = {
       account_id: accountId,
-      name: String(form.get("name") || "Nova automacao"),
+      name: String(form.get("name") || "Nova automação"),
       active: form.get("active") === "on",
       triggers: form.getAll("triggers").map(String),
       keywords: splitLines(String(form.get("keywords") || "")),
@@ -405,17 +406,17 @@ export function DashboardClient({
       const result = (await response.json().catch(() => null)) as { data?: Automation; error?: string } | null;
 
       if (!response.ok || !result?.data) {
-        setNotice({ tone: "error", text: result?.error || "Nao consegui salvar. Confira os campos e tente de novo." });
+        setNotice({ tone: "error", text: result?.error || "Não consegui salvar. Confira os campos e tente de novo." });
         return;
       }
 
       setAutomations((current) => [result.data as Automation, ...current]);
       setFilter("all");
-      setNotice({ tone: "success", text: "Automacao criada. Ja aparece na lista ao lado." });
+      setNotice({ tone: "success", text: "Automação criada. Ela já aparece na lista." });
       setSelectedPostId("");
       formElement.reset();
     } catch {
-      setNotice({ tone: "error", text: "Falha de rede ao salvar. Tente novamente em alguns segundos." });
+      setNotice({ tone: "error", text: "A internet falhou ao salvar. Tente de novo em alguns segundos." });
     } finally {
       setSaving(false);
     }
@@ -426,10 +427,10 @@ export function DashboardClient({
       {showTemplates ? (<section className="panel p-5 sm:p-6 xl:col-span-2" id="modelos">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="eyebrow">Modelos de automacao</p>
+            <p className="eyebrow">Modelos de automação</p>
             <h2 className="mt-2 text-xl font-semibold">Comece por um fluxo pronto</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ms-muted)]">
-              Escolha um modelo para preencher o editor. Os modelos planejados ficam visiveis para guiar as proximas evolucoes do produto.
+              Escolha um modelo para preencher o editor. Os modelos marcados como "Em breve" ainda não funcionam.
             </p>
           </div>
           <span className="status-pill">{automationTemplates.filter((template) => template.status === "ready").length} prontos</span>
@@ -471,7 +472,7 @@ export function DashboardClient({
             ) : (
               <div className="rounded-lg border border-dashed border-[var(--ms-border-strong)] bg-[var(--ms-surface-soft)] p-8 text-center">
                 <Workflow className="mx-auto text-[var(--ms-muted)]" size={28} />
-                <p className="mt-3 text-sm text-[var(--ms-muted)]">Nenhuma automacao neste filtro.</p>
+                <p className="mt-3 text-sm text-[var(--ms-muted)]">Nenhuma automação neste filtro.</p>
               </div>
             )}
           </div>
@@ -481,7 +482,7 @@ export function DashboardClient({
           <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
             <h2 className="font-semibold">Falta a Meta</h2>
             <p className="mt-2 text-sm leading-6">
-              Configure o app no Meta for Developers para liberar a conexao com Instagram.
+              Configure o aplicativo no painel da Meta para liberar a conexão com o Instagram.
             </p>
           </section>
         ) : null}
@@ -494,12 +495,12 @@ export function DashboardClient({
               <p className="eyebrow">Editor de fluxo</p>
               <h2 className="mt-2 text-2xl font-semibold">{editorTitle}</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ms-muted)]">
-                Monte um fluxo com comentario, DM, botao e link, respeitando a janela de 24h da Meta.
+                Monte um fluxo com comentário, mensagem, botão e link, respeitando o prazo de 24 horas do Instagram.
               </p>
             </div>
             <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
               <ShieldCheck size={16} />
-              Seguro para Meta
+              Dentro das regras do Instagram
             </span>
           </div>
 
@@ -523,8 +524,8 @@ export function DashboardClient({
               <div className="grid max-w-xs place-items-center gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface)] px-5 py-4 text-center shadow-lg">
                 <Loader2 className="size-6 animate-spin text-[var(--ms-primary)]" />
                 <div>
-                  <p className="text-sm font-bold">Criando automacao</p>
-                  <p className="mt-1 text-xs leading-5 text-[var(--ms-muted)]">Salvando regras, mensagens e post selecionado.</p>
+                  <p className="text-sm font-bold">Criando a automação</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--ms-muted)]">Salvando as regras, as mensagens e o post escolhido.</p>
                 </div>
               </div>
             </div>
@@ -532,15 +533,15 @@ export function DashboardClient({
 
           <fieldset className="contents" disabled={saving}>
             <EditorStep
-              description="Escolha um post/reel especifico ou deixe o fluxo valido para todos os conteudos."
+              description="Escolha um post ou Reel específico, ou deixe o fluxo valendo para todos."
               id="post"
               number={1}
-              title="Post ou reels"
+              title="Post ou Reel"
             >
               <input name="post_id" type="hidden" value={selectedPostId} readOnly />
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3">
                 <span className="text-sm text-[var(--ms-muted)]">
-                  {selectedPostId ? `Post selecionado: ${selectedPostId}` : "Todos os posts/reels"}
+                  {selectedPostId ? `Post selecionado: ${selectedPostId}` : "Todos os posts e Reels"}
                 </span>
                 <button className="btn-secondary h-9" onClick={() => setSelectedPostId("")} type="button">
                   Usar todos
@@ -556,10 +557,10 @@ export function DashboardClient({
             </EditorStep>
 
             <EditorStep
-              description="Deixe ativo, escolha a origem e defina as palavras que disparam a automacao."
+              description="Deixe ligada, escolha onde vale e defina as palavras que ligam a automação."
               id="trigger"
               number={2}
-              title="Gatilho"
+              title="Quando acontece"
             >
               <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
                 <label className="field">
@@ -574,11 +575,11 @@ export function DashboardClient({
               </div>
 
               <div className="field">
-                <span>Origem</span>
+                <span>Onde vale</span>
                 <div className="grid gap-2 text-sm sm:grid-cols-3">
-                  <label className="check"><input name="triggers" type="checkbox" value="comments" defaultChecked /> Comentario</label>
+                  <label className="check"><input name="triggers" type="checkbox" value="comments" defaultChecked /> Comentário</label>
                   <label className="check"><input name="triggers" type="checkbox" value="story" /> Story</label>
-                  <label className="check"><input name="triggers" type="checkbox" value="dm" /> DM</label>
+                  <label className="check"><input name="triggers" type="checkbox" value="dm" /> Mensagem no direct</label>
                 </div>
               </div>
 
@@ -590,17 +591,17 @@ export function DashboardClient({
 
                 <div className="grid gap-4 lg:grid-cols-2">
                   <label className="field">
-                    <span>Mensagem para quem nao segue</span>
+                    <span>Mensagem para quem não segue</span>
                     <textarea className="input min-h-24" name="non_follower_dm" defaultValue="Primeiro precisa me seguir para receber o acesso, depois que me seguir digite novamente a palavra que enviou acima." />
                   </label>
                   <label className="field">
-                    <span>Texto para quem ja segue</span>
+                    <span>Texto para quem já segue</span>
                     <textarea className="input min-h-24" name="follower_confirmation_text" defaultValue="Digite Eu Quero aqui em baixo para liberar." />
                   </label>
                 </div>
 
                 <label className="field max-w-sm">
-                  <span>Rotulo do botao seguir</span>
+                  <span>Texto do botão de seguir</span>
                   <input className="input" name="non_follower_button_label" defaultValue="Seguir no Insta" />
                 </label>
               </div>
@@ -613,15 +614,15 @@ export function DashboardClient({
 
                 <div className="grid gap-4">
                   <label className="field">
-                    <span>Tipo de comparacao</span>
+                    <span>Como comparar</span>
                     <select className="input" name="match_type" defaultValue="contains">
-                      <option value="contains">Contem</option>
-                      <option value="exact">Exato</option>
+                      <option value="contains">Contém a palavra</option>
+                      <option value="exact">Palavra exata</option>
                       <option value="any">Qualquer mensagem</option>
                     </select>
                   </label>
                   <label className="field">
-                    <span>Aguardar antes de responder</span>
+                    <span>Esperar antes de responder (segundos)</span>
                     <input className="input" name="reply_delay_seconds" type="number" min="0" defaultValue="0" />
                   </label>
                 </div>
@@ -629,57 +630,57 @@ export function DashboardClient({
             </EditorStep>
 
             <EditorStep
-              description="Uma resposta publica curta evita confusao e mantem a conversa indo para o direct."
+              description="Uma resposta curta no comentário evita confusão e leva a conversa para o direct."
               id="public"
               number={3}
-              title="Resposta publica"
+              title="Resposta pública"
             >
               <label className="field">
                 <span>Respostas, uma por linha</span>
-                <textarea className="input min-h-24" name="public_replies" placeholder={`Te mandei no direct ${String.fromCodePoint(0x1f4e5)}\nOlha suas DMs, {{first_name}} ${String.fromCodePoint(0x1f389)}\nMe chama no direct ${String.fromCodePoint(0x1f609)}`} />
+                <textarea className="input min-h-24" name="public_replies" placeholder={`Te mandei no direct ${String.fromCodePoint(0x1f4e5)}\nOlha seu direct, {{first_name}} ${String.fromCodePoint(0x1f389)}\nMe chama no direct ${String.fromCodePoint(0x1f609)}`} />
               </label>
             </EditorStep>
 
             <EditorStep
-              description="A primeira DM entrega contexto, o botao confirma interesse e a segunda mensagem envia o link."
+              description="A primeira mensagem dá o contexto, o botão confirma o interesse e a segunda mensagem envia o link."
               id="dm"
               number={4}
-              title="DM e link"
+              title="Mensagem e link"
             >
               <FlowPreview />
 
               <TemplateAssist />
 
               <label className="field">
-                <span>DM de boas-vindas</span>
-                <textarea className="input min-h-24" name="welcome_dm" defaultValue={`Oi {{first_name}}! Vi seu comentario. Toque no botao abaixo para receber o link ${String.fromCodePoint(0x1f381)}`} required />
+                <span>Mensagem de boas-vindas</span>
+                <textarea className="input min-h-24" name="welcome_dm" defaultValue={`Oi {{first_name}}! Vi seu comentário. Toque no botão abaixo para receber o link ${String.fromCodePoint(0x1f381)}`} required />
               </label>
 
               <div className="grid gap-4 sm:grid-cols-[0.8fr_1.2fr]">
                 <label className="field">
-                  <span>Botao de resposta rapida</span>
+                  <span>Botão de resposta rápida</span>
                   <input className="input" name="quick_reply_label" defaultValue={`Eu Quero ${String.fromCodePoint(0x2705)}`} required />
                 </label>
                 <label className="field">
-                  <span>Texto da DM com link</span>
-                  <input className="input" name="link_text" defaultValue="Aqui esta o link que voce pediu:" required />
+                  <span>Texto da mensagem com o link</span>
+                  <input className="input" name="link_text" defaultValue="Aqui está o link que você pediu:" required />
                 </label>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-[0.7fr_1.3fr]">
                 <label className="field">
-                  <span>Rotulo do botao</span>
+                  <span>Texto do botão</span>
                   <input className="input" name="link_button_label" defaultValue={`Acessar agora ${String.fromCodePoint(0x1f7e2)}`} required />
                 </label>
                 <label className="field">
-                  <span>URL do link</span>
+                  <span>Endereço do link</span>
                   <input className="input" name="link_url" placeholder="https://..." type="url" required />
                 </label>
               </div>
             </EditorStep>
 
             <EditorStep
-              description="Opcional. Use para relembrar quem clicou no botao, ainda dentro da janela permitida."
+              description="Opcional. Use para lembrar quem clicou no botão, ainda dentro do prazo permitido."
               id="reminder"
               number={5}
               title="Lembrete"
@@ -690,7 +691,7 @@ export function DashboardClient({
                   <input className="input" name="reminder_text" placeholder="Passando para lembrar do link." />
                 </label>
                 <label className="field">
-                  <span>Atraso em minutos</span>
+                  <span>Esperar quantos minutos</span>
                   <input className="input" name="reminder_delay_minutes" type="number" min="0" defaultValue="1440" />
                 </label>
               </div>
@@ -698,11 +699,11 @@ export function DashboardClient({
 
             <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center">
               <p className="text-sm leading-6 text-[var(--ms-muted)]">
-                Ao criar, o fluxo entra na biblioteca e passa a responder eventos recebidos pelo webhook.
+                Ao criar, a automação entra na lista e passa a responder os comentários e mensagens que chegarem.
               </p>
               <button className="btn-primary h-11 justify-center" disabled={saving}>
                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
-                {saving ? "Salvando..." : "Criar automacao"}
+                {saving ? "Salvando..." : "Criar automação"}
               </button>
             </div>
           </fieldset>
@@ -760,7 +761,7 @@ function TemplateCard({
           </div>
         </div>
         <span className={ready ? "status-pill status-pill-green shrink-0" : "status-pill shrink-0"}>
-          {ready ? "Pronto" : "Roadmap"}
+          {ready ? "Pronto" : "Em breve"}
         </span>
       </div>
 
@@ -833,9 +834,9 @@ function EditorStep({
 
 function FlowPreview() {
   const steps = [
-    { icon: <MessageCircle size={16} />, label: "Comentario", tone: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
-    { icon: <Send size={16} />, label: "DM privada", tone: "bg-blue-500/10 text-blue-700 dark:text-blue-300" },
-    { icon: <MousePointerClick size={16} />, label: "Botao", tone: "bg-violet-500/10 text-violet-700 dark:text-violet-300" },
+    { icon: <MessageCircle size={16} />, label: "Comentário", tone: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+    { icon: <Send size={16} />, label: "Mensagem privada", tone: "bg-blue-500/10 text-blue-700 dark:text-blue-300" },
+    { icon: <MousePointerClick size={16} />, label: "Botão", tone: "bg-violet-500/10 text-violet-700 dark:text-violet-300" },
     { icon: <LinkIcon size={16} />, label: "Link", tone: "bg-amber-500/10 text-amber-700 dark:text-amber-300" },
   ];
 
@@ -859,12 +860,12 @@ function FlowPreview() {
 
 function TemplateAssist() {
   const variables = ["{{username}}", "{{first_name}}", "{{name}}", "{{profile_url}}", "{{automation_name}}"];
-  const examples = [`${String.fromCodePoint(0x1f4e5)} Olha suas DMs`, `${String.fromCodePoint(0x1f381)} Acesso liberado`, `${String.fromCodePoint(0x1f7e2)} Acessar agora`, `${String.fromCodePoint(0x2705)} Eu Quero`, `${String.fromCodePoint(0x1f609)} Me chama no direct`];
+  const examples = [`${String.fromCodePoint(0x1f4e5)} Olha seu direct`, `${String.fromCodePoint(0x1f381)} Acesso liberado`, `${String.fromCodePoint(0x1f7e2)} Acessar agora`, `${String.fromCodePoint(0x2705)} Eu Quero`, `${String.fromCodePoint(0x1f609)} Me chama no direct`];
 
   return (
     <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4 md:grid-cols-2">
       <div>
-        <span className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--ms-muted)]">Variaveis</span>
+        <span className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--ms-muted)]">Variáveis</span>
         <div className="mt-3 flex flex-wrap gap-2">
           {variables.map((variable) => (
             <code className="rounded-md border border-[var(--ms-border)] bg-[var(--ms-surface)] px-2 py-1 text-xs" key={variable}>{variable}</code>
@@ -892,7 +893,7 @@ function AutomationCard({ automation }: { automation: Automation }) {
             <h3 className="truncate font-semibold">{automation.name}</h3>
           </div>
           <p className="mt-2 text-sm text-[var(--ms-muted)]">
-            {automation.triggers.join(", ") || "sem gatilho"} | {automation.match_type} | {automation.keywords.join(", ") || "sem palavras"}
+            {automation.triggers.map(triggerLabel).join(", ") || "sem aviso"} | {matchLabel(automation.match_type)} | {automation.keywords.join(", ") || "sem palavras"}
           </p>
         </div>
         <span className="rounded-md bg-[var(--ms-surface)] px-2 py-1 text-xs font-semibold text-[var(--ms-muted)]">
@@ -902,7 +903,7 @@ function AutomationCard({ automation }: { automation: Automation }) {
       <div className="mt-4 grid gap-2 text-sm text-[var(--ms-muted)]">
         <div className="flex items-center gap-2">
           <ImageIcon size={15} />
-          <span className="truncate">{automation.post_id ? `Post: ${automation.post_id}` : "Todos os posts/reels"}</span>
+          <span className="truncate">{automation.post_id ? `Post: ${automation.post_id}` : "Todos os posts e Reels"}</span>
         </div>
         {automation.require_follower ? (
           <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
@@ -939,7 +940,7 @@ function MediaPicker({
   setSelectedPostId: (value: string) => void;
 }) {
   if (mediaStatus === "idle") {
-    return <p className="text-sm text-[var(--ms-muted)]">Conecte o Instagram para listar posts e reels.</p>;
+    return <p className="text-sm text-[var(--ms-muted)]">Conecte o Instagram para listar os posts e Reels.</p>;
   }
 
   if (mediaStatus === "loading") {
@@ -947,7 +948,7 @@ function MediaPicker({
       <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-3" aria-live="polite" aria-busy="true">
         <div className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--ms-muted)]">
           <Loader2 className="animate-spin" size={15} />
-          Carregando posts e reels...
+          Carregando posts e Reels...
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
@@ -970,7 +971,7 @@ function MediaPicker({
   }
 
   if (!media.length) {
-    return <p className="text-sm text-[var(--ms-muted)]">Nenhum post ou reels retornado pela API ainda.</p>;
+    return <p className="text-sm text-[var(--ms-muted)]">O Instagram ainda não mostrou posts nem Reels deste perfil.</p>;
   }
 
   return (
@@ -988,7 +989,7 @@ function MediaPicker({
           >
             {imageUrl ? (
               <img
-                alt="Preview do post"
+                alt="Prévia do post"
                 className="aspect-square w-full rounded-lg object-cover"
                 src={imageUrl}
                 onError={(event) => {
@@ -1002,7 +1003,7 @@ function MediaPicker({
             )}
             <div className="grid gap-1">
               <div className="flex items-center justify-between gap-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                <span>{item.media_type || "MIDIA"}</span>
+                <span>{mediaTypeLabel(item.media_type)}</span>
                 <span className="inline-flex items-center gap-1">{selected ? <Check size={13} /> : null}{selected ? "Selecionado" : "Selecionar"}</span>
               </div>
               <p className="line-clamp-3 text-left text-sm text-[var(--ms-muted)]">{item.caption || "Sem legenda"}</p>
