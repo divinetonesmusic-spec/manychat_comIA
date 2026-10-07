@@ -1,0 +1,62 @@
+name: Monitor do UaiFlow
+
+# Confere a cada hora se o UaiFlow está vivo (rota /api/health). Se não estiver, manda aviso no
+# Telegram (quando os segredos existem) e termina com falha, e o GitHub manda e-mail para o dono.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+jobs:
+  saude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Conferir a saúde do UaiFlow
+        id: saude
+        env:
+          UAIFLOW_URL: ${{ vars.UAIFLOW_URL || 'https://uaiflow-divinetones.netlify.app' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          saude="${UAIFLOW_URL%/}/api/health"
+          codigo=$(curl -sS --max-time 30 --retry 2 --retry-delay 15 -o resposta.json -w '%{http_code}' "$saude") || codigo="000"
+
+          ok="false"
+          if [ "$codigo" = "000" ]; then
+            motivo="O site não respondeu (fora do ar ou muito lento)."
+          elif ! jq -e 'type == "object" and has("ok")' resposta.json > /dev/null 2>&1; then
+            motivo="O site respondeu com erro $codigo (sem o relatório de saúde)."
+          else
+            motivo=$(jq -r '.motivo // empty' resposta.json)
+            if [ "$codigo" = "200" ] && [ "$(jq -r '.ok == true' resposta.json)" = "true" ]; then ok="true"; fi
+            if [ -z "$motivo" ]; then motivo="O site respondeu com o código $codigo."; fi
+          fi
+
+          if [ "$ok" = "true" ]; then
+            minutos=$(jq -r '.relogio.minutos' resposta.json)
+            prazo=$(jq -r '.tokens.menorPrazoDias // "sem conta"' resposta.json)
+            echo "Tudo certo: o relógio rodou há $minutos min. Menor prazo de token do Instagram: $prazo dia(s)."
+            exit 0
+          fi
+
+          echo "::error title=UaiFlow com problema::$motivo"
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            texto=$(printf 'UaiFlow: o monitor achou um problema.\nMotivo: %s\nDetalhes: %s' "$motivo" "$saude")
+            resposta=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' -X POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=${texto}" \
+              -d "disable_web_page_preview=true") || resposta="000"
+            if [ "$resposta" = "200" ]; then echo "Aviso enviado no Telegram."; else echo "::warning::Não consegui mandar o aviso no Telegram (resposta $resposta)."; fi
+          else
+            echo "Sem os segredos TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID no GitHub: o aviso fica só no e-mail do GitHub."
+          fi
+          exit 1
