@@ -21,7 +21,7 @@ const PORT = 3400 + (process.pid % 400);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TOKEN = /IGAA-TESTE/;
 
-describe("nenhum token do Instagram no HTML das telas", { skip: motivo }, () => {
+describe("depois do build: nenhum token no HTML e link de conexão funcionando", { skip: motivo }, () => {
   let db: TestDatabase;
   let server: ChildProcess;
   let cookie: string;
@@ -102,6 +102,20 @@ describe("nenhum token do Instagram no HTML das telas", { skip: motivo }, () => 
     assert.equal(response.status, 200);
     assert.match(html, /Fluxo de teste/);
     assert.doesNotMatch(html, TOKEN);
+  });
+
+  test("U-SEG-02: o link de Perfis (Copiar link) abre o login do Instagram em outro navegador, sem sessão", async () => {
+    const html = await (await fetch(`${BASE}/perfis`, { headers: { cookie } })).text();
+    const match = html.match(/\/api\/oauth\/login\?next=[^"\s<>]*?(?:&amp;|\\u0026|&)t=([A-Za-z0-9_.%-]+)/);
+    assert.ok(match, "a tela Perfis não trouxe o link assinado");
+    const t = decodeURIComponent(match[1]);
+
+    const semSessao = await fetch(`${BASE}/api/oauth/login?next=%2Fperfis&t=${encodeURIComponent(t)}`, { redirect: "manual" });
+    assert.ok([302, 303, 307].includes(semSessao.status), `status ${semSessao.status}`);
+    assert.match(semSessao.headers.get("location") ?? "", /^https:\/\/www\.instagram\.com\/oauth\/authorize\?/);
+
+    const semNada = await fetch(`${BASE}/api/oauth/login?next=%2Fperfis`, { redirect: "manual" });
+    assert.match(semNada.headers.get("location") ?? "", /\/login\?/, "sem sessão e sem link: vai para o login do UaiFlow");
   });
 
   test("API de trocar o perfil principal (chamada pelo navegador)", async () => {

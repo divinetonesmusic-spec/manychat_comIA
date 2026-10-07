@@ -35,6 +35,8 @@ type Props = {
   settings: ProfileSettings;
   activeAccountId?: string | null;
   metaDeveloperUrl: string;
+  /** Link de conexão com token assinado (30 min), gerado no servidor. */
+  connectPath: string;
 };
 
 type Notice = { tone: "success" | "error"; text: string } | null;
@@ -58,7 +60,7 @@ type BusyAction = "save" | "load_menu" | "sync_menu" | "delete_menu" | "load_ice
 const emptyMenuItem: PersistentMenuItem = { title: "", type: "postback", payload: "" };
 const emptyIceBreaker: IceBreakerItem = { question: "", payload: "" };
 
-export function PerfisClient({ accounts, automations, config, settings, activeAccountId = null, metaDeveloperUrl }: Props) {
+export function PerfisClient({ accounts, automations, config, settings, activeAccountId = null, metaDeveloperUrl, connectPath }: Props) {
   const [draft, setDraft] = useState(settings);
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState<BusyAction>(null);
@@ -159,9 +161,8 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
 
 
   function getInstagramConnectUrl() {
-    const next = encodeURIComponent(hrefWithAccount("/perfis", activeAccountId));
-    if (typeof window === "undefined") return `/api/oauth/login?next=${next}`;
-    return new URL(`/api/oauth/login?next=${next}`, window.location.origin).toString();
+    if (typeof window === "undefined") return connectPath;
+    return new URL(connectPath, window.location.origin).toString();
   }
 
 
@@ -177,7 +178,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
     const url = getInstagramConnectUrl();
     try {
       await navigator.clipboard.writeText(url);
-      setNotice({ tone: "success", text: "Link de conexao copiado." });
+      setNotice({ tone: "success", text: "Link de conexão copiado. Ele vale por 30 minutos." });
     } catch {
       setNotice({ tone: "error", text: "Nao consegui copiar automaticamente. Abra o link e copie pela barra do navegador." });
     }
@@ -323,7 +324,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="btn-secondary" href={`/api/oauth/login?next=${encodeURIComponent(hrefWithAccount("/perfis", activeAccountId))}`}><RefreshCcw size={16} /> Atualizar permissoes</Link>
+            <Link className="btn-secondary" href={connectPath}><RefreshCcw size={16} /> Atualizar permissoes</Link>
             <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] px-3 text-sm font-semibold">
               <input checked={draft.channel_active} onChange={(event) => setDraft((current) => ({ ...current, channel_active: event.target.checked }))} type="checkbox" />
               Canal ativo
@@ -338,7 +339,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
             <h2 className="mt-1 text-xl font-bold">Gerencie suas contas de Instagram</h2>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="btn-secondary" href={`/api/oauth/login?next=${encodeURIComponent(hrefWithAccount("/perfis", activeAccountId))}`}><ExternalLink size={16} /> Abrir neste navegador</Link>
+            <Link className="btn-secondary" href={connectPath}><ExternalLink size={16} /> Abrir neste navegador</Link>
             <button className="btn-secondary" onClick={copyInstagramConnectUrl} type="button"><Copy size={16} /> Copiar link</button>
           </div>
         </div>

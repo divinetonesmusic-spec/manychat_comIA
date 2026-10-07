@@ -6,6 +6,7 @@ import { getConfig, getProfileSettings, listAutomations, listPublicInstagramAcco
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, hrefWithAccount, type AccountRouteSearchParams } from "@/lib/account-routing";
 import { toPublicConfig } from "@/lib/instagram/public-account";
+import { createLoginLinkToken } from "@/lib/oauth-state";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function PerfisPage({ searchParams }: Props) {
   ]);
   const connected = Boolean(config.instagram_user_id);
   const next = encodeURIComponent(hrefWithAccount("/perfis", activeAccountId));
+  const connectPath = instagramConnectPath(hrefWithAccount("/perfis", activeAccountId));
   const instagramAppId = process.env.INSTAGRAM_APP_ID;
   const metaDeveloperUrl = instagramAppId
     ? `https://developers.facebook.com/apps/${instagramAppId}/use_cases/customize/`
@@ -46,7 +48,20 @@ export default async function PerfisPage({ searchParams }: Props) {
         }
       />
 
-      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={toPublicConfig(config)} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} />
+      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={toPublicConfig(config)} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} connectPath={connectPath} />
     </AppFrame>
   );
+}
+
+/**
+ * Link de conexão com o Instagram com token assinado (vale 30 min), gerado aqui no servidor para quem está logado.
+ * Funciona em outro navegador/computador, mesmo sem login no UaiFlow ("Copiar link").
+ */
+function instagramConnectPath(nextPath: string) {
+  const base = `/api/oauth/login?next=${encodeURIComponent(nextPath)}`;
+  try {
+    return `${base}&t=${encodeURIComponent(createLoginLinkToken(nextPath))}`;
+  } catch {
+    return base; // sem INSTAGRAM_APP_SECRET no servidor: o link só funciona neste navegador (com login)
+  }
 }

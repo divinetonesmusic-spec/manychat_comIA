@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppBaseUrl } from "@/lib/env";
 import { saveInstagramConfig } from "@/lib/db/repositories";
+import { verifyOAuthState } from "@/lib/oauth-state";
 import {
   exchangeCodeForLongToken,
   getInstagramProfile,
@@ -9,18 +10,29 @@ import {
 
 export const runtime = "nodejs";
 
+const INVALID_STATE_MESSAGE = "O link de conexão com o Instagram venceu ou não é válido. Abra a conexão de novo pela tela Perfis.";
+
+/**
+ * Volta do Instagram. Continua pública (o Instagram chama direto), mas só aceita `state` assinado pelo
+ * UaiFlow e dentro da validade (30 min). Sem isso, não troca o código e volta para /perfis com o erro.
+ */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error_description") || request.nextUrl.searchParams.get("error");
   const appBaseUrl = getAppBaseUrl(request.url);
-  const next = safeNextPath(request.nextUrl.searchParams.get("state"));
+  const state = verifyOAuthState(request.nextUrl.searchParams.get("state"));
+
+  if (!state) {
+    return redirectBack(appBaseUrl, "/perfis", { instagram_error: INVALID_STATE_MESSAGE });
+  }
+  const next = state.next;
 
   if (error) {
-    return NextResponse.redirect(`${appBaseUrl}${next}?instagram_error=${encodeURIComponent(error)}`);
+    return redirectBack(appBaseUrl, next, { instagram_error: error });
   }
 
   if (!code) {
-    return NextResponse.redirect(`${appBaseUrl}${next}?instagram_error=missing_code`);
+    return redirectBack(appBaseUrl, next, { instagram_error: "missing_code" });
   }
 
   try {
@@ -50,14 +62,17 @@ export async function GET(request: NextRequest) {
       webhookSubscribedAt,
     });
 
-    return NextResponse.redirect(`${appBaseUrl}${next}?instagram_connected=1`);
+    return redirectBack(appBaseUrl, next, { instagram_connected: "1" });
   } catch (callbackError) {
     const message = callbackError instanceof Error ? callbackError.message : "Erro desconhecido ao conectar Instagram";
     console.error("[oauth] Instagram callback failed", message);
-    return NextResponse.redirect(`${appBaseUrl}${next}?instagram_error=${encodeURIComponent(message)}`);
+    return redirectBack(appBaseUrl, next, { instagram_error: message });
   }
 }
 
-function safeNextPath(value: string | null) {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/perfis";
+/** Volta para um caminho interno (já conferido) somando os parâmetros, mesmo se ele já tiver "?accountId=". */
+function redirectBack(appBaseUrl: string, path: string, params: Record<string, string>) {
+  const url = new URL(path, `${appBaseUrl}/`);
+  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+  return NextResponse.redirect(url);
 }

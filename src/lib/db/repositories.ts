@@ -508,14 +508,20 @@ export async function saveInstagramConfig(input: {
   expiresAt?: Date | null;
   webhookSubscribedAt?: Date | null;
 }) {
-  await query("update public.instagram_accounts set is_default = false where instagram_user_id <> $1", [input.userId]);
+  // Conectar uma conta NÃO tira a conta padrão atual: a nova só vira padrão se ainda não houver nenhuma.
+  // (Para trocar a principal, use o botão da tela Perfis.)
+  const { rows: otherDefault } = await query<{ exists: boolean }>(
+    "select exists (select 1 from public.instagram_accounts where is_default and instagram_user_id <> $1) as exists",
+    [input.userId],
+  );
+  const becomesDefault = !otherDefault[0]?.exists;
 
   const { rows } = await query<InstagramAccount>(
     `insert into public.instagram_accounts (
       instagram_access_token, instagram_user_id, instagram_username,
       instagram_name, instagram_profile_picture_url, token_expires_at,
       webhook_subscribed_at, is_default
-    ) values ($1, $2, $3, $4, $5, $6, $7, true)
+    ) values ($1, $2, $3, $4, $5, $6, $7, $8)
     on conflict (instagram_user_id) do update set
       instagram_access_token = excluded.instagram_access_token,
       instagram_username = excluded.instagram_username,
@@ -523,7 +529,7 @@ export async function saveInstagramConfig(input: {
       instagram_profile_picture_url = excluded.instagram_profile_picture_url,
       token_expires_at = excluded.token_expires_at,
       webhook_subscribed_at = excluded.webhook_subscribed_at,
-      is_default = true
+      is_default = public.instagram_accounts.is_default or excluded.is_default
     returning *`,
     [
       input.accessToken,
@@ -533,11 +539,12 @@ export async function saveInstagramConfig(input: {
       input.profilePictureUrl ?? null,
       input.expiresAt ?? null,
       input.webhookSubscribedAt ?? null,
+      becomesDefault,
     ],
   );
 
   const account = rows[0];
-  await mirrorConfig(account);
+  if (account.is_default) await mirrorConfig(account);
   await getProfileSettings(account.id);
   return account;
 }
