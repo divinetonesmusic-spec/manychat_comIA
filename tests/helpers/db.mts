@@ -56,6 +56,7 @@ export async function createTestDatabase(options: { ate?: string } = {}): Promis
   const admin = new pg.Client({ connectionString: withSslDefault(TEST_DATABASE_URL) });
   await admin.connect();
   try {
+    await dropOrphanDatabases(admin);
     await admin.query(`create database "${name}"`);
   } finally {
     await admin.end();
@@ -90,6 +91,25 @@ export async function createTestDatabase(options: { ate?: string } = {}): Promis
       }
     },
   };
+}
+
+/** Bancos de teste deixados por um arquivo que quebrou no meio (o processo dono já não existe). */
+async function dropOrphanDatabases(admin: pg.Client) {
+  const { rows } = await admin.query<{ datname: string }>("select datname from pg_database where datname like 'uaiflow\\_teste\\_%'");
+  for (const { datname } of rows) {
+    const pid = Number(datname.split("_")[2]);
+    if (!Number.isInteger(pid) || pid === process.pid || isAlive(pid)) continue;
+    await admin.query(`drop database if exists "${datname}" with (force)`).catch(() => undefined);
+  }
+}
+
+function isAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 /** Postgres local normalmente não tem SSL; o app pede SSL, então o padrão dos testes é desligar. */
