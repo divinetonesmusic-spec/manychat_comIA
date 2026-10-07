@@ -121,13 +121,15 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
     throw new Error("A midia deste post ja foi apagada do armazenamento. Envie o arquivo de novo antes de reagendar.");
   }
 
+  // Conteúdo novo, tentativa nova: some o container antigo e o registro do pedido de publicação (0003).
+  const resetRequest = (await hasPublishRequestedColumn()) ? ", publish_requested_at = null" : "";
   const { rows } = await query<ContentPost>(
     `update public.content_posts set
        publish_type = $2, title = $3, caption = $4, media_url = $5, cover_url = $6, media_items = $7,
        media_keys = $8, scheduled_at = $9, first_comment = $10, keyword = $11, dm_text = $12,
        link_url = $13, link_label = $14, public_reply = $15, status = $16, last_error = null,
        container_id = null, attempts = 0, automation_options = $17, publishing_started_at = null, lock_until = null,
-       media_deleted_at = case when $18 then null else media_deleted_at end
+       media_deleted_at = case when $18 then null else media_deleted_at end${resetRequest}
      where id = $1
      returning *`,
     [
@@ -163,21 +165,54 @@ export async function claimDueContentPosts(limit = 3): Promise<ContentPost[]> {
   return rows;
 }
 
-/** "Publicar agora": pega um post específico (rascunho, agendado ou com erro) e marca como publicando. */
-export async function claimPostNow(id: string): Promise<ContentPost | null> {
+/**
+ * "Publicar agora": pega um post específico (rascunho, agendado ou com erro) e marca como publicando.
+ * Já sai com a trava curta (o relógio não mexe nele enquanto a requisição cria o container); quem chama solta a trava.
+ */
+export async function claimPostNow(id: string, lockSeconds = 60): Promise<ContentPost | null> {
+  const resetRequest = (await hasPublishRequestedColumn())
+    ? ", publish_requested_at = case when status = 'failed' then null else publish_requested_at end"
+    : "";
   const { rows } = await query<ContentPost>(
     `update public.content_posts
      set status = 'publishing', attempts = attempts + 1, last_error = null,
-         scheduled_at = now(), publishing_started_at = now(), lock_until = null,
+         scheduled_at = now(), publishing_started_at = now(), lock_until = now() + make_interval(secs => $2),
          container_id = case when status = 'failed' then null else container_id end,
          media_items = case when status = 'failed'
            then coalesce((select jsonb_agg(item - 'container_id' - 'status' - 'error') from jsonb_array_elements(media_items) item), '[]'::jsonb)
-           else media_items end
+           else media_items end${resetRequest}
      where id = $1 and status in ('draft', 'scheduled', 'failed', 'canceled') and media_deleted_at is null
      returning *`,
-    [id],
+    [id, lockSeconds],
   );
   return rows[0] ?? null;
+}
+
+/**
+ * A coluna publish_requested_at vem da migração 0003. Enquanto ela não for colada no Supabase, o código
+ * segue sem ela (comportamento antigo + reconhecer o container PUBLISHED). Confere no banco e guarda a resposta
+ * (o "não" é conferido de novo a cada minuto, para pegar a migração assim que ela for aplicada).
+ */
+let publishRequestedColumn: { exists: boolean; checkedAt: number } | null = null;
+
+export async function hasPublishRequestedColumn() {
+  const cached = publishRequestedColumn;
+  if (cached && (cached.exists || Date.now() - cached.checkedAt < 60_000)) return cached.exists;
+  const { rows } = await query<{ exists: boolean }>(
+    `select exists (
+       select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'content_posts' and column_name = 'publish_requested_at'
+     ) as exists`,
+  );
+  publishRequestedColumn = { exists: Boolean(rows[0]?.exists), checkedAt: Date.now() };
+  return publishRequestedColumn.exists;
+}
+
+/** Grava a hora do pedido de publicação ANTES de chamar o media_publish. Sem a 0003, não faz nada. */
+export async function markPublishRequested(id: string) {
+  if (!(await hasPublishRequestedColumn())) return false;
+  await query("update public.content_posts set publish_requested_at = now() where id = $1", [id]);
+  return true;
 }
 
 /** Trava curta: só um "relógio" mexe no post por vez (cron, tela aberta e Molde podem rodar juntos). */

@@ -8,6 +8,7 @@ import {
   listPostsNeedingInsights,
   listPublishingPosts,
   markMediaDeleted,
+  markPublishRequested,
   recoverStuckPosts,
   saveInsights,
   setPostAutomation,
@@ -24,10 +25,12 @@ import {
   getInstagramMediaContainerStatus,
   getInstagramMediaInsights,
   getPublishedInstagramMedia,
+  listRecentInstagramMedia,
   publishInstagramMediaContainer,
   type InstagramPublishType,
 } from "@/lib/instagram/client";
 import { deleteR2Object, keyFromPublicUrl } from "@/lib/content/r2";
+import { findMatchingMedia, parseMetaTimestamp, type FeedMedia } from "@/lib/content/publish-check";
 
 /**
  * Relógio do planner: roda junto com o /api/queue/drain (a cada minuto).
@@ -47,30 +50,28 @@ export type ContentCycleResult = {
 
 const MAX_PUBLISHING_HOURS = 2;
 
+/** Texto mostrado depois do "Publicar agora" (tela Conteúdo e Molde). */
+export const PUBLISH_NOW_NOTICE = "Vai ao ar em até 2 minutos.";
+
+/** Nota gravada quando a Meta confirma que publicou, mas o post não aparece no feed. */
+export const PUBLISHED_WITHOUT_LINK_NOTE = "Publicado; não consegui buscar o link";
+
 /**
- * Publica um post agora: cria o container e, se a Meta for rápida (imagem), já publica.
- * Vídeo/carrossel continuam no relógio de 1 em 1 minuto. Nunca passa de ~6 s.
+ * "Publicar agora": marca o post para sair já e, se couber no tempo, cria o container na Meta (passo rápido).
+ * NUNCA chama o media_publish aqui: quem publica é o relógio (/api/queue/drain, a cada ~2 min).
+ * Assim a resposta volta rápido e um corte do Netlify (10 s) não deixa o post sair em dobro.
  */
-export async function publishPostNow(id: string, budgetMs = 6000) {
+export async function publishPostNow(id: string, budgetMs = 4000) {
   const deadline = Date.now() + budgetMs;
   const post = await claimPostNow(id);
   if (!post) return null;
-  const config = await getConfig(post.account_id);
   try {
-    await startPost(post, config);
+    const config = await getConfig(post.account_id);
+    await startPost(post, config, deadline);
   } catch (error) {
     await updateContentPostStatus({ id: post.id, status: "failed", lastError: translateError(error) });
-    return getContentPost(post.id);
-  }
-  while (deadline - Date.now() > 2500) {
-    const current = await getContentPost(post.id);
-    if (!current || current.status !== "publishing") return current;
-    const result = await advancePost(current, config).catch(async (error) => {
-      await touchContentPost(post.id, translateError(error));
-      return "waiting" as const;
-    });
-    if (result !== "waiting") break;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+  } finally {
+    await unlockPost(post.id).catch(() => undefined);
   }
   return getContentPost(post.id);
 }
@@ -212,7 +213,10 @@ export async function advancePost(post: ContentPost, config: Config, deadline = 
   assertConnected(config);
   if (!(await tryLockPost(post.id, 90))) return "waiting"; // outro relógio já está cuidando deste post
   try {
-    return await advanceLocked(post, config, deadline);
+    // Relê depois de pegar a trava: o post pode ter mudado (outro relógio publicou, alguém cancelou...).
+    const fresh = await getContentPost(post.id);
+    if (!fresh || fresh.status !== "publishing") return "waiting";
+    return await advanceLocked(fresh, config, deadline);
   } finally {
     await unlockPost(post.id).catch(() => undefined);
   }
@@ -221,7 +225,8 @@ export async function advancePost(post: ContentPost, config: Config, deadline = 
 async function advanceLocked(post: ContentPost, config: Config, deadline: number): Promise<"published" | "failed" | "waiting"> {
   const startedAt = new Date(post.publishing_started_at ?? post.scheduled_at ?? post.created_at).getTime();
   const tooOld = Date.now() - startedAt > MAX_PUBLISHING_HOURS * 3600_000;
-  if (tooOld) return failTooOld(post);
+  // Sem container na Meta não há o que conferir: passou do tempo, desiste. Com container, confere antes (pode já ter saído).
+  if (tooOld && !post.container_id) return failTooOld(post);
 
   if (post.publish_type === "carousel") {
     const items = (post.media_items ?? []) as ContentMediaItem[];
@@ -260,25 +265,48 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     return "waiting";
   }
 
-  const status = await getInstagramMediaContainerStatus(post.container_id as string, config.instagram_access_token as string);
+  let status: Awaited<ReturnType<typeof getInstagramMediaContainerStatus>>;
+  try {
+    status = await getInstagramMediaContainerStatus(post.container_id as string, config.instagram_access_token as string);
+  } catch (error) {
+    if (tooOld) return failTooOld(post);
+    throw error;
+  }
+
+  // PUBLISHED: a Meta já publicou (a função anterior foi cortada antes de gravar). É sucesso, nunca publicar de novo.
+  if (status.status_code === "PUBLISHED") {
+    const media = await findPublishedMedia(post, config).catch(() => null);
+    await finishPublished(post, config, media, { locked: true });
+    return "published";
+  }
+
+  // Houve um pedido de publicação antes (execução cortada): confere o feed antes de pedir de novo.
+  if (post.publish_requested_at) {
+    let media: FeedMedia | null;
+    try {
+      media = await findPublishedMedia(post, config);
+    } catch (error) {
+      if (tooOld) return failTooOld(post);
+      throw error; // sem conferir, não arrisca: espera o próximo relógio
+    }
+    if (media) {
+      await finishPublished(post, config, media, { locked: true });
+      return "published";
+    }
+  }
+
+  if (tooOld) return failTooOld(post);
+
   if (status.status_code === "FINISHED") {
+    // Grava o pedido ANTES de chamar a Meta: se a função cair no meio, a próxima rodada confere em vez de repetir.
+    await markPublishRequested(post.id);
     const published = await publishInstagramMediaContainer({
       instagramUserId: config.instagram_user_id as string,
       accessToken: config.instagram_access_token as string,
       containerId: post.container_id as string,
     });
     const media = await getPublishedInstagramMedia(published.id, config.instagram_access_token as string).catch(() => null);
-    const updated = await updateContentPostStatus({
-      id: post.id,
-      status: "published",
-      containerId: post.container_id,
-      publishedMediaId: published.id,
-      permalink: media?.permalink ?? null,
-      lastError: null,
-      publishedAt: new Date(),
-    });
-    // já estamos com a trava do post: faz o 1º comentário e liga a automação na hora
-    await afterPublishLocked((await getContentPost(post.id)) ?? updated ?? post, config, published.id, { comment: false, automation: false }).catch(() => undefined);
+    await finishPublished(post, config, { id: published.id, permalink: media?.permalink ?? null }, { locked: true });
     return "published";
   }
   if (status.status_code === "ERROR" || status.status_code === "EXPIRED") {
@@ -293,6 +321,81 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
 async function failTooOld(post: ContentPost) {
   await updateContentPostStatus({ id: post.id, status: "failed", containerId: post.container_id, lastError: `A Meta nao terminou de processar em ${MAX_PUBLISHING_HOURS} h. Tente agendar de novo.` });
   return "failed" as const;
+}
+
+/**
+ * Marca como publicado e segue o pós-publicação de sempre (1º comentário e automação da palavra).
+ * Sem o id da mídia (a Meta confirmou, mas o feed não trouxe), marca publicado com nota e não cria automação solta.
+ */
+async function finishPublished(post: ContentPost, config: Config, media: FeedMedia | null, options: { locked: boolean }) {
+  const updated = await updateContentPostStatus({
+    id: post.id,
+    status: "published",
+    containerId: post.container_id,
+    publishedMediaId: media?.id ?? null,
+    permalink: media?.permalink ?? null,
+    lastError: media?.id ? null : PUBLISHED_WITHOUT_LINK_NOTE,
+    publishedAt: parseMetaTimestamp(media?.timestamp) ?? new Date(),
+  });
+  if (media?.id) {
+    const fresh = (await getContentPost(post.id)) ?? updated ?? post;
+    // com a trava do post: faz o 1º comentário e liga a automação na hora; sem ela, afterPublish pega a trava
+    if (options.locked) await afterPublishLocked(fresh, config, media.id, { comment: false, automation: false }).catch(() => undefined);
+    else await afterPublish(fresh, config, media.id).catch(() => undefined);
+  }
+  return (await getContentPost(post.id)) ?? updated;
+}
+
+/** Procura no feed do perfil o post que já saiu (mesma legenda, depois do pedido). Erro da Meta sobe para quem chamou. */
+async function findPublishedMedia(post: ContentPost, config: Config): Promise<FeedMedia | null> {
+  const feed = await listRecentInstagramMedia(config.instagram_user_id as string, config.instagram_access_token as string, 10);
+  const since = new Date(post.publish_requested_at ?? post.publishing_started_at ?? post.scheduled_at ?? post.created_at);
+  return findMatchingMedia(feed.data ?? [], { caption: post.caption, since });
+}
+
+export type EarlierPublishCheck =
+  | { state: "published"; post: ContentPost }
+  | { state: "not_published" }
+  | { state: "unknown"; error: string };
+
+/**
+ * Antes de "Tentar de novo", reagendar ou reenviar um post que já foi mandado para a Meta:
+ * confere se ele não saiu. Se saiu, marca como publicado (e faz o pós-publicação). Nunca publica em dobro.
+ */
+export async function confirmEarlierPublish(post: ContentPost): Promise<EarlierPublishCheck> {
+  if (!post.published_media_id && !post.publish_requested_at && !post.container_id) return { state: "not_published" };
+  const config = await getConfig(post.account_id);
+  if (!config.instagram_user_id || !config.instagram_access_token) return { state: "unknown", error: "Instagram nao conectado para este perfil." };
+
+  if (post.published_media_id) {
+    const published = await finishPublished(post, config, { id: post.published_media_id, permalink: post.permalink }, { locked: false });
+    return { state: "published", post: published ?? post };
+  }
+
+  let containerStatus: string | null = null;
+  let containerUnknown = false;
+  if (post.container_id) {
+    try {
+      containerStatus = (await getInstagramMediaContainerStatus(post.container_id, config.instagram_access_token)).status_code ?? null;
+    } catch {
+      containerUnknown = true;
+    }
+  }
+
+  let media: FeedMedia | null = null;
+  if (containerStatus === "PUBLISHED" || post.publish_requested_at || containerUnknown) {
+    try {
+      media = await findPublishedMedia(post, config);
+    } catch (error) {
+      if (containerStatus !== "PUBLISHED") return { state: "unknown", error: translateError(error) };
+    }
+  }
+
+  if (containerStatus === "PUBLISHED" || media) {
+    const published = await finishPublished(post, config, media, { locked: false });
+    return { state: "published", post: published ?? post };
+  }
+  return { state: "not_published" };
 }
 
 /** Depois de publicar: 1º comentário e a automação "comentou a palavra → recebe a DM com o link". */

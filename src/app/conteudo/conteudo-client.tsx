@@ -430,7 +430,7 @@ function Composer({ initial, accountId, username, onClose, onSaved, onRemoved }:
       const post = result.data;
       if (post.status === "failed") onSaved(post, { tone: "error", text: post.last_error || "A Meta recusou a publicação." });
       else if (post.status === "published") onSaved(post, { tone: "success", text: "Publicado! A automação da palavra-chave já está ligada." });
-      else if (post.status === "publishing") onSaved(post, { tone: "warn", text: result.warning || "A Meta está processando. O sistema publica sozinho." });
+      else if (post.status === "publishing") onSaved(post, { tone: "warn", text: result.warning || "Vai ao ar em até 2 minutos. O UaiFlow publica sozinho, faz o 1º comentário e liga a automação." });
       else if (post.status === "scheduled") onSaved(post, { tone: "success", text: `Agendado para ${dateTimeLabel(new Date(postTime(post)))}.` });
       else onSaved(post, { tone: "success", text: "Rascunho salvo." });
     } catch (caught) {
@@ -659,7 +659,7 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
         {error ? <p className="status-pill w-fit text-red-500"><AlertCircle size={14} /> {error}</p> : null}
         <div className="flex flex-wrap gap-2">
           {post.permalink ? <a className="btn-secondary" href={post.permalink} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Ver no Instagram</a> : null}
-          {post.status === "publishing" ? <span className="status-pill"><Loader2 className="animate-spin" size={14} /> O sistema confere a cada minuto</span> : null}
+          {post.status === "publishing" ? <span className="status-pill"><Loader2 className="animate-spin" size={14} /> O sistema confere a cada 2 minutos</span> : null}
           {post.status !== "publishing" ? <DeleteButton id={post.id} onRemoved={onRemoved} onError={setError} published={post.status === "published"} /> : null}
           {post.status === "failed" ? <RetryButton id={post.id} onSaved={onSaved} onError={setError} /> : null}
         </div>
@@ -676,7 +676,14 @@ function RetryButton({ id, onSaved, onError }: { id: string; onSaved: (post: Con
     const result = (await response.json().catch(() => null)) as { data?: ContentPost; error?: string } | null;
     setBusy(false);
     if (!result?.data) return onError(result?.error || "Não deu para tentar de novo.");
-    onSaved(result.data, result.data.status === "failed" ? { tone: "error", text: result.data.last_error || "Falhou de novo." } : { tone: "warn", text: "Tentando de novo." });
+    onSaved(
+      result.data,
+      result.data.status === "failed"
+        ? { tone: "error", text: result.data.last_error || "Falhou de novo." }
+        : result.data.status === "published"
+          ? { tone: "success", text: "Este post já tinha saído no Instagram. Marquei como publicado (não publiquei de novo)." }
+          : { tone: "warn", text: "Tentando de novo. Vai ao ar em até 2 minutos." },
+    );
   }
   return <button className="btn-primary" disabled={busy} onClick={retry} type="button">{busy ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} Tentar de novo</button>;
 }

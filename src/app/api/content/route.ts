@@ -3,7 +3,7 @@ import { listContentPosts } from "@/lib/db/repositories";
 import { listContentPostsInRange } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
 import { ContentError, savePostPackage } from "@/lib/content/service";
-import { runContentCycle, translateError } from "@/lib/content/scheduler";
+import { PUBLISH_NOW_NOTICE, runContentCycle, translateError } from "@/lib/content/scheduler";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const { post } = await savePostPackage({ ...parsed.value, source: parsed.value.source ?? "manual" }, parsed.publishNow);
-    const warning = post?.status === "publishing" ? "A Meta esta processando a midia. O sistema publica sozinho assim que ficar pronta." : undefined;
+    const warning = post?.status === "publishing" ? `${PUBLISH_NOW_NOTICE} O UaiFlow publica sozinho, faz o 1º comentário e liga a automação.` : undefined;
     return NextResponse.json({ data: post, warning }, { status: post?.status === "failed" ? 502 : warning ? 202 : 200 });
   } catch (error) {
     if (error instanceof ContentError) return NextResponse.json({ error: error.message }, { status: error.status });

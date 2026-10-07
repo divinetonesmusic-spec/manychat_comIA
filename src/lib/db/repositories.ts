@@ -254,6 +254,8 @@ export type ContentPost = {
   insights_at?: string | null;
   publishing_started_at?: string | null;
   lock_until?: string | null;
+  /** Hora do pedido de publicação à Meta (migração 0003; ausente se ela ainda não foi aplicada). */
+  publish_requested_at?: string | null;
 };
 export type InboxConversationMessage = {
   id: string;

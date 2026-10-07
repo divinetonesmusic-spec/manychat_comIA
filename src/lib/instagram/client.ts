@@ -295,6 +295,14 @@ export async function getPublishedInstagramMedia(mediaId: string, accessToken: s
   url.searchParams.set("fields", "id,permalink,media_type,timestamp");
   return graphFetch<{ id: string; permalink?: string }>(url, accessToken);
 }
+
+/** Últimas mídias do perfil (para conferir se um post já saiu depois de um corte no meio da publicação). */
+export async function listRecentInstagramMedia(instagramUserId: string, accessToken: string, limit = 10) {
+  const url = new URL(`${GRAPH_BASE_URL}/${instagramUserId}/media`);
+  url.searchParams.set("fields", "id,caption,timestamp,permalink");
+  url.searchParams.set("limit", String(limit));
+  return graphFetch<{ data?: Array<{ id: string; caption?: string; timestamp?: string; permalink?: string }> }>(url, accessToken);
+}
 export async function sendPrivateReply(input: {
   instagramUserId: string;
   commentId: string;

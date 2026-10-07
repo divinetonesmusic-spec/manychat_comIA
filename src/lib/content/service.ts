@@ -9,7 +9,7 @@ import {
   type PostPackage,
 } from "@/lib/db/content-planner";
 import { deleteR2Object, keyFromPublicUrl } from "@/lib/content/r2";
-import { publishPostNow } from "@/lib/content/scheduler";
+import { confirmEarlierPublish, publishPostNow } from "@/lib/content/scheduler";
 
 /** Regras comuns da tela de Conteúdo e do Molde: criar/atualizar, publicar agora, cancelar e apagar. */
 export class ContentError extends Error {
@@ -40,6 +40,8 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean): 
           409,
         );
       }
+      const alreadyPublished = await ensureNotPublishedYet(existing);
+      if (alreadyPublished) return { post: alreadyPublished, created: false };
       post = await updatePlannedPost(existing.id, pkg);
     }
   }
@@ -58,6 +60,10 @@ export async function editPost(id: string, input: Partial<PostPackage>, publishN
     const config = await getConfig(current.account_id);
     if (!config.instagram_user_id || !config.instagram_access_token) throw new ContentError("Instagram nao conectado para este perfil.");
   }
+  if (current.status !== "published" && current.status !== "publishing") {
+    const alreadyPublished = await ensureNotPublishedYet(current);
+    if (alreadyPublished) return alreadyPublished;
+  }
   let post: ContentPost | null = current;
   if (Object.keys(input).length) {
     try {
@@ -68,6 +74,20 @@ export async function editPost(id: string, input: Partial<PostPackage>, publishN
   }
   if (publishNow) post = await publishPostNow(id);
   return post;
+}
+
+/**
+ * Nunca publicar em dobro: se o post já foi mandado para a Meta antes (container, pedido de publicação
+ * ou id da mídia), confere no Instagram antes de reagendar ou "Tentar de novo".
+ * Devolve o post já marcado como publicado se ele tinha saído; null se é seguro seguir.
+ */
+async function ensureNotPublishedYet(post: ContentPost): Promise<ContentPost | null> {
+  const check = await confirmEarlierPublish(post);
+  if (check.state === "published") return check.post;
+  if (check.state === "unknown") {
+    throw new ContentError(`Não consegui conferir no Instagram se este post já saiu, então não publiquei de novo. Tente daqui a alguns minutos. (${check.error})`, 409);
+  }
+  return null;
 }
 
 export async function cancelPost(id: string) {

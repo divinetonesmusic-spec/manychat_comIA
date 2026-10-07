@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listPostsBySource } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
 import { ContentError, savePostPackage } from "@/lib/content/service";
-import { translateError } from "@/lib/content/scheduler";
+import { PUBLISH_NOW_NOTICE, translateError } from "@/lib/content/scheduler";
 import { checkMoldeToken, publicView } from "@/lib/content/molde-auth";
 
 export const runtime = "nodejs";
@@ -31,7 +31,9 @@ export async function POST(request: NextRequest) {
 
   try {
     const { post, created } = await savePostPackage({ ...parsed.value, source: "molde" }, parsed.publishNow);
-    return NextResponse.json({ data: post ? publicView(post) : null, created }, { status: created ? 201 : 200 });
+    // "notice" é campo novo (só acréscimo): o "Publicar agora" não publica na hora, o relógio termina em até 2 min.
+    const data = post ? { ...publicView(post), ...(parsed.publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}) } : null;
+    return NextResponse.json({ data, created }, { status: created ? 201 : 200 });
   } catch (error) {
     if (error instanceof ContentError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: translateError(error) }, { status: 500 });
