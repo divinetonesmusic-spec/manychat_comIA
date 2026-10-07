@@ -83,9 +83,9 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
         body: JSON.stringify({ ...draft, account_id: config.account_id }),
       });
       const result = (await response.json().catch(() => null)) as { data?: ProfileSettings; error?: string } | null;
-      if (!response.ok || !result?.data) throw new Error(result?.error || "Nao consegui salvar as configuracoes.");
+      if (!response.ok || !result?.data) throw new Error(result?.error || "Não consegui salvar as configurações.");
       setDraft(result.data);
-      if (showNotice) setNotice({ tone: "success", text: "Configuracoes do perfil salvas." });
+      if (showNotice) setNotice({ tone: "success", text: "Configurações do perfil salvas." });
       return true;
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao salvar perfil." });
@@ -102,19 +102,19 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
     try {
       const response = await fetch(`/api/profile/messenger-profile?kind=${kind}&accountId=${config.account_id || ""}`);
       const result = (await response.json().catch(() => null)) as { data?: { data?: Array<Record<string, unknown>> }; error?: string } | null;
-      if (!response.ok || !result?.data) throw new Error(result?.error || "Nao consegui buscar configuracao atual da Meta.");
+      if (!response.ok || !result?.data) throw new Error(result?.error || "Não consegui buscar a configuração atual da Meta.");
 
       if (kind === "persistent_menu") {
         const items = parseRemotePersistentMenu(result.data);
         setDraft((current) => ({ ...current, persistent_menu_items: items }));
-        setNotice({ tone: "success", text: `Menu atual carregado da Meta com ${items.length} item(ns).` });
+        setNotice({ tone: "success", text: `Menu atual carregado da Meta com ${items.length} ${items.length === 1 ? "item" : "itens"}.` });
       } else {
         const items = parseRemoteIceBreakers(result.data);
         setDraft((current) => ({ ...current, ice_breakers: items }));
-        setNotice({ tone: "success", text: `Iniciadores carregados da Meta com ${items.length} item(ns).` });
+        setNotice({ tone: "success", text: `Iniciadores carregados da Meta com ${items.length} ${items.length === 1 ? "item" : "itens"}.` });
       }
     } catch (error) {
-      setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao buscar configuracao da Meta." });
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao buscar a configuração da Meta." });
     } finally {
       setBusy(null);
     }
@@ -133,7 +133,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
         body: JSON.stringify({ kind, accountId: config.account_id }),
       });
       const result = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(result?.error || "Nao consegui sincronizar com a Meta.");
+      if (!response.ok) throw new Error(result?.error || "Não consegui sincronizar com a Meta.");
       setNotice({ tone: "success", text: kind === "persistent_menu" ? "Menu sincronizado com a Meta." : "Iniciadores sincronizados com a Meta." });
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao sincronizar com a Meta." });
@@ -150,7 +150,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
     try {
       const response = await fetch(`/api/profile/messenger-profile?kind=${kind}&accountId=${config.account_id || ""}`, { method: "DELETE" });
       const result = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(result?.error || "Nao consegui remover na Meta.");
+      if (!response.ok) throw new Error(result?.error || "Não consegui remover na Meta.");
       setNotice({ tone: "success", text: kind === "persistent_menu" ? "Menu removido da Meta." : "Iniciadores removidos da Meta." });
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao remover na Meta." });
@@ -169,9 +169,9 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
   async function copyMetaDeveloperUrl() {
     try {
       await navigator.clipboard.writeText(metaDeveloperUrl);
-      setNotice({ tone: "success", text: "Link do Meta Developer copiado." });
+      setNotice({ tone: "success", text: "Link do painel da Meta copiado." });
     } catch {
-      setNotice({ tone: "error", text: "Nao consegui copiar o link do Meta Developer automaticamente." });
+      setNotice({ tone: "error", text: "Não consegui copiar o link do painel da Meta automaticamente." });
     }
   }
   async function copyInstagramConnectUrl() {
@@ -180,7 +180,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
       await navigator.clipboard.writeText(url);
       setNotice({ tone: "success", text: "Link de conexão copiado. Ele vale por 30 minutos." });
     } catch {
-      setNotice({ tone: "error", text: "Nao consegui copiar automaticamente. Abra o link e copie pela barra do navegador." });
+      setNotice({ tone: "error", text: "Não consegui copiar automaticamente. Abra o link e copie pela barra do navegador." });
     }
   }
 
@@ -192,16 +192,16 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
     try {
       const response = await fetch(`/api/profile/diagnostics?accountId=${encodeURIComponent(accountId)}`);
       const result = (await response.json().catch(() => null)) as { data?: DiagnosticResult; error?: string } | null;
-      if (!response.ok || !result?.data) throw new Error(result?.error || "Nao consegui testar este perfil.");
+      if (!response.ok || !result?.data) throw new Error(result?.error || "Não consegui testar este perfil.");
       setDiagnostics((current) => ({ ...current, [accountId]: result.data as DiagnosticResult }));
-      setNotice({ tone: "success", text: `Diagnostico de @${result.data.username || "perfil"} concluido.` });
+      setNotice({ tone: "success", text: `Teste de @${result.data.username || "perfil"} concluído.` });
     } catch (error) {
       const failed: DiagnosticResult = {
         accountId,
         username: null,
         checkedAt: new Date().toISOString(),
         summary: { status: "error", label: "Erro" },
-        checks: [{ key: "diagnostic", label: "Diagnostico", status: "error", detail: error instanceof Error ? error.message : "Erro ao testar perfil." }],
+        checks: [{ key: "diagnostic", label: "Teste", status: "error", detail: error instanceof Error ? error.message : "Erro ao testar perfil." }],
       };
       setDiagnostics((current) => ({ ...current, [accountId]: failed }));
       setNotice({ tone: "error", text: failed.checks[0].detail });
@@ -216,7 +216,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
     try {
       const response = await fetch(`/api/instagram-accounts/${accountId}/default`, { method: "POST" });
       const result = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(result?.error || "Nao consegui definir o perfil principal.");
+      if (!response.ok) throw new Error(result?.error || "Não consegui definir o perfil principal.");
       setNotice({ tone: "success", text: "Perfil principal atualizado." });
       window.location.reload();
     } catch (error) {
@@ -232,7 +232,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
       return;
     }
 
-    if (!window.confirm("Copiar configuracoes para este perfil? As configuracoes atuais deste perfil serao substituidas.")) return;
+    if (!window.confirm("Copiar as configurações para este perfil? As configurações atuais deste perfil serão substituídas.")) return;
 
     setBusy("copy");
     setNotice(null);
@@ -248,11 +248,11 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
         }),
       });
       const result = (await response.json().catch(() => null)) as { data?: { clonedAutomations: number }; error?: string } | null;
-      if (!response.ok || !result?.data) throw new Error(result?.error || "Nao consegui copiar as configuracoes.");
-      setNotice({ tone: "success", text: `Configuracoes copiadas. ${result.data.clonedAutomations} fluxo(s) duplicado(s).` });
+      if (!response.ok || !result?.data) throw new Error(result?.error || "Não consegui copiar as configurações.");
+      setNotice({ tone: "success", text: `Configurações copiadas. ${result.data.clonedAutomations} ${result.data.clonedAutomations === 1 ? "fluxo duplicado" : "fluxos duplicados"}.` });
       window.location.href = hrefWithAccount("/perfis", activeAccountId);
     } catch (error) {
-      setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao copiar configuracoes." });
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "Erro ao copiar as configurações." });
     } finally {
       setBusy(null);
     }
@@ -280,7 +280,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
       ...current,
       persistent_menu_items: [
         { type: "postback", title: `${green} Baixar APP`, payload: "1" },
-        { type: "postback", title: `${point} Tirar duvidas`, payload: "2" },
+        { type: "postback", title: `${point} Tirar dúvidas`, payload: "2" },
         { type: "postback", title: `${talk} Contato Suporte`, payload: "3" },
         { type: "web_url", title: `${link} ACESSE O SITE`, url: window.location.origin },
       ],
@@ -296,17 +296,17 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
             <p className="eyebrow">Antes de conectar</p>
             <h2 className="mt-1 text-2xl font-bold">Siga a ordem certa para adicionar um Instagram</h2>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--ms-muted)]">
-              Enquanto o app esta em modo de teste, cada perfil precisa primeiro ser adicionado/autorizado no Meta Developer. Depois disso, use o login do UaiFlow no navegador onde a conta esta aberta.
+              Enquanto o app está em modo de teste, cada perfil precisa primeiro ser adicionado e autorizado no painel da Meta. Depois disso, use o login do UaiFlow no navegador onde a conta está aberta.
             </p>
           </div>
           <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4">
-            <OnboardingStep number="1" title="Adicionar no Meta Developer" text="Abra o caso de uso do app e adicione a conta profissional em Gerar tokens de acesso / Adicionar conta." />
-            <OnboardingStep number="2" title="Conferir requisitos" text="A conta precisa ser profissional, publica, autorizada como teste e com webhook ativado no painel da Meta." />
-            <OnboardingStep number="3" title="Fazer login pelo UaiFlow" text="Use Abrir neste navegador ou Copiar link para autenticar no navegador/computador onde o Instagram esta logado." />
-            <OnboardingStep number="4" title="Testar conexao" text="Depois que o perfil aparecer na lista, clique em Testar conexao para validar token, posts, webhook, menu e iniciadores." />
+            <OnboardingStep number="1" title="Adicionar no painel da Meta" text="Abra o caso de uso do app e adicione a conta profissional em Gerar tokens de acesso / Adicionar conta." />
+            <OnboardingStep number="2" title="Conferir requisitos" text="A conta precisa ser profissional, pública, autorizada como teste e com o aviso de novas mensagens ligado no painel da Meta." />
+            <OnboardingStep number="3" title="Fazer login pelo UaiFlow" text="Use Abrir neste navegador ou Copiar link para entrar no navegador ou computador onde o Instagram está aberto." />
+            <OnboardingStep number="4" title="Testar conexão" text="Depois que o perfil aparecer na lista, clique em Testar conexão para conferir a conexão, os posts, o aviso de novas mensagens, o menu e os iniciadores." />
             <div className="flex flex-wrap gap-2 border-t border-[var(--ms-border)] pt-3">
-              <Link className="btn-primary" href={metaDeveloperUrl} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Abrir Meta Developer</Link>
-              <button className="btn-secondary" onClick={copyMetaDeveloperUrl} type="button"><Copy size={16} /> Copiar link Meta</button>
+              <Link className="btn-primary" href={metaDeveloperUrl} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Abrir o painel da Meta (avançado)</Link>
+              <button className="btn-secondary" onClick={copyMetaDeveloperUrl} type="button"><Copy size={16} /> Copiar link da Meta</button>
               <button className="btn-secondary" onClick={copyInstagramConnectUrl} type="button"><Copy size={16} /> Copiar login</button>
             </div>
           </div>
@@ -321,11 +321,11 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
             <div className="min-w-0">
               <p className="eyebrow">Instagram</p>
               <h2 className="mt-1 truncate text-2xl font-bold">{connected ? `@${config.instagram_username}` : "Nenhum perfil conectado"}</h2>
-              <p className="mt-1 text-sm text-[var(--ms-muted)]">{config.instagram_user_id || "Conecte o Instagram para liberar configuracoes via API."}</p>
+              <p className="mt-1 text-sm text-[var(--ms-muted)]">{config.instagram_user_id || "Conecte o Instagram para liberar as configurações."}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="btn-secondary" href={connectPath}><RefreshCcw size={16} /> Atualizar permissoes</Link>
+            <Link className="btn-secondary" href={connectPath}><RefreshCcw size={16} /> Atualizar permissões</Link>
             <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] px-3 text-sm font-semibold">
               <input checked={draft.channel_active} onChange={(event) => setDraft((current) => ({ ...current, channel_active: event.target.checked }))} type="checkbox" />
               Canal ativo
@@ -368,7 +368,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
                   ) : null}
                   <button className="btn-secondary h-9" disabled={diagnosticBusyId === account.id} onClick={() => runDiagnostics(account.id)} type="button">
                     {diagnosticBusyId === account.id ? <Loader2 className="animate-spin" size={15} /> : <Activity size={15} />}
-                    Testar conexao
+                    Testar conexão
                   </button>
                 </div>
                 {diagnostic ? <DiagnosticPanel result={diagnostic} /> : null}
@@ -380,9 +380,9 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
       <section className="panel p-5 sm:p-6">
         <div className="grid gap-5 lg:grid-cols-[1fr_420px] lg:items-start">
           <div>
-            <p className="eyebrow">Copiar configuracao</p>
+            <p className="eyebrow">Copiar configuração</p>
             <h2 className="mt-1 text-xl font-bold">Usar outro perfil como modelo</h2>
-            <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Copie menu principal, iniciadores, automacoes de sistema e, se quiser, duplique todos os fluxos para este Instagram ativo.</p>
+            <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Copie o menu principal, os iniciadores, as automações do sistema e, se quiser, duplique todos os fluxos para este Instagram.</p>
           </div>
           <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4">
             <label className="field">
@@ -394,7 +394,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
             </label>
             <label className="check">
               <input checked={includeAutomations} onChange={(event) => setIncludeAutomations(event.target.checked)} type="checkbox" />
-              Duplicar fluxos/automacoes tambem
+              Duplicar também os fluxos e automações
             </label>
             <button className="btn-primary justify-center" disabled={!copySourceId || busy === "copy"} onClick={copyProfileSettings} type="button">
               {busy === "copy" ? <Loader2 className="animate-spin" size={16} /> : <Copy size={16} />}
@@ -404,7 +404,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
         </div>
       </section>
 <section className="grid gap-4">
-        <SettingsSection icon={<MessageSquareText size={18} />} title="Resposta Padrao" description="Acionada quando uma pessoa digita algo no Direct e nenhum fluxo reconhece a palavra-chave.">
+        <SettingsSection icon={<MessageSquareText size={18} />} title="Resposta padrão" description="Enviada quando alguém escreve no direct e nenhum fluxo reconhece a palavra-chave.">
           <AutomationSelect value={draft.default_automation_id} automations={automations} onChange={(value) => setDraft((current) => ({ ...current, default_automation_id: value }))} />
           <div className="flex flex-wrap gap-2">
             <Link className="btn-secondary" href={hrefWithAccount("/automacoes/nova", activeAccountId)}><Plus size={16} /> Criar nova resposta</Link>
@@ -412,7 +412,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
           </div>
         </SettingsSection>
 
-        <SettingsSection icon={<Menu size={18} />} title="Menu Principal" description="Menu sempre disponivel dentro da conversa do Instagram. Use postbacks para chamar fluxos por payload ou URLs externas.">
+        <SettingsSection icon={<Menu size={18} />} title="Menu principal" description="Menu sempre disponível dentro da conversa do Instagram. Cada botão chama um fluxo pelo código do botão ou abre um endereço externo.">
           <ActionBar>
             <ActionButton label="Buscar atual" icon={<Download size={16} />} tone="blue" loading={busy === "load_menu"} disabled={!connected} onClick={() => loadMessengerProfile("persistent_menu")} />
             <ActionButton label="Recarregar local" icon={<RotateCcw size={16} />} tone="orange" onClick={() => setDraft(settings)} />
@@ -428,12 +428,12 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
                   <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 text-sm font-bold text-red-600 transition hover:bg-red-500/15" type="button" onClick={() => setDraft((current) => ({ ...current, persistent_menu_items: current.persistent_menu_items.filter((_, itemIndex) => itemIndex !== index) }))}><Trash2 size={15} /> Excluir item</button>
                 </div>
                 <div className="mt-4 grid gap-4">
-                  <label className="field"><span>Titulo do botao</span><input className="input" placeholder="Ex: Baixar APP" value={item.title} onChange={(event) => updateMenuItem(index, "title", event.target.value)} /></label>
-                  <label className="field"><span>Tipo</span><select className="input" value={item.type} onChange={(event) => updateMenuItem(index, "type", event.target.value)}><option value="postback">Postback / payload</option><option value="web_url">URL externa</option></select></label>
+                  <label className="field"><span>Título do botão</span><input className="input" placeholder="Ex: Baixar APP" value={item.title} onChange={(event) => updateMenuItem(index, "title", event.target.value)} /></label>
+                  <label className="field"><span>Tipo</span><select className="input" value={item.type} onChange={(event) => updateMenuItem(index, "type", event.target.value)}><option value="postback">Código do botão</option><option value="web_url">URL externa</option></select></label>
                   {item.type === "web_url" ? (
                     <label className="field"><span>URL</span><input className="input" placeholder="https://..." value={item.url || ""} onChange={(event) => updateMenuItem(index, "url", event.target.value)} /></label>
                   ) : (
-                    <label className="field"><span>Payload</span><input className="input" placeholder="Ex: 1 ou automation:id-do-fluxo" value={item.payload || ""} onChange={(event) => updateMenuItem(index, "payload", event.target.value)} /></label>
+                    <label className="field"><span>Código do botão</span><input className="input" placeholder="Ex: 1 ou automation:id-do-fluxo" value={item.payload || ""} onChange={(event) => updateMenuItem(index, "payload", event.target.value)} /></label>
                   )}
                 </div>
               </article>
@@ -449,7 +449,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
           </ActionBar>
         </SettingsSection>
 
-        <SettingsSection icon={<Sparkles size={18} />} title="Iniciadores de conversa" description="Perguntas sugeridas para iniciar conversa com o perfil. A Meta normalmente permite ate 4 itens.">
+        <SettingsSection icon={<Sparkles size={18} />} title="Iniciadores de conversa" description="Perguntas sugeridas para iniciar a conversa com o perfil. A Meta normalmente permite até 4 itens.">
           <ActionBar>
             <ActionButton label="Buscar atuais" icon={<Download size={16} />} tone="blue" loading={busy === "load_ice"} disabled={!connected} onClick={() => loadMessengerProfile("ice_breakers")} />
             <ActionButton label="Adicionar" icon={<Plus size={16} />} tone="green" disabled={draft.ice_breakers.length >= 4} onClick={() => setDraft((current) => ({ ...current, ice_breakers: [...current.ice_breakers, emptyIceBreaker] }))} />
@@ -458,7 +458,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
             {draft.ice_breakers.length ? draft.ice_breakers.map((item, index) => (
               <article className="rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface-soft)] p-4" key={index}>
                 <div className="flex flex-wrap items-center justify-between gap-3"><span className="status-pill">Iniciador {index + 1}</span><button className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 text-sm font-bold text-red-600" type="button" onClick={() => setDraft((current) => ({ ...current, ice_breakers: current.ice_breakers.filter((_, itemIndex) => itemIndex !== index) }))}><Trash2 size={15} /> Excluir</button></div>
-                <div className="mt-4 grid gap-4"><label className="field"><span>Pergunta</span><input className="input" placeholder="Ex: Quero saber mais" value={item.question} onChange={(event) => updateIceBreaker(index, "question", event.target.value)} /></label><label className="field"><span>Payload</span><input className="input" placeholder="Ex: 1 ou automation:id-do-fluxo" value={item.payload} onChange={(event) => updateIceBreaker(index, "payload", event.target.value)} /></label></div>
+                <div className="mt-4 grid gap-4"><label className="field"><span>Pergunta</span><input className="input" placeholder="Ex: Quero saber mais" value={item.question} onChange={(event) => updateIceBreaker(index, "question", event.target.value)} /></label><label className="field"><span>Código do botão</span><input className="input" placeholder="Ex: 1 ou automation:id-do-fluxo" value={item.payload} onChange={(event) => updateIceBreaker(index, "payload", event.target.value)} /></label></div>
               </article>
             )) : <div className="rounded-lg border border-dashed border-[var(--ms-border-strong)] bg-[var(--ms-surface-soft)] p-8 text-center text-sm text-[var(--ms-muted)]">Nenhum iniciador configurado.</div>}
           </div>
@@ -469,27 +469,27 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
           </ActionBar>
         </SettingsSection>
 
-        <SettingsSection icon={<ToggleLeft size={18} />} title="Automacoes de sistema" description="Fluxos chamados por palavras reservadas ou eventos especiais do canal.">
+        <SettingsSection icon={<ToggleLeft size={18} />} title="Automações do sistema" description="Fluxos chamados por palavras reservadas ou por situações especiais do Instagram.">
           <div className="grid gap-4 md:grid-cols-3">
-            <SystemAutomation label="Opt-in" value={draft.opt_in_automation_id} automations={automations} onChange={(value) => setDraft((current) => ({ ...current, opt_in_automation_id: value }))} />
-            <SystemAutomation label="Opt-out" value={draft.opt_out_automation_id} automations={automations} onChange={(value) => setDraft((current) => ({ ...current, opt_out_automation_id: value }))} />
-            <SystemAutomation label="Mencao ao story" value={draft.story_mention_automation_id} automations={automations} onChange={(value) => setDraft((current) => ({ ...current, story_mention_automation_id: value }))} />
+            <SystemAutomation label="Quando a pessoa aceita receber mensagens" value={draft.opt_in_automation_id} automations={automations} onChange={(value) => setDraft((current) => ({ ...current, opt_in_automation_id: value }))} />
+            <SystemAutomation label="Quando a pessoa pede para parar" value={draft.opt_out_automation_id} automations={automations} onChange={(value) => setDraft((current) => ({ ...current, opt_out_automation_id: value }))} />
+            <SystemAutomation label="Quando mencionam você num story" value={draft.story_mention_automation_id} automations={automations} onChange={(value) => setDraft((current) => ({ ...current, story_mention_automation_id: value }))} />
           </div>
         </SettingsSection>
 
         <section className="panel p-5 sm:p-6">
           <p className="eyebrow">Disponibilidade</p>
           <div className="mt-4 grid gap-3 text-sm md:grid-cols-4">
-            <InfoRow label="Menu principal" value="GET, POST e DELETE" />
-            <InfoRow label="Iniciadores" value="GET, POST e DELETE" />
-            <InfoRow label="Boas-vindas seguidores" value="Indisponivel agora" />
-            <InfoRow label="Publicacao conteudo" value="Feed, Reel e Story" />
+            <InfoRow label="Menu principal" value="Pode buscar, salvar e remover" />
+            <InfoRow label="Iniciadores" value="Pode buscar, salvar e remover" />
+            <InfoRow label="Boas-vindas a novos seguidores" value="Indisponível agora" />
+            <InfoRow label="Publicação de conteúdo" value="Feed, Reel e Story" />
           </div>
         </section>
       </section>
 
       <div className="md:sticky md:bottom-4 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface)]/95 p-3 shadow-lg backdrop-blur">
-        {notice ? <p className={notice.tone === "success" ? "status-pill status-pill-green" : "status-pill text-red-500"}>{notice.tone === "success" ? <Check size={14} /> : null}{notice.text}</p> : <p className="text-sm text-[var(--ms-muted)]">Payloads postback tambem funcionam como gatilho. Ex: payload 1 dispara fluxo com palavra-chave 1.</p>}
+        {notice ? <p className={notice.tone === "success" ? "status-pill status-pill-green" : "status-pill text-red-500"}>{notice.tone === "success" ? <Check size={14} /> : null}{notice.text}</p> : <p className="text-sm text-[var(--ms-muted)]">O código do botão também funciona como palavra-chave. Ex: o código 1 liga o fluxo que tem a palavra-chave 1.</p>}
         <button className="btn-primary" disabled={busy === "save"} type="button" onClick={() => saveSettings()}>{busy === "save" ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}{busy === "save" ? "Salvando..." : "Salvar perfil"}</button>
       </div>
     </div>
@@ -511,7 +511,7 @@ function DiagnosticPanel({ result }: { result: DiagnosticResult }) {
   return (
     <div className="mt-4 grid gap-2 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface)] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--ms-muted)]">Diagnostico</p>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--ms-muted)]">Resultado do teste</p>
         <span className="text-xs text-[var(--ms-muted)]">{formatDiagnosticDate(result.checkedAt)}</span>
       </div>
       <div className="grid gap-2">
