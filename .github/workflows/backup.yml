@@ -92,7 +92,7 @@ jobs:
 
           if [ "${estados[0]}" != "0" ]; then
             if grep -Eqi 'invalid percent-encoded|invalid integer value|could not translate host name|invalid URI|missing "=" after|invalid connection option' "$erros"; then
-              motivo="O endereço em SUPABASE_DB_URL está mal formado. Se a senha do banco tem caracteres especiais (@ : / % # ? &), copie o DATABASE_URL do Netlify e troque só a porta 6543 por 5432 (docs/AVISOS_E_COPIA.md, Parte 5)."
+              motivo="O endereço em SUPABASE_DB_URL está mal formado. Se a senha do banco tem caracteres especiais (@ : / % # ? & + ou espaço), escreva cada um em código (tabela na Parte 5 do docs/AVISOS_E_COPIA.md) ou troque a senha do banco por uma só com letras e números."
             elif grep -Eqi 'password authentication failed|Tenant or user not found|no pg_hba.conf entry' "$erros"; then
               motivo="O Supabase recusou o usuário ou a senha do SUPABASE_DB_URL. Confira a senha do banco e atualize o segredo."
             elif grep -Eqi 'timeout|timed out|Connection refused|could not connect|Network is unreachable|server closed the connection' "$erros"; then

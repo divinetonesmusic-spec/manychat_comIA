@@ -39,13 +39,14 @@ Você vai precisar de uns 30 minutos, do celular com o Telegram e do computador.
 
 ## Parte 4: colar as migrações no Supabase
 
-O monitor depende da migração 0004. Cada arquivo pode ser colado mais de uma vez sem problema.
+O monitor depende da migração 0004. Cada arquivo pode ser colado mais de uma vez sem problema. O passo a passo detalhado, com a consulta que confere se deu certo, está em `docs/ATUALIZACAO_0003_0004.md`.
 
 1. Entre em https://supabase.com/dashboard e abra o projeto do UaiFlow.
 2. No menu da esquerda, abra **SQL Editor** → **New query**.
 3. Abra o arquivo `supabase/migrations/0003_publicacao_segura.sql` do UaiFlow, copie tudo, cole no editor e clique em **Run**. Deve aparecer "Success. No rows returned".
 4. Faça o mesmo com `supabase/migrations/0004_saude.sql`.
 5. Para conferir, abra no navegador `https://uaiflow-divinetones.netlify.app/api/health`. Depois de 1 ou 2 minutos deve aparecer `"ok":true`.
+6. Bom saber: migração colada à mão no SQL Editor não fica registrada na tabela `schema_migrations`. Por isso o `npm run db:status` vai mostrar a 0003 e a 0004 como pendentes. É normal. Se alguém rodar `npm run db:migrate` depois, não tem problema: as migrações podem rodar de novo sem mudar nada.
 
 ## Parte 5: segredos no GitHub (monitor e cópia)
 
@@ -60,14 +61,14 @@ O monitor depende da migração 0004. Cada arquivo pode ser colado mais de uma v
    2. Troque só a porta: `:6543/` vira `:5432/`. Não mexa em mais nada.
    3. O resultado fica parecido com `postgresql://postgres.abcdefgh:SUA-SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`.
    4. Se preferir pegar no Supabase (botão **Connect** → **Session pooler**) e trocar `[YOUR-PASSWORD]` pela senha à mão, atenção: se a senha tem algum destes caracteres, escreva cada um em código: `@` vira `%40`, `:` vira `%3A`, `/` vira `%2F`, `%` vira `%25`, `#` vira `%23`, `?` vira `%3F`, `&` vira `%26`, `+` vira `%2B` e espaço vira `%20`. Sem isso a cópia falha.
-   5. Se a cópia falhar com "O endereço em SUPABASE_DB_URL está mal formado", refaça pelo item 1. Por segurança, o erro original nunca aparece no registro do GitHub (ele poderia mostrar pedaços da senha).
+   5. Se a cópia falhar com "O endereço em SUPABASE_DB_URL está mal formado", a senha do banco tem caractere especial sem código. Escreva cada um em código pela tabela do item 4, ou troque a senha do banco por uma só com letras e números (no Supabase: **Project Settings** → **Database** → **Reset database password**). Se trocar a senha, atualize também o `DATABASE_URL` no Netlify e publique o site de novo, senão o UaiFlow para de falar com o banco. Por segurança, o erro original nunca aparece no registro do GitHub (ele poderia mostrar pedaços da senha).
 4. **BACKUP_PASSPHRASE** é uma senha forte, só para as cópias.
    1. No Mac, abra o **Terminal** e rode `openssl rand -base64 24`. Use o texto que aparecer.
    2. **Guarde essa senha no gerenciador de senhas** (Chaves do iCloud, 1Password etc.). Sem ela, ninguém consegue abrir as cópias, nem você.
    3. O repositório é público e qualquer pessoa com conta no GitHub consegue baixar o arquivo da cópia. A senha é o que protege os dados. Nunca a coloque em arquivo do projeto.
 5. (Opcional) Se o endereço do site mudar, vá na aba **Variables** → **New repository variable**, com nome `UAIFLOW_URL` e o endereço novo (ex.: `https://meu-dominio.com.br`). Sem essa variável o monitor usa `https://uaiflow-divinetones.netlify.app`.
 
-Sem `SUPABASE_DB_URL`, a cópia só avisa que não foi feita e termina sem erro. Com `SUPABASE_DB_URL` e sem `BACKUP_PASSPHRASE`, ela falha de propósito, porque nunca guarda cópia sem criptografia.
+Sem `SUPABASE_DB_URL`, a cópia só avisa que não foi feita e termina **verde, sem ter copiado nada** (veja como conferir na Parte 6). Com `SUPABASE_DB_URL` e sem `BACKUP_PASSPHRASE`, ela falha de propósito, porque nunca guarda cópia sem criptografia.
 
 ## Parte 6: rodar o monitor e a cópia na mão
 
@@ -77,6 +78,9 @@ Sem `SUPABASE_DB_URL`, a cópia só avisa que não foi feita e termina sem erro.
 4. Espere 1 ou 2 minutos e atualize a página.
    - Bolinha verde: tudo certo.
    - Bolinha vermelha: clique nela para ver o motivo. O mesmo motivo chega no Telegram, se os segredos estiverem criados.
+5. **Na cópia, verde não quer dizer que copiou.** Sem o segredo `SUPABASE_DB_URL` ela termina verde sem copiar nada. Para conferir, clique na execução:
+   - Copiou: no fim da página aparece a seção **Artifacts** com `uaiflow-banco-AAAA-MM-DD`.
+   - Não copiou: não há **Artifacts**, aparece o aviso amarelo **Cópia não feita** (em **Annotations**) e os passos "Copiar, compactar e criptografar" e "Guardar a cópia criptografada" aparecem como pulados (cinza).
 
 ## Parte 7: baixar e abrir uma cópia
 
@@ -113,6 +117,7 @@ Sem `SUPABASE_DB_URL`, a cópia só avisa que não foi feita e termina sem erro.
 
    As tabelas e os dados do UaiFlow entram assim mesmo.
 8. Para recolocar a cópia num Supabase (numa emergência), crie um projeto novo e rode `psql "ENDEREÇO-DO-SESSION-POOLER-DO-PROJETO-NOVO" -f uaiflow-banco.sql`. Não faça isso por cima do banco que está em uso sem pedir ajuda antes.
+9. Depois de restaurar, rode de novo o arquivo `supabase/cron.sql` no SQL Editor do projeto (trocando o endereço do site e o `WORKER_SECRET`, como na instalação). O relógio (pg_cron) não vai junto na cópia, e sem ele nada é publicado nem respondido.
 
 ## Parte 8: o que fazer quando chega um aviso
 

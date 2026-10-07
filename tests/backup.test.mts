@@ -125,6 +125,9 @@ describe("cópia: senha com caracteres especiais nunca aparece no registro", { s
       assert.equal(run.outputs.arquivo, undefined, "sem arquivo para o upload");
       assert.match(run.publico, /::error title=A cópia falhou::/);
       assert.match(run.publico, caso.erro);
+      // Onda final: aponta para a tabela de códigos (ou senha só com letras e números), não para copiar a mesma URL de novo.
+      assert.match(run.publico, /escreva cada um em código \(tabela na Parte 5 do docs\/AVISOS_E_COPIA\.md\) ou troque a senha do banco por uma só com letras e números/);
+      assert.doesNotMatch(run.publico, /copie o DATABASE_URL/);
       const senha = caso.credenciais.slice(caso.credenciais.indexOf(":") + 1);
       for (const pedaco of [senha, ...caso.pedacos, "SEGREDO", "abc:de", "Abc%zz"]) {
         assert.ok(!run.publico.includes(pedaco), `"${pedaco}" apareceu no registro:\n${run.publico}`);
