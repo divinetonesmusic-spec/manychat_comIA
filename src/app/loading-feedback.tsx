@@ -94,7 +94,7 @@ export function LoadingFeedback() {
         <div className="text-center">
           <p className="text-sm font-semibold">{slow ? "Ainda carregando" : "Carregando"}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {slow ? "A Meta ou o Supabase podem demorar um pouco." : "Preparando a proxima tela..."}
+            {slow ? "Isso pode demorar um pouco." : "Preparando a próxima tela..."}
           </p>
         </div>
       </div>

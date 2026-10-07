@@ -105,7 +105,7 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
                   </div>
                   <div className="grid min-w-0 flex-1 text-left leading-tight">
                     <span className="truncate text-base font-black">UaiFlow</span>
-                    <span className="truncate text-xs text-sidebar-foreground/65">Automacao Instagram</span>
+                    <span className="truncate text-xs text-sidebar-foreground/65">Automação do Instagram</span>
                   </div>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -198,7 +198,7 @@ export function AppShell({ active, connected, accounts = [], activeAccountId = n
                 <ThemeToggle />
                 <Link className="btn-primary hidden sm:inline-flex" href={accountHref("/automacoes/nova")}>
                   <Plus size={16} />
-                  Nova automacao
+                  Nova automação
                 </Link>
               </div>
             </div>

@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "UaiFlow",
   applicationName: "UaiFlow",
-  description: "Automacoes de Instagram em PT-BR para comentarios, DMs e links.",
+  description: "Automações de Instagram em português para comentários, mensagens e links.",
   appleWebApp: {
     capable: true,
     title: "UaiFlow",

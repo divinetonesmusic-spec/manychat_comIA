@@ -62,8 +62,19 @@ export function formatDate(value: string | null) {
 }
 
 export function getTokenStatus(value: string | null) {
-  if (!value) return "Nao gerado";
+  if (!value) return "Não conectada";
   const expiresAt = new Date(value).getTime();
   const days = Math.max(0, Math.ceil((expiresAt - Date.now()) / 86_400_000));
-  return days > 0 ? `${days} dia(s)` : "Expirado";
+  return days > 0 ? `Vence em ${days} ${days === 1 ? "dia" : "dias"}` : "Vencida";
+}
+
+/** Nome simples do tipo de evento que o Instagram mandou (o valor guardado no banco continua o mesmo). */
+export function eventTypeLabel(type: string | null) {
+  const nomes: Record<string, string> = {
+    comment: "Comentário",
+    message: "Mensagem",
+    story_reply: "Resposta a um story",
+    message_reaction: "Reação a uma mensagem",
+  };
+  return (type && nomes[type]) || type || "Mensagem";
 }

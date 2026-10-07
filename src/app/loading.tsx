@@ -10,8 +10,8 @@ export default function Loading() {
         </div>
         <div>
           <p className="text-sm font-bold uppercase tracking-[0.2em] text-[var(--ms-muted)]">UaiFlow</p>
-          <h1 className="mt-2 text-2xl font-bold tracking-normal">Carregando sua area</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Buscando automacoes, conta conectada e dados do workspace.</p>
+          <h1 className="mt-2 text-2xl font-bold tracking-normal">Carregando sua área</h1>
+          <p className="mt-2 text-sm leading-6 text-[var(--ms-muted)]">Buscando automações, conta conectada e seus dados.</p>
         </div>
         <div className="mx-auto inline-flex items-center gap-2 rounded-lg border border-[var(--ms-border)] bg-[var(--ms-surface)] px-4 py-3 text-sm font-semibold shadow-sm">
           <Loader2 className="size-4 animate-spin text-[var(--ms-primary)]" />

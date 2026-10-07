@@ -5,15 +5,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const labels: Record<AppSection, { eyebrow: string; title: string; description: string; icon: ReactNode }> = {
   inicio: {
-    eyebrow: "Inicial",
+    eyebrow: "Início",
     title: "Preparando painel",
-    description: "Carregando integracao com Instagram, eventos e metricas recentes.",
+    description: "Carregando a conexão com o Instagram e os números recentes.",
     icon: <Activity size={20} />,
   },
   automacoes: {
-    eyebrow: "Automacoes",
-    title: "Carregando automacoes",
-    description: "Buscando modelos, posts e regras para criacao.",
+    eyebrow: "Automações",
+    title: "Carregando automações",
+    description: "Buscando modelos, posts e regras para criar.",
     icon: <Workflow size={20} />,
   },
   fluxos: {
@@ -23,32 +23,32 @@ const labels: Record<AppSection, { eyebrow: string; title: string; description: 
     icon: <GitBranch size={20} />,
   },
   conteudo: {
-    eyebrow: "Conteudo",
-    title: "Carregando publicacoes",
-    description: "Buscando historico e preparando o publicador do perfil selecionado.",
+    eyebrow: "Conteúdo",
+    title: "Carregando publicações",
+    description: "Buscando o histórico e preparando o publicador do perfil selecionado.",
     icon: <ImageIcon size={20} />,
   },  perfis: {
     eyebrow: "Perfis",
     title: "Carregando perfil",
-    description: "Verificando canal, menus, iniciadores e automacoes de sistema.",
+    description: "Verificando menus, perguntas de início e automações do sistema.",
     icon: <UserCircle size={20} />,
   },
   contatos: {
     eyebrow: "Contatos",
     title: "Carregando contatos",
-    description: "Organizando pessoas capturadas e ultimas interacoes.",
+    description: "Organizando as pessoas e as últimas interações.",
     icon: <Contact size={20} />,
   },
   inbox: {
     eyebrow: "Caixa de entrada",
     title: "Carregando conversas",
-    description: "Montando a linha do tempo das interacoes recebidas.",
+    description: "Montando a linha do tempo das conversas recebidas.",
     icon: <Inbox size={20} />,
   },
   configuracoes: {
-    eyebrow: "Configuracoes",
-    title: "Carregando integracao",
-    description: "Verificando conta, token, webhook e URLs oficiais.",
+    eyebrow: "Configurações",
+    title: "Carregando configurações",
+    description: "Verificando a conta, a conexão com o Instagram e os endereços oficiais.",
     icon: <Settings size={20} />,
   },
   ai: {

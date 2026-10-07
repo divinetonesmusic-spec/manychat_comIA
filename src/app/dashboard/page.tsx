@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Activity, AtSign, Contact, Inbox, MessageCircle, Plus, Send, Workflow } from "lucide-react";
-import { AppFrame, PageHeader, formatDate } from "../app-frame";
+import { AppFrame, PageHeader, eventTypeLabel, formatDate } from "../app-frame";
 import { getDashboardStats, listPublicInstagramAccounts } from "@/lib/db/repositories";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, hrefWithAccount, type AccountRouteSearchParams } from "@/lib/account-routing";
@@ -24,18 +24,18 @@ export default async function Home({ searchParams }: Props) {
   return (
     <AppFrame active="inicio" connected={connected} username={stats.config.instagram_username} accounts={accounts} activeAccountId={activeAccountId} workspaceName={workspaceContext?.workspace.name} userEmail={workspaceContext?.profile.email} plan={workspaceContext?.workspace.plan}>
       <PageHeader
-        eyebrow="Visao geral"
+        eyebrow="Visão geral"
         title="Painel"
-        description="Acompanhe a saude das automacoes, eventos recebidos e contatos capturados pelo Instagram selecionado."
+        description="Acompanhe a saúde das automações, os comentários e mensagens recebidos e os contatos do Instagram selecionado."
         action={
           <>
             <Link className="btn-secondary" href={hrefWithAccount("/caixa-de-entrada", activeAccountId)}>
               <Inbox size={16} />
-              Ver inbox
+              Ver caixa de entrada
             </Link>
             <Link className="btn-primary" href={hrefWithAccount("/automacoes/nova", activeAccountId)}>
               <Plus size={16} />
-              Nova automacao
+              Nova automação
             </Link>
           </>
         }
@@ -43,10 +43,10 @@ export default async function Home({ searchParams }: Props) {
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1.45fr)_repeat(4,minmax(150px,1fr))]">
         <ProfileMetricCard connected={connected} username={stats.config.instagram_username} />
-        <MetricCard icon={<Workflow size={20} />} label="Automacoes ativas" value={String(activeAutomations)} tone="blue" />
-        <MetricCard icon={<Activity size={20} />} label="Eventos" value={String(stats.eventCount)} tone="violet" />
+        <MetricCard icon={<Workflow size={20} />} label="Automações ativas" value={String(activeAutomations)} tone="blue" />
+        <MetricCard icon={<Activity size={20} />} label="Comentários e mensagens recebidos" value={String(stats.eventCount)} tone="violet" />
         <MetricCard icon={<Contact size={20} />} label="Contatos" value={String(stats.contactCount)} tone="emerald" />
-        <MetricCard icon={<Inbox size={20} />} label="Fila" value={pendingJobs ? `${pendingJobs} pendente(s)` : "limpa"} tone="amber" />
+        <MetricCard icon={<Inbox size={20} />} label="Mensagens esperando para sair" value={pendingJobs ? `${pendingJobs} esperando` : "nenhuma"} tone="amber" />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_390px]">
@@ -117,7 +117,7 @@ function OperationalSummary({
     <section className="panel p-5 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="eyebrow">Operacao</p>
+          <p className="eyebrow">Operação</p>
           <h2 className="mt-2 text-lg font-semibold">Resumo do perfil</h2>
         </div>
         <Activity size={20} className="text-[var(--ms-primary)]" />
@@ -125,8 +125,8 @@ function OperationalSummary({
       <div className="mt-5 grid gap-3">
         <SummaryRow icon={<AtSign size={18} />} label="Conta conectada" value={connected ? `@${username}` : "Nenhuma conta"} good={connected} />
         <SummaryRow icon={<Workflow size={18} />} label="Fluxos ativos" value={`${activeAutomations} ativo(s)`} good={activeAutomations > 0} />
-        <SummaryRow icon={<Inbox size={18} />} label="Fila de envio" value={pendingJobs ? `${pendingJobs} pendente(s)` : "limpa"} good={!pendingJobs} />
-        <SummaryRow icon={<Send size={18} />} label="Envios processados" value={`${sentJobs} envio(s)`} good={sentJobs > 0} />
+        <SummaryRow icon={<Inbox size={18} />} label="Mensagens esperando para sair" value={pendingJobs ? `${pendingJobs} esperando` : "nenhuma"} good={!pendingJobs} />
+        <SummaryRow icon={<Send size={18} />} label="Mensagens enviadas" value={`${sentJobs} enviada(s)`} good={sentJobs > 0} />
       </div>
     </section>
   );
@@ -152,7 +152,7 @@ function QuickLinks({ accountId }: { accountId: string | null }) {
       <div className="mt-5 grid gap-2">
         <Link className="btn-secondary justify-start" href={hrefWithAccount("/automacoes", accountId)}>
           <Workflow size={16} />
-          Gerenciar automacoes
+          Gerenciar automações
         </Link>
         <Link className="btn-secondary justify-start" href={hrefWithAccount("/contatos", accountId)}>
           <Contact size={16} />
@@ -187,21 +187,21 @@ function RecentActivity({ events }: { events: Awaited<ReturnType<typeof getDashb
               <div className="min-w-0 flex-1">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{event.instagram_username ? `@${event.instagram_username}` : event.event_type}</p>
+                    <p className="truncate text-sm font-semibold">{event.instagram_username ? `@${event.instagram_username}` : eventTypeLabel(event.event_type)}</p>
                     <p className="mt-1 text-xs text-[var(--ms-muted)]">{formatDate(event.received_at)}</p>
                   </div>
                   <span className="w-fit rounded-md bg-[var(--ms-surface)] px-2 py-1 text-xs font-semibold text-[var(--ms-muted)]">
-                    {event.instagram_media_id ? "Post/Reel" : "Evento"}
+                    {event.instagram_media_id ? "Post ou Reel" : "Mensagem"}
                   </span>
                 </div>
-                {event.instagram_media_id ? <p className="mt-2 truncate text-xs text-[var(--ms-muted)]">Midia {event.instagram_media_id}</p> : null}
+                {event.instagram_media_id ? <p className="mt-2 truncate text-xs text-[var(--ms-muted)]">Mídia {event.instagram_media_id}</p> : null}
               </div>
             </article>
           ))
         ) : (
           <div className="rounded-lg border border-dashed border-[var(--ms-border-strong)] bg-[var(--ms-surface-soft)] p-8 text-center">
             <MessageCircle className="mx-auto text-[var(--ms-muted)]" size={28} />
-            <p className="mt-3 text-sm text-[var(--ms-muted)]">Nenhum evento recebido ainda.</p>
+            <p className="mt-3 text-sm text-[var(--ms-muted)]">Nenhum comentário ou mensagem recebido ainda.</p>
           </div>
         )}
       </div>
