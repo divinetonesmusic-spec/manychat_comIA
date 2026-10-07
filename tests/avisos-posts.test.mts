@@ -157,6 +157,15 @@ describe("aviso de post que não saiu", { skip: semBanco }, () => {
     assert.equal(meta.telegram.length, 1);
   });
 
+  test("dois relógios marcando o mesmo post ao mesmo tempo: 1 aviso só", async () => {
+    const ids = await Promise.all([1, 2, 3].map(() => insertPost(db, accountId, { status: "publishing", publishing_started_at: new Date() })));
+    for (const id of ids) {
+      const post = { id } as Parameters<typeof scheduler.markPostFailed>[0];
+      await Promise.all([scheduler.markPostFailed(post, "Motivo A"), scheduler.markPostFailed(post, "Motivo B")]);
+    }
+    assert.equal(meta.telegram.length, ids.length, "1 aviso por post");
+  });
+
   test("Telegram fora do ar: o post vira 'Com erro' do mesmo jeito e o relógio não quebra", async () => {
     meta.telegramFails = "rede";
     const id = await insertPost(db, accountId, { status: "publishing", container_id: "container-x", publishing_started_at: new Date() });
