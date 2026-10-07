@@ -2,7 +2,8 @@ import { query } from "@/lib/db/client";
 
 /** O relógio roda a cada 1–2 min; sem batimento há mais que isto, algo parou. */
 export const CLOCK_STALE_MINUTES = 15;
-const DB_TIMEOUT_MS = 5000;
+/** Prazo único para as consultas do /api/health. */
+const DB_TIMEOUT_MS = 4000;
 
 /**
  * Grava o batimento do relógio (chave 'relogio' em public.app_status, migração 0004).
@@ -32,29 +33,35 @@ export type HealthReport = {
 /** Para a rota pública /api/health: sem segredo, sem @ de conta. */
 export async function readHealth(now = new Date()): Promise<HealthReport> {
   const relogio: HealthReport["relogio"] = { ultimaVez: null, minutos: null };
-  let idleMs = 0;
   const tokens: HealthReport["tokens"] = { menorPrazoDias: null };
+  let idleMs = 0;
+  const bancoFora = { ok: false, motivo: "O banco de dados (Supabase) não respondeu. Confira se o projeto não está pausado.", relogio, tokens };
 
-  try {
-    const { rows } = await withTimeout(query<{ menor: Date | null }>("select min(token_expires_at) as menor from public.instagram_accounts"));
-    if (rows[0]?.menor) tokens.menorPrazoDias = Math.floor((new Date(rows[0].menor).getTime() - now.getTime()) / 86_400_000);
-  } catch {
-    return { ok: false, motivo: "O banco de dados (Supabase) não respondeu. Confira se o projeto não está pausado.", relogio, tokens };
-  }
+  // As duas consultas juntas, sob um prazo só (a resposta não pode passar do limite da função do Netlify).
+  const consultas = Promise.allSettled([
+    query<{ menor: Date | null }>("select min(token_expires_at) as menor from public.instagram_accounts"),
+    query<{ atualizado_em: Date }>("select atualizado_em from public.app_status where chave = 'relogio'"),
+  ]);
+  const resultado = await withTimeout(consultas).catch(() => null);
+  if (!resultado) return bancoFora;
+  const [tokensResult, batimentoResult] = resultado;
 
-  try {
-    const { rows } = await withTimeout(query<{ atualizado_em: Date }>("select atualizado_em from public.app_status where chave = 'relogio'"));
-    if (rows[0]?.atualizado_em) {
-      const last = new Date(rows[0].atualizado_em);
-      idleMs = Math.max(0, now.getTime() - last.getTime());
-      relogio.ultimaVez = last.toISOString();
-      relogio.minutos = Math.floor(idleMs / 60_000);
-    }
-  } catch (error) {
-    if ((error as { code?: string }).code === "42P01") {
+  if (tokensResult.status === "rejected") return bancoFora;
+  const menor = tokensResult.value.rows[0]?.menor;
+  if (menor) tokens.menorPrazoDias = Math.floor((new Date(menor).getTime() - now.getTime()) / 86_400_000);
+
+  if (batimentoResult.status === "rejected") {
+    if ((batimentoResult.reason as { code?: string })?.code === "42P01") {
       return { ok: false, motivo: "Falta aplicar a migração 0004_saude.sql no Supabase (SQL Editor). Sem ela não dá para saber se o relógio está rodando.", relogio, tokens };
     }
-    return { ok: false, motivo: "O banco de dados (Supabase) não respondeu. Confira se o projeto não está pausado.", relogio, tokens };
+    return bancoFora;
+  }
+  const atualizadoEm = batimentoResult.value.rows[0]?.atualizado_em;
+  if (atualizadoEm) {
+    const last = new Date(atualizadoEm);
+    idleMs = Math.max(0, now.getTime() - last.getTime());
+    relogio.ultimaVez = last.toISOString();
+    relogio.minutos = Math.floor(idleMs / 60_000);
   }
 
   if (relogio.minutos === null) {
