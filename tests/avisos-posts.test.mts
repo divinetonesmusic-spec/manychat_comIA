@@ -75,7 +75,7 @@ describe("aviso de post que não saiu", { skip: semBanco }, () => {
     assert.equal(post.status, "failed");
     assert.equal(meta.telegram.length, 1);
     assert.match(textos()[0], /"Reel da manhã" \(@ruthie\)/);
-    assert.match(textos()[0], /Motivo: A Meta nao conseguiu baixar a midia/);
+    assert.match(textos()[0], /Motivo: A Meta não conseguiu baixar a mídia/);
   });
 
   test("Meta sem terminar em 2 h: 1 aviso", async () => {
@@ -91,7 +91,7 @@ describe("aviso de post que não saiu", { skip: semBanco }, () => {
 
     assert.equal((await readPost(db, id)).status, "failed");
     assert.equal(meta.telegram.length, 1);
-    assert.match(textos()[0], /Motivo: A Meta nao terminou de processar em 2 h/);
+    assert.match(textos()[0], /Motivo: A Meta não terminou de processar em 2 h/);
   });
 
   test("preso em 'publicando' depois de 3 tentativas (recuperação do relógio): 1 aviso", async () => {
@@ -105,7 +105,7 @@ describe("aviso de post que não saiu", { skip: semBanco }, () => {
 
     assert.equal((await readPost(db, id)).status, "failed");
     assert.equal(meta.telegram.length, 1);
-    assert.match(textos()[0], /Motivo: Nao consegui iniciar a publicacao depois de 3 tentativas\./);
+    assert.match(textos()[0], /Motivo: Não consegui iniciar a publicação depois de 3 tentativas\./);
   });
 
   test("carrossel com um item recusado pela Meta: 1 aviso", async () => {

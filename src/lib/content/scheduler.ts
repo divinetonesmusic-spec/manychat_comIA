@@ -224,7 +224,7 @@ export async function startPost(post: ContentPost, config: Config, deadline = Da
       made += 1;
       await updateContentPostMediaItems(post.id, items); // salva na hora: se a função cair, nada é recriado
     }
-    await touchContentPost(post.id, "A Meta esta preparando os itens do carrossel.");
+    await touchContentPost(post.id, "A Meta está preparando os itens do carrossel.");
     return;
   }
 
@@ -236,7 +236,7 @@ export async function startPost(post: ContentPost, config: Config, deadline = Da
     coverUrl: post.cover_url,
     caption: post.caption,
   });
-  await updateContentPostStatus({ id: post.id, status: "publishing", containerId: container.id, lastError: "A Meta esta processando a midia." });
+  await updateContentPostStatus({ id: post.id, status: "publishing", containerId: container.id, lastError: "A Meta está processando a mídia." });
 }
 
 /** Avança um post em "publicando". Retorna o que aconteceu. */
@@ -279,7 +279,7 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
       await updateContentPostMediaItems(post.id, items);
       if (items.some((item) => item.status !== "finished")) {
         if (tooOld) return failTooOld(post, pending);
-        await touchContentPost(post.id, "A Meta ainda esta processando os itens do carrossel.");
+        await touchContentPost(post.id, "A Meta ainda está processando os itens do carrossel.");
         return "waiting";
       }
       const parent = await createInstagramCarouselContainer({
@@ -363,12 +363,12 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     return "failed";
   }
   if (tooOld) return failTooOld(post, pending);
-  await touchContentPost(post.id, "A Meta esta processando a midia.");
+  await touchContentPost(post.id, "A Meta está processando a mídia.");
   return "waiting";
 }
 
 async function failTooOld(post: ContentPost, pending?: PendingNotice[]) {
-  await markPostFailed(post, `A Meta nao terminou de processar em ${MAX_PUBLISHING_HOURS} h. Tente agendar de novo.`, { containerId: post.container_id, pending });
+  await markPostFailed(post, `A Meta não terminou de processar em ${MAX_PUBLISHING_HOURS} h. Tente agendar de novo.`, { containerId: post.container_id, pending });
   return "failed" as const;
 }
 
@@ -510,7 +510,7 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
       await setPostFirstComment(post.id, comment.id);
       done.comment = true;
     } catch (error) {
-      await touchContentPost(post.id, `Publicado, mas o 1o comentario falhou: ${translateError(error)}`);
+      await touchContentPost(post.id, `Publicado, mas o 1º comentário falhou: ${translateError(error)}`);
     }
   }
 
@@ -540,14 +540,14 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
         done.automation = true;
       }
     } catch (error) {
-      await touchContentPost(post.id, `Publicado, mas a automacao da DM falhou: ${translateError(error)}`);
+      await touchContentPost(post.id, `Publicado, mas a automação da DM falhou: ${translateError(error)}`);
     }
   }
   return done;
 }
 
 function assertConnected(config: Config) {
-  if (!config.instagram_user_id || !config.instagram_access_token) throw new Error("Instagram nao conectado para este perfil.");
+  if (!config.instagram_user_id || !config.instagram_access_token) throw new Error("Instagram não conectado para este perfil.");
 }
 
 function toInstagramPublishType(value: ContentPost["publish_type"]): InstagramPublishType {
@@ -559,9 +559,9 @@ function toInstagramPublishType(value: ContentPost["publish_type"]): InstagramPu
 
 export function translateError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "Erro desconhecido.");
-  if (/content_publish|permission/i.test(message)) return "Falta a permissao de publicar. Reconecte o perfil aceitando instagram_business_content_publish.";
-  if (/Media ID is not available|not ready/i.test(message)) return "A midia ainda nao terminou de processar na Meta.";
-  if (/aspect ratio|resolution|duration|codec/i.test(message)) return "A Meta recusou o video (formato, duracao ou resolucao). Reels: MP4 H.264, 9:16, de 3 s a 15 min.";
-  if (/Invalid parameter|url|download/i.test(message)) return "A Meta nao conseguiu baixar a midia. Confira se o link e publico.";
+  if (/content_publish|permission/i.test(message)) return "Falta a permissão de publicar. Reconecte o perfil aceitando instagram_business_content_publish.";
+  if (/Media ID is not available|not ready/i.test(message)) return "A mídia ainda não terminou de processar na Meta.";
+  if (/aspect ratio|resolution|duration|codec/i.test(message)) return "A Meta recusou o vídeo (formato, duração ou resolução). Reels: MP4 H.264, 9:16, de 3 s a 15 min.";
+  if (/Invalid parameter|url|download/i.test(message)) return "A Meta não conseguiu baixar a mídia. Confira se o link é público.";
   return message.replace(/^Instagram Graph v\d+\.\d+:\s*/i, "Meta: ").slice(0, 400);
 }

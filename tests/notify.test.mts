@@ -152,13 +152,13 @@ describe("textos dos avisos", () => {
   test("post que não saiu: título, @conta, motivo e o link da tela Conteúdo do perfil certo", () => {
     const text = notify.postFailedMessage(
       { id: "p1", title: "Antes do café da manhã, faça isto", caption: "legenda", account_id: "conta-1", account_username: "ruthie" },
-      "A Meta recusou o video (formato, duracao ou resolucao).",
+      "A Meta recusou o vídeo (formato, duração ou resolução).",
     );
     assert.equal(
       text,
       [
         'UaiFlow: o post "Antes do café da manhã, faça isto" (@ruthie) não saiu.',
-        "Motivo: A Meta recusou o video (formato, duracao ou resolucao).",
+        "Motivo: A Meta recusou o vídeo (formato, duração ou resolução).",
         "Abra: https://uaiflow.teste/conteudo?accountId=conta-1",
       ].join("\n"),
     );

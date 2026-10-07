@@ -251,7 +251,7 @@ export async function recoverStuckPosts(): Promise<ContentPost[]> {
     `update public.content_posts cp
      set status = case when attempts >= 3 then 'failed' else 'scheduled' end,
          lock_until = null,
-         last_error = case when attempts >= 3 then 'Nao consegui iniciar a publicacao depois de 3 tentativas.' else last_error end
+         last_error = case when attempts >= 3 then 'Não consegui iniciar a publicação depois de 3 tentativas.' else last_error end
      where status = 'publishing'
        and container_id is null
        and coalesce(publishing_started_at, updated_at) < now() - interval '15 minutes'

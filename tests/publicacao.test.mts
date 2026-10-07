@@ -401,7 +401,7 @@ describe("publicação segura (U-PUB-01, com a migração 0003)", { skip: semBan
       const body = await response.json();
       assert.equal(response.status, 502);
       assert.equal(body.data.status, "failed");
-      assert.match(body.data.last_error, /baixar a midia/);
+      assert.match(body.data.last_error, /baixar a mídia/);
     } finally {
       globalThis.fetch = original;
     }
