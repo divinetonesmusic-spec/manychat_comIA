@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { refreshAllInstagramTokens } from "@/lib/instagram/token-refresh";
+import { refreshAllInstagramTokens, tokenRefreshAlerts } from "@/lib/instagram/token-refresh";
+import { notifyTokenAlerts } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -22,12 +23,14 @@ async function refresh(request: NextRequest) {
     return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
   }
 
-  // Renova TODAS as contas, cada uma com a sua tentativa. Os avisos de falha e de token vencendo
-  // (menos de 10 dias) saem de tokenRefreshAlerts(resultados), em src/lib/instagram/token-refresh.ts.
+  // Renova TODAS as contas, cada uma com a sua tentativa.
   const resultados = await refreshAllInstagramTokens();
   if (!resultados.length) {
     return NextResponse.json({ ok: false, error: "Instagram nao conectado", contas: [] }, { status: 409 });
   }
+
+  // Aviso no Telegram (se configurado): contas que não renovaram e contas vencendo em menos de 10 dias.
+  await notifyTokenAlerts(tokenRefreshAlerts(resultados), request.nextUrl.origin);
 
   const renovadas = resultados.filter((resultado) => resultado.ok).length;
   return NextResponse.json(

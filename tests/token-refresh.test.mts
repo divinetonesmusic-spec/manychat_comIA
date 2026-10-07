@@ -104,6 +104,45 @@ describe("renovação de token de todas as contas (U-PUB-02)", { skip: semBanco 
     assert.ok(body.contas.every((conta: { ok: boolean; erro: string }) => !conta.ok && conta.erro));
   });
 
+  describe("avisos no Telegram", () => {
+    beforeEach(() => {
+      process.env.TELEGRAM_BOT_TOKEN = "123456789:TESTE-token-falso-do-robo";
+      process.env.TELEGRAM_CHAT_ID = "987654321";
+    });
+
+    after(() => {
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      delete process.env.TELEGRAM_CHAT_ID;
+    });
+
+    test("falha na renovação de uma conta: 1 aviso com a conta, os dias que faltam e o link de Perfis", async () => {
+      meta.refreshFails.add("IGAA-TESTE-RUTHIE");
+      const response = await route.POST(request("/api/token/refresh", { method: "POST", headers: WORKER }));
+      assert.equal(response.status, 200);
+      assert.equal(meta.telegram.length, 1);
+      const texto = String(meta.telegram[0].body.text);
+      assert.match(texto, /^UaiFlow: atenção com a conexão do Instagram\./);
+      assert.match(texto, /- @ruthie: não consegui renovar a conexão\. Ela vence em (19|20) dias\./);
+      assert.doesNotMatch(texto, /@payoff/, "a conta renovada não entra no aviso");
+      assert.match(texto, /Reconecte o perfil em Perfis: https:\/\/uaiflow\.teste\/perfis$/);
+      assert.doesNotMatch(texto, /IGAA/, "nenhum token no aviso");
+    });
+
+    test("conta que fica com menos de 10 dias de validade: aviso de vencimento", async () => {
+      meta.refreshExpiresIn = 5 * 86_400;
+      await route.POST(request("/api/token/refresh", { method: "POST", headers: WORKER }));
+      assert.equal(meta.telegram.length, 1, "uma mensagem só para as duas contas");
+      const texto = String(meta.telegram[0].body.text);
+      assert.match(texto, /- @ruthie: a conexão vence em [45] dias\./);
+      assert.match(texto, /- @payoff: a conexão vence em [45] dias\./);
+    });
+
+    test("todas renovadas e longe de vencer: nenhum aviso", async () => {
+      await route.POST(request("/api/token/refresh", { method: "POST", headers: WORKER }));
+      assert.equal(meta.telegram.length, 0);
+    });
+  });
+
   test("a conta padrão continua espelhada na tabela config depois da renovação", async () => {
     await route.GET(request("/api/token/refresh", { headers: WORKER }));
     const [config] = await db!.sql<{ instagram_access_token: string; instagram_username: string }>("select instagram_access_token, instagram_username from public.config where id = true");
