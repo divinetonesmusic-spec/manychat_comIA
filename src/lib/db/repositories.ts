@@ -1484,11 +1484,18 @@ export async function getInboxConversation(contactId: string | null | undefined,
 
   const [events, jobs] = await Promise.all([
     query<InboxEvent>(
-      `select id, event_type, instagram_user_id, instagram_username, instagram_comment_id,
-              instagram_media_id, payload, received_at
-       from public.events
-       where account_id is not distinct from $1
-         and instagram_user_id = $2
+      // `account_id = $1` (e não "is not distinct from") para o Postgres usar o índice da 0005; o 2º trecho cobre o contato sem perfil.
+      `(select id, event_type, instagram_user_id, instagram_username, instagram_comment_id,
+               instagram_media_id, payload, received_at
+        from public.events
+        where account_id = $1::uuid
+          and instagram_user_id = $2)
+       union all
+       (select id, event_type, instagram_user_id, instagram_username, instagram_comment_id,
+               instagram_media_id, payload, received_at
+        from public.events
+        where $1::uuid is null and account_id is null
+          and instagram_user_id = $2)
        order by received_at desc
        limit 140`,
       [contact.account_id, contact.instagram_user_id],

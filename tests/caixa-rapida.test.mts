@@ -2,7 +2,7 @@ import "./helpers/env.mjs";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createTestDatabase, semBanco, type TestDatabase } from "./helpers/db.mjs";
-import { LIST_CONTACTS_ANTIGA, semearBaseGrande, semearBasePequena } from "./helpers/caixa.mjs";
+import { LIST_CONTACTS_ANTIGA, conferirConversaIgualAntiga, semearBaseGrande, semearBasePequena } from "./helpers/caixa.mjs";
 import { seedAccount } from "./helpers/seed.mjs";
 
 /** Caixa de entrada e Contatos com milhares de contatos (U-DESEMP-01), com a migração 0005. */
@@ -98,6 +98,11 @@ describe("caixa de entrada rápida (com a migração 0005)", { skip: semBanco },
     // A lista de 250 não traz o contato 4.000: ele só abre porque a conversa busca o contato pelo id.
     const primeiros = await repos.listContacts(250, contaId);
     assert.equal(primeiros.some((item) => item.id === alvo.id), false);
+  });
+
+  test("eventos da conversa: os mesmos da consulta antiga, com perfil e sem perfil (conta nula), sem misturar outro perfil", async () => {
+    const outra = await seedAccount(db, { username: "outra_conv", userId: "1003", isDefault: false, token: "IGAA-TESTE-OUTRA-CONV" });
+    assert.deepEqual(await conferirConversaIgualAntiga(db, repos, contaId, outra), [3, 3]);
   });
 
   test("conversa com id que não é de contato (endereço digitado errado) não quebra", async () => {

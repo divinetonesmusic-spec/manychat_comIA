@@ -2,7 +2,7 @@ import "./helpers/env.mjs";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createTestDatabase, semBanco, type TestDatabase } from "./helpers/db.mjs";
-import { LIST_CONTACTS_ANTIGA, semearBasePequena } from "./helpers/caixa.mjs";
+import { LIST_CONTACTS_ANTIGA, conferirConversaIgualAntiga, semearBasePequena } from "./helpers/caixa.mjs";
 import { seedAccount } from "./helpers/seed.mjs";
 
 /** Sem a 0005 colada no Supabase (banco só até a 0004): o código dá os mesmos resultados, só mais devagar. Sem medir tempo. */
@@ -43,5 +43,10 @@ describe("caixa de entrada sem a migração 0005", { skip: semBanco }, () => {
     const { contact, messages } = await repos.getInboxConversation(alvo.id, contaId);
     assert.equal(contact?.id, alvo.id);
     assert.ok(messages.length > 0);
+  });
+
+  test("eventos da conversa: os mesmos da consulta antiga, com perfil e sem perfil (conta nula), sem misturar outro perfil", async () => {
+    const outra = await seedAccount(db, { username: "outra_conv", userId: "1003", isDefault: false, token: "IGAA-TESTE-OUTRA-CONV" });
+    assert.deepEqual(await conferirConversaIgualAntiga(db, repos, contaId, outra), [3, 3]);
   });
 });

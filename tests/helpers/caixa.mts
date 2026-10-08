@@ -109,3 +109,36 @@ export async function semearBasePequena(repos: Repos, accountId: string, contato
     }
   }
 }
+
+/** A busca de eventos da conversa como era antes da onda final ("is not distinct from"): referência de equivalência. */
+export const EVENTOS_CONVERSA_ANTIGA = `select id from public.events
+  where account_id is not distinct from $1 and instagram_user_id = $2
+  order by received_at desc limit 140`;
+
+/**
+ * Confere que os eventos da conversa são os mesmos da consulta antiga, para um contato com perfil e para um contato
+ * sem perfil (conta nula), e que eventos de outro perfil com o mesmo id do Instagram não entram.
+ * Devolve os totais conferidos (com perfil, sem perfil).
+ */
+export async function conferirConversaIgualAntiga(db: TestDatabase, repos: Repos, accountId: string, outraContaId: string) {
+  const totais: number[] = [];
+  for (const [conta, userId] of [[accountId, "conv-com-perfil"], [null, "conv-sem-perfil"]] as const) {
+    for (let i = 0; i < 3; i += 1) {
+      for (const dona of [conta, outraContaId]) {
+        await repos.recordEvent({ accountId: dona, eventType: "message", instagramEventId: `${userId}-${dona ?? "nulo"}-${i}`, instagramUserId: userId, instagramUsername: userId, payload: { event: { message: { text: `${userId} ${dona ?? "nulo"} ${i}` } } } });
+      }
+    }
+    // Contato sem perfil só existe por SQL (o webhook sempre usa o perfil padrão).
+    const contactId = conta
+      ? await repos.upsertContact({ accountId: conta, instagramUserId: userId, instagramUsername: userId })
+      : (await db.sql<{ id: string }>("insert into public.contacts (account_id, instagram_user_id, instagram_username) values (null, $1, $1) returning id", [userId]))[0].id;
+    const antigo = (await db.sql<{ id: string }>(EVENTOS_CONVERSA_ANTIGA, [conta, userId])).map((linha) => linha.id);
+    const { messages } = await repos.getInboxConversation(contactId, conta);
+    const novo = messages.filter((mensagem) => mensagem.direction === "inbound").map((mensagem) => mensagem.id);
+    totais.push(novo.length);
+    if (novo.length !== 3 || JSON.stringify(novo) !== JSON.stringify(antigo)) {
+      throw new Error(`conversa de ${userId} diferente da consulta antiga: novo=${JSON.stringify(novo)} antigo=${JSON.stringify(antigo)}`);
+    }
+  }
+  return totais;
+}
