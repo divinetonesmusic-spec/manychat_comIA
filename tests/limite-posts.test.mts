@@ -200,4 +200,43 @@ describe("limite de 95 publicações em 24 h por perfil", { skip: semBanco }, ()
     assert.equal((await response.json()).data.status, "publishing");
     assert.equal(meta.count("/media"), 1);
   });
+
+  test("sobra de um ciclo interrompido (reclamado em 'publicando', sem container): no ciclo seguinte também passa pela guarda dos 95", async () => {
+    await publicados(accountId, 95, 20);
+    const id = await insertPost(db, accountId, { status: "publishing", attempts: 1, publishing_started_at: new Date(Date.now() - 30_000), scheduled_at: new Date(Date.now() - 60_000) });
+    const resultado = await scheduler.runContentCycle(8000);
+    const post = await readPost(db, id);
+    assert.equal(post.status, "scheduled");
+    assert.match(String(post.last_error), /^Limite de 100 publicações em 24 h do Instagram: sai às \d{2}:\d{2}\.$/);
+    assert.equal(post.attempts, 0);
+    assert.equal(post.container_id, null);
+    assert.equal(chamadasMeta().length, 0, "0 chamadas à Meta");
+    assert.equal(resultado.failed, 0);
+    assert.equal(resultado.waiting, 1);
+  });
+
+  test("sobra de ciclo interrompido: com vaga, o post começa normalmente no ciclo seguinte", async () => {
+    await publicados(accountId, 10, 20);
+    const id = await insertPost(db, accountId, { status: "publishing", attempts: 1, publishing_started_at: new Date(Date.now() - 30_000) });
+    for (let i = 0; i < 3; i += 1) await scheduler.runContentCycle(8000);
+    assert.equal((await readPost(db, id)).status, "published");
+  });
+
+  test("carrossel reclamado e ainda sem itens criados também passa pela guarda; o que já tem item criado segue", async () => {
+    await publicados(accountId, 95, 20);
+    const semItens = JSON.stringify([
+      { type: "image", url: "https://midia.teste.invalid/uaiflow/1.jpg", status: "pending" },
+      { type: "image", url: "https://midia.teste.invalid/uaiflow/2.jpg", status: "pending" },
+    ]);
+    const comItem = JSON.stringify([
+      { type: "image", url: "https://midia.teste.invalid/uaiflow/1.jpg", status: "processing", container_id: "filho-1" },
+      { type: "image", url: "https://midia.teste.invalid/uaiflow/2.jpg", status: "pending" },
+    ]);
+    const novo = await insertPost(db, accountId, { publish_type: "carousel", status: "publishing", publishing_started_at: new Date(Date.now() - 30_000), media_items: semItens, first_comment: "", keyword: "" });
+    const andamento = await insertPost(db, accountId, { publish_type: "carousel", status: "publishing", publishing_started_at: new Date(Date.now() - 30_000), media_items: comItem, first_comment: "", keyword: "" });
+    await scheduler.runContentCycle(8000);
+    assert.equal((await readPost(db, novo)).status, "scheduled");
+    assert.equal(chamadasMeta().filter((chamada) => chamada.method === "POST").length, 1, "só o carrossel que já tinha item criado cria o 2º item");
+    assert.equal((await readPost(db, andamento)).status, "publishing");
+  });
 });

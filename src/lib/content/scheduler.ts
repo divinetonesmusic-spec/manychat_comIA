@@ -290,7 +290,10 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
   if (post.publish_type === "carousel") {
     const items = (post.media_items ?? []) as ContentMediaItem[];
     if (!items.length || items.some((item) => !item.container_id)) {
-      await startPost(post, config, deadline);
+      // Carrossel que ainda nem começou (reclamado num ciclo interrompido): passa pela guarda dos 95. Um que já tem
+      // item criado segue sem nova conta.
+      if (items.some((item) => item.container_id)) await startPost(post, config, deadline);
+      else await startOrDefer(post, config, deadline);
       return "waiting";
     }
     if (!post.container_id) {
@@ -321,7 +324,8 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
       return "waiting";
     }
   } else if (!post.container_id) {
-    await startPost(post, config, deadline);
+    // Reclamado num ciclo interrompido (tempo acabou) e só começa agora: também passa pela guarda dos 95.
+    await startOrDefer(post, config, deadline);
     return "waiting";
   }
 
