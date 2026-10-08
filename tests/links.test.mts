@@ -254,6 +254,116 @@ describe("links rastreados", { skip: semBanco }, () => {
     });
   });
 
+  describe("banco falhando na hora de buscar o código", () => {
+    // Renomear a coluna "slug" faz a busca falhar com um erro comum (42703), diferente de "tabela não existe" (sem a 0006).
+    async function quebrarBusca<T>(trabalho: () => Promise<T>) {
+      await db.sql("alter table public.tracked_links rename column slug to slug_fora");
+      const erros: string[] = [];
+      const original = console.error;
+      console.error = (...partes: unknown[]) => void erros.push(partes.join(" "));
+      try {
+        return { resultado: await trabalho(), erros };
+      } finally {
+        console.error = original;
+        await db.sql("alter table public.tracked_links rename column slug_fora to slug");
+      }
+    }
+
+    test("link que este servidor já viu continua levando ao destino (e o clique conta); o erro vai para o log", async () => {
+      const link = await novoLink();
+      assert.equal((await clicar(link.slug)).status, 302, "primeira vez: o banco responde e o link fica na memória");
+      const { resultado, erros } = await quebrarBusca(() => clicar(link.slug, "?de=dm"));
+      assert.equal(resultado.status, 302);
+      assert.equal(resultado.headers.get("location"), DESTINO);
+      assert.equal(resultado.headers.get("cache-control"), "no-store");
+      assert.equal(erros.length, 1);
+      assert.match(erros[0], /não consegui ler o link/);
+      assert.equal(await cliques(link.slug), 2, "o clique é contado mesmo com a busca falhando (a gravação usa outra coluna)");
+    });
+
+    test("a memória guarda o último destino visto (destino trocado antes da falha)", async () => {
+      const link = await novoLink();
+      await clicar(link.slug);
+      const novo = "https://loja.teste.invalid/novo";
+      await criar({ accountId: contaA, externalRef: "reel-1", destino: novo });
+      await clicar(link.slug);
+      const { resultado } = await quebrarBusca(() => clicar(link.slug));
+      assert.equal(resultado.headers.get("location"), novo);
+    });
+
+    test("código nunca visto: 503 com Retry-After 5, sem Location e sem chute; HEAD igual; nada é contado", async () => {
+      const link = await novoLink();
+      const { resultado, erros } = await quebrarBusca(async () => ({
+        get: await clicar(link.slug),
+        head: await clicar(link.slug, "", { method: "HEAD" }),
+      }));
+      for (const resposta of [resultado.get, resultado.head]) {
+        assert.equal(resposta.status, 503);
+        assert.equal(resposta.headers.get("retry-after"), "5");
+        assert.equal(resposta.headers.get("location"), null);
+        assert.equal(resposta.headers.get("cache-control"), "no-store");
+      }
+      assert.match(await resultado.get.text(), /Tente de novo em instantes/);
+      assert.equal(erros.length, 2);
+      assert.equal(await cliques(), 0);
+      // passado o problema, o mesmo link volta ao normal
+      assert.equal((await clicar(link.slug)).status, 302);
+    });
+
+    test("código que não existe, com o banco bom, continua 404 (não vira 503)", async () => {
+      assert.equal((await clicar("naoexiste")).status, 404);
+    });
+  });
+
+  describe("gravação do clique depois da resposta", () => {
+    test("quando os 300 ms vencem, a gravação é entregue ao after e termina depois", async () => {
+      const link = await novoLink();
+      const { countClick, CLICK_WAIT_MS } = await import("@/lib/links/redirect");
+      await db.sql(`create function public.teste_clique_lento() returns trigger language plpgsql as $$ begin perform pg_sleep(1); return new; end $$`);
+      await db.sql("create trigger teste_clique_lento before insert on public.link_clicks for each row execute function public.teste_clique_lento()");
+      try {
+        const entregues: Array<() => Promise<void>> = [];
+        const inicio = Date.now();
+        await countClick((await db.sql<{ id: string }>("select id from public.tracked_links where slug = $1", [link.slug]))[0].id, "bio", (trabalho) => void entregues.push(trabalho));
+        const gasto = Date.now() - inicio;
+        assert.ok(gasto >= CLICK_WAIT_MS - 20 && gasto < 800, `esperou ${gasto} ms`);
+        assert.equal(entregues.length, 1, "a gravação foi entregue ao after");
+        assert.equal(await cliques(), 0, "ainda não terminou");
+        await entregues[0](); // o "after" espera a gravação acabar
+        assert.equal(await cliques(), 1);
+      } finally {
+        await db.sql("drop trigger teste_clique_lento on public.link_clicks");
+        await db.sql("drop function public.teste_clique_lento()");
+      }
+    });
+
+    test("quando a gravação é rápida, nada é entregue ao after", async () => {
+      const link = await novoLink();
+      const { countClick } = await import("@/lib/links/redirect");
+      const entregues: unknown[] = [];
+      await countClick((await db.sql<{ id: string }>("select id from public.tracked_links where slug = $1", [link.slug]))[0].id, "outro", (trabalho) => void entregues.push(trabalho));
+      assert.equal(entregues.length, 0);
+      assert.equal(await cliques(), 1);
+    });
+
+    test("fora de uma requisição do Next (como nos testes) o after padrão não derruba o redirecionamento", async () => {
+      // o teste "gravação lenta" mais acima já passa pelo caminho do after padrão; aqui só garantimos que o clique entra
+      const link = await novoLink();
+      await db.sql(`create function public.teste_clique_lento() returns trigger language plpgsql as $$ begin perform pg_sleep(0.6); return new; end $$`);
+      await db.sql("create trigger teste_clique_lento before insert on public.link_clicks for each row execute function public.teste_clique_lento()");
+      try {
+        const resposta = await clicar(link.slug);
+        assert.equal(resposta.status, 302);
+        const limite = Date.now() + 4000;
+        while ((await cliques()) === 0 && Date.now() < limite) await new Promise((resolve) => setTimeout(resolve, 50));
+        assert.equal(await cliques(), 1);
+      } finally {
+        await db.sql("drop trigger teste_clique_lento on public.link_clicks");
+        await db.sql("drop function public.teste_clique_lento()");
+      }
+    });
+  });
+
   describe("GET /api/molde/links", () => {
     const ler = (consulta = "", headers: Record<string, string> = MOLDE) => links.GET(request(`/api/molde/links${consulta}`, { headers }));
 
