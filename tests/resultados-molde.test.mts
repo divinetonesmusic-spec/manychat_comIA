@@ -128,6 +128,24 @@ describe("GET /api/molde/resultados", { skip: semBanco }, () => {
     assert.equal((await (await pegar()).json()).data.length, 200, "padrão: 200");
   });
 
+  test("se o banco falhar: 500 em português (sem texto técnico) e o erro vai para o log", async () => {
+    await db.sql("alter table public.content_posts rename column published_at to published_at_fora");
+    const erros: string[] = [];
+    const original = console.error;
+    console.error = (...partes: unknown[]) => void erros.push(partes.join(" "));
+    try {
+      const response = await pegar();
+      assert.equal(response.status, 500);
+      assert.deepEqual(await response.json(), { error: "Não consegui ler os resultados agora. Tente de novo em instantes." });
+    } finally {
+      console.error = original;
+      await db.sql("alter table public.content_posts rename column published_at_fora to published_at");
+    }
+    assert.equal(erros.length, 1);
+    assert.match(erros[0], /\[resultados\]/);
+    assert.equal((await pegar()).status, 200, "passado o problema, volta ao normal");
+  });
+
   test("accountId que não é um id: 400", async () => {
     const response = await pegar("?accountId=nao-e-um-id");
     assert.equal(response.status, 400);

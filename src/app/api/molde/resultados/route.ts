@@ -24,10 +24,15 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const accountId = params.get("accountId") || null;
   if (accountId && !UUID.test(accountId)) return NextResponse.json({ error: "accountId inválido." }, { status: 400 });
-  const posts = await listPublishedPosts({
-    accountId,
-    dias: limited(params.get("dias"), 90, 365),
-    limite: limited(params.get("limite"), 200, 500),
-  });
-  return NextResponse.json({ data: posts.map(resultView) });
+  try {
+    const posts = await listPublishedPosts({
+      accountId,
+      dias: limited(params.get("dias"), 90, 365),
+      limite: limited(params.get("limite"), 200, 500),
+    });
+    return NextResponse.json({ data: posts.map(resultView) });
+  } catch (error) {
+    console.error("[resultados] não consegui ler os posts publicados:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Não consegui ler os resultados agora. Tente de novo em instantes." }, { status: 500 });
+  }
 }
