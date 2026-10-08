@@ -4,6 +4,7 @@ import { getConfig, listContacts, listPublicInstagramAccounts, type ContactSumma
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, type AccountRouteSearchParams } from "@/lib/account-routing";
 import { ContactPauseControls } from "./contact-pause-controls";
+import { QueueNote } from "./nota-fila";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,7 @@ function ContactRow({ contact }: { contact: ContactSummary }) {
         <p className="text-xs font-semibold text-[var(--ms-muted)]">Última interação</p>
         <p className="mt-1 truncate font-medium">{contact.last_event_text || (contact.last_event_type ? eventTypeLabel(contact.last_event_type) : "Sem texto")}</p>
         <p className="mt-1 text-xs text-[var(--ms-muted)]">{formatDate(lastActivity)}</p>
-        {contact.last_queue_error ? <p className="mt-2 text-xs text-red-500">{contact.last_queue_error}</p> : null}
+        <QueueNote status={contact.last_queue_status} text={contact.last_queue_error} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 xl:justify-end">
