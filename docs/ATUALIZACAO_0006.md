@@ -1,15 +1,16 @@
-# Atualização do banco: migração 0006 (aviso de "feito com IA" e limite de publicações)
+# Atualização do banco: migração 0006 (aviso de "feito com IA", limite de publicações e links rastreados)
 
-Esta atualização prepara o UaiFlow para duas coisas da Fase 5:
+Esta atualização prepara o UaiFlow para três coisas da Fase 5:
 
 - **Aviso de "feito com IA":** o Instagram passou a aceitar que o post leve o aviso "feito com IA". A atualização cria uma coluna nova no post para guardar se o aviso vale ou não.
 - **Limite de publicações:** o Instagram aceita no máximo 100 posts por perfil a cada 24 horas. O UaiFlow passa a segurar em 95 e cria um "atalho de busca" (índice) para contar rápido os posts já publicados.
+- **Links rastreados:** cada Reel pode ter um link curto próprio (`/l/` e um código de 7 letras e números) que leva à loja e conta quantas pessoas clicaram, e de onde (bio, mensagem direta ou comentário). A atualização cria as duas tabelas disso: uma para os links e outra para os cliques.
 
 Outras partes da Fase 5 vão acrescentar seções neste mesmo arquivo (`0006_fase5.sql`). Você cola **uma vez**, no fim, e vale para tudo.
 
-- Não apaga nem muda nada do que já existe: só cria uma coluna e um atalho.
+- Não apaga nem muda nada do que já existe: só cria uma coluna, um atalho e duas tabelas novas (as dos links).
 - Pode ser colada mais de uma vez sem problema.
-- O site continua funcionando mesmo antes dela, **mas sem ela o aviso de "feito com IA" não vai para o Instagram**: o post é criado e publicado normalmente, só que sem o aviso. Cole a atualização antes de marcar "Feito com IA" em qualquer post.
+- O site continua funcionando mesmo antes dela, **mas sem ela o aviso de "feito com IA" não vai para o Instagram**: o post é criado e publicado normalmente, só que sem o aviso. Cole a atualização antes de marcar "Feito com IA" em qualquer post. **Também sem ela os links rastreados não funcionam:** o Molde recebe o aviso "Falta colar a atualização 0006 no Supabase" ao pedir um link, e qualquer endereço `/l/…` responde "Link não encontrado".
 - Pode ser colada **antes ou depois** de publicar a versão nova do site. De preferência antes.
 
 Leva uns 3 minutos.
@@ -38,6 +39,12 @@ Leva uns 3 minutos.
    select indexname from pg_indexes where indexname = 'content_posts_published_window_idx';
    ```
 
+   Para conferir as tabelas dos links rastreados, rode esta consulta. Deve aparecer **uma linha com o número 0** (ainda não há nenhum link; o zero mostra que a tabela existe). Se aparecer o erro `relation "public.tracked_links" does not exist`, repita o passo 4:
+
+   ```sql
+   select count(*) from public.tracked_links;
+   ```
+
 ## Se aparecer erro
 
 - **`syntax error`**: o arquivo não foi copiado inteiro. Apague o editor, copie o arquivo de novo do começo ao fim e rode outra vez.
@@ -52,6 +59,9 @@ Leva uns 3 minutos.
   - **Sem a 0006 o aviso não vai.** A caixa até aceita a marcação, mas nada é guardado e o post sai sem o aviso. Por isso, cole a atualização antes.
 - **Limite de 100 publicações em 24 h.** O UaiFlow conta os posts publicados do perfil nas últimas 24 horas (mais os que estão sendo publicados). Chegando em 95, o próximo post **não começa**: continua agendado, com o horário novo e a nota "Limite de 100 publicações em 24 h do Instagram: sai às HH:MM." (horário de Brasília). Nunca vira "Com erro" por isso. Um carrossel conta como 1. Posts feitos fora do UaiFlow (direto no celular, por exemplo) não entram na conta. Isso funciona mesmo sem a 0006; a atualização só deixa a conta mais rápida.
 - **Stories.** Story não tem comentário nem palavra-chave: o UaiFlow não faz 1º comentário nem liga automação em story, mesmo que o pacote venha com esses campos.
+
+- **Links rastreados.** O Molde pede um link por Reel (algo como `https://seu-site/l/k3x9q2a`). Quem clica nele (na bio, numa mensagem direta ou num comentário) é levado para a loja na mesma hora, e o UaiFlow soma 1 clique. Ele **não guarda IP, aparelho nem navegador** de ninguém: só o momento do clique e de onde veio (bio, mensagem, comentário ou outro). Os programas que só espiam o link para mostrar a prévia (WhatsApp, Telegram, Slack, Facebook) não contam como clique; o navegador de dentro do Instagram conta. Se o banco estiver com problema na hora, a pessoa é levada à loja do mesmo jeito (só aquele clique não é contado). Trocar o endereço da loja de um Reel mantém o mesmo link e os cliques já contados. Link que não existe mostra "Link não encontrado." **Sem a 0006** os links não são criados e `/l/…` mostra "Link não encontrado.".
+- **Resultados para o Molde.** O Molde passou a poder ler todos os posts já publicados (também os feitos à mão na tela **Conteúdo**), com as curtidas, alcance e visualizações já guardadas. Não precisa da 0006 e não muda nada na tela.
 
 ## Bom saber
 
