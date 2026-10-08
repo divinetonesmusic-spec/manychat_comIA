@@ -101,7 +101,7 @@ function checkTokenDate(value: string | null): DiagnosticCheck {
 async function runCheck(key: string, label: string, action: () => Promise<string>): Promise<DiagnosticCheck> {
   try {
     const detail = await action();
-    const status: CheckStatus = detail.includes("não há") || detail.includes("não retornou") || detail.includes("Sem data") ? "warn" : "ok";
+    const status: CheckStatus = detail.includes("não há") || detail.includes("não retornou") || detail.includes("Sem data") || detail.includes("Nenhum aviso") ? "warn" : "ok";
     return { key, label, status, detail };
   } catch (error) {
     return { key, label, status: "error", detail: translateMetaError(error) };
