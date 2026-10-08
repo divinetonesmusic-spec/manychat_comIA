@@ -5,12 +5,13 @@
 --   2 · Limite de 100 publicações em 24 h: um atalho de busca (índice) para contar os posts já publicados.
 --       (O mesmo atalho serve à lista de resultados que o Molde lê em /api/molde/resultados.)
 --   3 · Links rastreados: duas tabelas novas (os links curtos /l/<código> e os cliques de cada um).
+--   4 · DMs para o Molde: uma tabela nova (as mensagens diretas que ninguém respondeu, esperando a resposta aprovada pela dona).
 --
 -- Pode ser colada mais de uma vez: "if not exists" pula o que já existe e não muda nenhum dado.
 -- O UaiFlow funciona sem ela (só não manda o aviso de "feito com IA" ao Instagram, conta os posts um pouco mais devagar
--- e não cria os links rastreados: eles respondem "Falta colar a atualização 0006" até a colagem).
+-- e não cria os links rastreados nem guarda as DMs sem resposta: as rotas novas respondem "Falta colar a atualização 0006" até a colagem).
 -- Pode ser colada antes ou depois de publicar a versão nova do site. De preferência antes.
--- As duas tabelas novas (seção 3) já saem com a segurança por linha (RLS) ligada e sem nenhuma política: só o servidor do
+-- As tabelas novas (seções 3 e 4) já saem com a segurança por linha (RLS) ligada e sem nenhuma política: só o servidor do
 -- UaiFlow lê e grava nelas; ninguém consegue ver os cliques por fora.
 -- (Sem "concurrently" de propósito: o editor SQL do Supabase roda tudo numa transação, e a tabela ainda é pequena.)
 
@@ -62,3 +63,35 @@ create index if not exists link_clicks_link_time_idx
 -- do UaiFlow, que usa a conexão direta do banco, lê e grava.
 alter table public.tracked_links enable row level security;
 alter table public.link_clicks enable row level security;
+
+-- 4 · DMs para o Molde ---------------------------------------------------------------------------
+-- Quando alguém manda uma DM e NADA a responde (nenhuma palavra-chave serviu, não há automação padrão ligada), o UaiFlow
+-- guarda a conversa aqui. O Molde lê a fila (/api/molde/dms), escreve um rascunho com a IA e a dona aprova; só então a
+-- resposta entra na fila normal de envios (com o limite de 200 por hora e o prazo de 24 h do Instagram).
+-- Uma linha "aguardando" por contato: as mensagens seguintes da mesma pessoa entram na mesma linha (as 10 mais novas).
+create table if not exists public.dm_pending (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid references public.instagram_accounts(id) on delete cascade,
+  contact_id uuid references public.contacts(id) on delete cascade,
+  instagram_user_id text not null,
+  username text,
+  messages jsonb not null default '[]'::jsonb,      -- [{texto, em, eventId}] (até 10, as mais novas)
+  last_message_at timestamptz not null default now(),
+  status text not null default 'aguardando' check (status in ('aguardando','na_fila','enviada','nao_enviada','expirada','descartada')),
+  reply_text text,                                  -- a resposta que a dona aprovou, do jeito que ela aprovou
+  queue_id uuid references public.queue(id) on delete set null,
+  status_note text,                                 -- frase em português para a tela (por que não saiu, por exemplo)
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Só pode existir uma linha "aguardando" por contato.
+create unique index if not exists dm_pending_open_contact
+  on public.dm_pending (contact_id)
+  where status = 'aguardando';
+
+create index if not exists dm_pending_account_status_idx
+  on public.dm_pending (account_id, status, last_message_at desc);
+
+-- Segurança por linha ligada e SEM política: só o servidor do UaiFlow (conexão direta do banco) lê e grava.
+alter table public.dm_pending enable row level security;

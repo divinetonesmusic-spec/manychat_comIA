@@ -1,16 +1,15 @@
-# Atualização do banco: migração 0006 (aviso de "feito com IA", limite de publicações e links rastreados)
+# Atualização do banco: migração 0006 (aviso de "feito com IA", limite de publicações, links rastreados e DMs sem resposta)
 
-Esta atualização prepara o UaiFlow para três coisas da Fase 5:
+Esta atualização prepara o UaiFlow para quatro coisas da Fase 5. O arquivo `0006_fase5.sql` tem as quatro seções juntas: **você cola o arquivo inteiro uma vez só** e vale para tudo.
 
 - **Aviso de "feito com IA":** o Instagram passou a aceitar que o post leve o aviso "feito com IA". A atualização cria uma coluna nova no post para guardar se o aviso vale ou não.
 - **Limite de publicações:** o Instagram aceita no máximo 100 posts por perfil a cada 24 horas. O UaiFlow passa a segurar em 95 e cria um "atalho de busca" (índice) para contar rápido os posts já publicados.
 - **Links rastreados:** cada Reel pode ter um link curto próprio (`/l/` e um código de 7 letras e números) que leva à loja e conta quantas pessoas clicaram, e de onde (bio, mensagem direta ou comentário). A atualização cria as duas tabelas disso: uma para os links e outra para os cliques.
+- **DMs sem resposta:** quando alguém manda uma mensagem direta e nenhuma automação responde, o UaiFlow guarda a conversa para o Molde. O Molde escreve um rascunho com a IA, você aprova, e só então a resposta sai (pela fila normal de envios, com o limite de 200 por hora e o prazo de 24 horas do Instagram). A atualização cria uma tabela para guardar essas mensagens.
 
-Outras partes da Fase 5 vão acrescentar seções neste mesmo arquivo (`0006_fase5.sql`). Você cola **uma vez**, no fim, e vale para tudo.
-
-- Não apaga nem muda nada do que já existe: só cria uma coluna, um atalho e duas tabelas novas (as dos links).
+- Não apaga nem muda nada do que já existe: só cria uma coluna, um atalho e três tabelas novas (duas dos links e uma das DMs sem resposta).
 - Pode ser colada mais de uma vez sem problema.
-- O site continua funcionando mesmo antes dela, **mas sem ela o aviso de "feito com IA" não vai para o Instagram**: o post é criado e publicado normalmente, só que sem o aviso. Cole a atualização antes de marcar "Feito com IA" em qualquer post. **Também sem ela os links rastreados não funcionam:** o Molde recebe o aviso "Falta colar a atualização 0006 no Supabase" ao pedir um link, e qualquer endereço `/l/…` responde "Link não encontrado".
+- O site continua funcionando mesmo antes dela, **mas sem ela o aviso de "feito com IA" não vai para o Instagram**: o post é criado e publicado normalmente, só que sem o aviso. Cole a atualização antes de marcar "Feito com IA" em qualquer post. **Também sem ela os links rastreados não funcionam:** o Molde recebe o aviso "Falta colar a atualização 0006 no Supabase" ao pedir um link, e qualquer endereço `/l/…` responde "Link não encontrado". **E as DMs sem resposta não são guardadas:** o Instagram e as automações continuam funcionando igual, mas o Molde recebe o mesmo aviso ao pedir a lista de mensagens.
 - Pode ser colada **antes ou depois** de publicar a versão nova do site. De preferência antes.
 
 Leva uns 3 minutos.
@@ -45,6 +44,12 @@ Leva uns 3 minutos.
    select count(*) from public.tracked_links;
    ```
 
+   Para conferir a tabela das DMs sem resposta, rode esta consulta. Deve aparecer **uma linha com o número 0** (ainda não há nenhuma mensagem guardada). Se aparecer o erro `relation "public.dm_pending" does not exist`, repita o passo 4:
+
+   ```sql
+   select count(*) from public.dm_pending;
+   ```
+
 ## Se aparecer erro
 
 - **`syntax error`**: o arquivo não foi copiado inteiro. Apague o editor, copie o arquivo de novo do começo ao fim e rode outra vez.
@@ -61,6 +66,7 @@ Leva uns 3 minutos.
 - **Stories.** Story não tem comentário nem palavra-chave: o UaiFlow não faz 1º comentário nem liga automação em story, mesmo que o pacote venha com esses campos.
 
 - **Links rastreados.** O Molde pede um link por Reel (algo como `https://seu-site/l/k3x9q2a`). Quem clica nele (na bio, numa mensagem direta ou num comentário) é levado para a loja na mesma hora, e o UaiFlow soma 1 clique. Ele **não guarda IP, aparelho nem navegador** de ninguém: só o momento do clique e de onde veio (bio, mensagem, comentário ou outro). Os programas que só espiam o link para mostrar a prévia (WhatsApp, Telegram, Slack, Facebook) não contam como clique; o navegador de dentro do Instagram conta. Se o banco estiver com problema na hora, a pessoa é levada à loja do mesmo jeito (só aquele clique não é contado). Trocar o endereço da loja de um Reel mantém o mesmo link e os cliques já contados. Link que não existe mostra "Link não encontrado." **Sem a 0006** os links não são criados e `/l/…` mostra "Link não encontrado.".
+- **DMs sem resposta.** Uma mensagem de texto (DM ou resposta a um story) que **nada respondeu** fica guardada esperando o Molde: nenhuma palavra-chave serviu, não há automação padrão ligada, e não é "parar" nem "começar", reação, foto sem texto ou clique em botão. Cada pessoa tem uma linha só; as mensagens seguintes dela entram na mesma (as 10 mais novas). O Molde mostra o rascunho, **você aprova**, e a resposta entra na fila normal: respeita o limite de 200 mensagens por hora (se bater nele, espera a vez, sem dar erro), o prazo de 24 horas do Instagram (passou do prazo, não sai e o Molde avisa) e a conta pausada. Mandar resposta por aqui **não** pausa a automação daquela pessoa. O UaiFlow nunca responde sozinho. **Sem a 0006** nada é guardado e o Molde mostra "Falta colar a atualização 0006".
 - **Resultados para o Molde.** O Molde passou a poder ler todos os posts já publicados (também os feitos à mão na tela **Conteúdo**), com as curtidas, alcance e visualizações já guardadas. Não precisa da 0006 e não muda nada na tela.
 
 ## Bom saber
