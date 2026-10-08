@@ -61,6 +61,10 @@ Cabeçalho em todas as chamadas: `x-molde-token: <MOLDE_API_TOKEN>`.
   Mandar de novo o mesmo `externalRef` **atualiza** (não duplica), enquanto não tiver sido publicado. Depois de publicado, responde **409** (o Molde manda a versão nova com outra referência).
 - `GET /api/molde/posts?refs=a,b` → status, link do post, resultados e `aiGenerated`.
 - `PATCH /api/molde/posts/:id` (editar, `action: publish_now | retry | cancel`) e `DELETE /api/molde/posts/:id`.
+- `GET /api/molde/resultados?accountId=&dias=90&limite=200` → todos os posts **publicados** (de qualquer origem: Molde ou tela Conteúdo) dos últimos `dias` (padrão 90, máximo 365), até `limite` (padrão 200, máximo 500), do mais novo para o mais velho: `{ data: [{ id, externalRef, source, accountId, username, publishType, title, captionInicio (140 caracteres, uma linha), publishedAt, permalink, insights, insightsAt, aiGenerated }] }`.
+- `POST /api/molde/links` `{ accountId?, externalRef, destino, rotulo? }` → link rastreado do Reel: `{ data: { externalRef, slug, url, destino, criado } }` (201 se criou, 200 se já existia). Um por (perfil, `externalRef`): pedir de novo devolve o mesmo código; se o `destino` mudou, atualiza e os cliques continuam. `destino` tem de ser `https://` (senão 400). Precisa da 0006 (sem ela: 503 "Falta colar a atualização 0006 no Supabase (veja docs/ATUALIZACAO_0006.md).").
+- `GET /api/molde/links?refs=a,b&accountId=` → `{ data: [{ externalRef, accountId, slug, url, destino, cliques: { total, d7, d30, porOrigem: { bio, dm, comentario, outro } } }] }`.
+- `GET /l/<slug>` (pública, sem token): 302 para o destino e conta 1 clique; `?de=bio|dm|comentario` diz de onde veio (qualquer outro valor = `outro`). Robôs de prévia e `HEAD` não contam; não guarda IP nem navegador; link desconhecido (ou sem a 0006) = 404 "Link não encontrado.".
 
 Os textos da automação (`automationOptions`) vão no idioma do avatar — o UaiFlow não traduz nada.
 

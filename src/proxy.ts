@@ -24,6 +24,7 @@ const PUBLIC_PREFIXES = [
   "/api/token/refresh",
   "/api/health", // saúde do relógio para o monitor; não mostra segredo nem @ de conta
   "/api/molde", // protegido pelo MOLDE_API_TOKEN dentro das rotas
+  "/l", // links rastreados (/l/<código>): quem clica no Instagram não tem login; só redireciona e conta o clique
 ];
 
 export async function proxy(request: NextRequest) {
