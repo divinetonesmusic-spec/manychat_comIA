@@ -56,9 +56,11 @@ Cabeçalho em todas as chamadas: `x-molde-token: <MOLDE_API_TOKEN>`.
 
 - `GET /api/molde/accounts` → perfis conectados.
 - `POST /api/molde/upload` `{ fileName, contentType, size, folder }` → `{ key, uploadUrl, publicUrl }`; o robô faz `PUT uploadUrl` com o arquivo.
-- `POST /api/molde/posts` → pacote do post. Campos: `accountId, publishType (reel_video|carousel|feed_image|story_video|story_image), title, caption, mediaUrl | mediaItems[], coverUrl, mediaKeys[], scheduledAt (ISO) | publishNow, firstComment, keyword, dmText, linkUrl, linkLabel, publicReply, automationOptions { quickReplyLabel, linkText, reminderText, publicReplies[], requireFollower }, externalRef`.
+- `POST /api/molde/posts` → pacote do post. Campos: `accountId, publishType (reel_video|carousel|feed_image|story_video|story_image), title, caption, mediaUrl | mediaItems[], coverUrl, mediaKeys[], scheduledAt (ISO) | publishNow, firstComment, keyword, dmText, linkUrl, linkLabel, publicReply, automationOptions { quickReplyLabel, linkText, reminderText, publicReplies[], requireFollower }, externalRef, aiGenerated` (boolean; `true` = o Instagram mostra "feito com IA", no carrossel só no container pai; opcional, outro tipo é ignorado; precisa da migração 0006 — sem ela o campo é aceito mas o aviso não vai).
   Mandar de novo o mesmo `externalRef` **atualiza** (não duplica), enquanto não tiver sido publicado. Depois de publicado, responde **409** (o Molde manda a versão nova com outra referência).
-- `GET /api/molde/posts?refs=a,b` → status, link do post e resultados.
+- `GET /api/molde/posts?refs=a,b` → status, link do post, resultados e `aiGenerated`.
 - `PATCH /api/molde/posts/:id` (editar, `action: publish_now | retry | cancel`) e `DELETE /api/molde/posts/:id`.
 
 Os textos da automação (`automationOptions`) vão no idioma do avatar — o UaiFlow não traduz nada.
+
+O UaiFlow segura em 95 posts publicados por perfil em 24 h (o Instagram aceita 100): passou disso, o post continua `scheduled`, com `scheduledAt` no horário em que a vaga abre e `lastError` = "Limite de 100 publicações em 24 h do Instagram: sai às HH:MM.". Nunca vira `failed` por isso. Story (`story_image`, `story_video`) não tem 1º comentário nem palavra-chave: esses campos são ignorados depois de publicar.
