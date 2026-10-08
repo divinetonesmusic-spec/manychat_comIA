@@ -2,6 +2,7 @@ import { createAutomation, getConfig, updateContentPostMediaItems, updateContent
 import {
   claimDueContentPosts,
   claimPostNow,
+  deferPostForPublishLimit,
   failContentPost,
   getContentPost,
   listClaimedMediaIds,
@@ -11,6 +12,8 @@ import {
   listPublishingPosts,
   markMediaDeleted,
   markPublishRequested,
+  MAX_POSTS_PER_24H,
+  publishedLast24h,
   recoverStuckPosts,
   saveInsights,
   setPostAutomation,
@@ -81,7 +84,7 @@ export async function publishPostNow(id: string, budgetMs = 4000) {
   const pending: PendingNotice[] = [];
   try {
     const config = await getConfig(post.account_id);
-    await startPost(post, config, deadline);
+    await startOrDefer(post, config, deadline);
   } catch (error) {
     await markPostFailed(post, translateError(error), { pending });
   } finally {
@@ -133,8 +136,7 @@ async function runCycleSteps(
       if (timeLeft() < 1500) { out.stoppedEarly = true; break; }
       try {
         const config = await configFor(post.account_id);
-        await startPost(post, config, deadline);
-        out.started += 1;
+        if ((await startOrDefer(post, config, deadline)) === "started") out.started += 1;
       } catch (error) {
         out.failed += 1;
         await markPostFailed(post, translateError(error), { pending });
@@ -214,6 +216,21 @@ async function runCycleSteps(
   }
 
   return out;
+}
+
+/**
+ * Limite do Instagram (100 publicações por perfil em 24 h): com 95 já gastas, o post não começa. Volta para "agendado"
+ * no horário em que a vaga abre, com a nota. Vale para o ciclo e para o "Publicar agora"; um post que já começou
+ * (carrossel montando os itens, por exemplo) segue sem nova conta.
+ */
+async function startOrDefer(post: ContentPost, config: Config, deadline: number): Promise<"started" | "deferred"> {
+  assertConnected(config);
+  if ((await publishedLast24h(post.account_id, post.id)) >= MAX_POSTS_PER_24H) {
+    await deferPostForPublishLimit(post);
+    return "deferred";
+  }
+  await startPost(post, config, deadline);
+  return "started";
 }
 
 export async function startPost(post: ContentPost, config: Config, deadline = Date.now() + 8000) {

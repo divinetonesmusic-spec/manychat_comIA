@@ -93,4 +93,19 @@ describe("aviso de IA sem a migração 0006 aplicada", { skip: semBanco }, () =>
     assert.equal((await readPost(db, id)).status, "published");
     for (const pedido of meta.calls.filter((call) => call.method === "POST" && /\/media$/.test(call.path))) assert.equal("is_ai_generated" in pedido.body, false);
   });
+
+  test("o limite de 95 publicações em 24 h funciona sem a 0006 (só usa colunas antigas)", async () => {
+    await db.sql(
+      `insert into public.content_posts (account_id, publish_type, caption, media_url, status, published_at, published_media_id, insights_at)
+       select $1, 'reel_video', 'p' || g, 'https://midia.teste.invalid/uaiflow/velho.mp4', 'published', now() - interval '20 hours' + make_interval(mins => g::int), 'media-' || g, now()
+       from generate_series(1, 95) g`,
+      [accountId],
+    );
+    const id = await insertPost(db, accountId);
+    await scheduler.runContentCycle(8000);
+    const post = await readPost(db, id);
+    assert.equal(post.status, "scheduled");
+    assert.match(String(post.last_error), /^Limite de 100 publicações em 24 h do Instagram: sai às \d{2}:\d{2}\.$/);
+    assert.equal(meta.calls.filter((call) => call.method === "POST").length, 0);
+  });
 });

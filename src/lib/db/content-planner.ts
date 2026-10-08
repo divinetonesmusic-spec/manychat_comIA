@@ -1,5 +1,6 @@
 import { query } from "@/lib/db/client";
 import { getDefaultInstagramAccount, type ContentMediaItem, type ContentPost, type ContentPublishType } from "@/lib/db/repositories";
+import { formatSaoPauloTime } from "@/lib/time";
 
 /** Tudo o que um post leva: mídia, legenda, horário e o funil (palavra → DM → link). */
 export type PostPackage = {
@@ -227,6 +228,53 @@ export async function markPublishRequested(id: string) {
   if (!(await hasPublishRequestedColumn())) return false;
   await query("update public.content_posts set publish_requested_at = now() where id = $1", [id]);
   return true;
+}
+
+/** O Instagram aceita 100 publicações por perfil em 24 h; o UaiFlow para em 95 (margem para o que sai fora dele). */
+export const MAX_POSTS_PER_24H = 95;
+
+/**
+ * Quantos posts o perfil já gastou da cota de 24 h: os publicados nas últimas 24 h mais os que estão sendo
+ * publicados agora (carrossel conta 1). `exceptPostId` deixa de fora o próprio post que vai começar.
+ * Posts publicados fora do UaiFlow não aparecem aqui.
+ */
+export async function publishedLast24h(accountId: string | null, exceptPostId?: string | null): Promise<number> {
+  const { rows } = await query<{ count: number }>(
+    `select count(*)::int as count from public.content_posts
+     where ${accountId ? "account_id = $1" : "account_id is null and $1::uuid is null"}
+       and ($2::uuid is null or id <> $2)
+       and ((status = 'published' and published_at > now() - interval '24 hours') or status = 'publishing')`,
+    [accountId, exceptPostId ?? null],
+  );
+  return rows[0]?.count ?? 0;
+}
+
+/**
+ * O perfil está no limite: o post que ia começar volta para "agendado" no horário em que a vaga abre
+ * (o publicado mais antigo da janela + 24 h + 1 min) com a nota para a pessoa ler. Não gasta tentativa e nunca vira "Com erro".
+ */
+export async function deferPostForPublishLimit(post: Pick<ContentPost, "id" | "account_id">): Promise<ContentPost | null> {
+  const { rows: slotRows } = await query<{ slot: Date }>(
+    `select greatest(
+              coalesce(min(published_at) + interval '24 hours 1 minute', now() + interval '30 minutes'),
+              now() + interval '1 minute'
+            ) as slot
+     from public.content_posts
+     where ${post.account_id ? "account_id = $1" : "account_id is null and $1::uuid is null"}
+       and status = 'published' and published_at > now() - interval '24 hours'`,
+    [post.account_id],
+  );
+  const availableAt = slotRows[0].slot;
+  const note = `Limite de 100 publicações em 24 h do Instagram: sai às ${formatSaoPauloTime(availableAt)}.`;
+  const { rows } = await query<ContentPost>(
+    `update public.content_posts
+     set status = 'scheduled', scheduled_at = $2, last_error = $3, attempts = greatest(attempts - 1, 0),
+         publishing_started_at = null, lock_until = null
+     where id = $1 and status = 'publishing'
+     returning *`,
+    [post.id, availableAt, note],
+  );
+  return rows[0] ?? null;
 }
 
 /** Ids de mídia do Instagram que já pertencem a outro post do UaiFlow (a conferência do feed não pode pegá-los). */

@@ -20,6 +20,7 @@ import {
   sendPublicCommentReply,
 } from "@/lib/instagram/client";
 import { renderMessageTemplate } from "@/lib/message-template";
+import { formatSaoPauloTime } from "@/lib/time";
 
 const MAX_JOBS_PER_DRAIN = 40;
 const MAX_AUTOMATED_DMS_PER_HOUR = 200;
@@ -113,11 +114,6 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
   }
 
   return { processed, sent, failed, deferred, stoppedEarly };
-}
-
-/** Hora e minuto no horário de São Paulo (ex.: "14:05"), para as notas que a pessoa lê. */
-function formatSaoPauloTime(date: Date) {
-  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
 }
 
 async function sendJob(job: QueueJob, instagramUserId: string, accessToken: string) {
