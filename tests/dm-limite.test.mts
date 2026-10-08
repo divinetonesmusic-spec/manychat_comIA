@@ -179,6 +179,51 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     assert.equal((await db.sql("select 1 from public.queue where status = 'failed'")).length, 0);
   });
 
+  test("perfil parado no limite com mais de 40 pendentes: adia todas de uma vez, não conta como processado e não segura o outro perfil", async () => {
+    await jaEnviadas(contaA, 200, 10);
+    const idsA: string[] = [];
+    for (let i = 0; i < 58; i += 1) idsA.push(await pendente(contaA));
+    idsA.push(await pendente(contaA, "private_reply"), await pendente(contaA, "private_reply"));
+    const publicaA = await pendente(contaA, "public_reply");
+    // Já adiada para bem mais tarde que o horário livre: não pode ser puxada para antes.
+    const maisTarde = await pendente(contaA);
+    await db.sql("update public.queue set available_at = now() + interval '3 hours' where id = $1", [maisTarde]);
+    const idsB = [await pendente(contaB), await pendente(contaB), await pendente(contaB)];
+    const [{ mais_antiga }] = await db.sql<{ mais_antiga: Date }>("select min(sent_at) as mais_antiga from public.queue where status = 'sent'");
+    const [antesPublica] = await lerFila([publicaA]);
+
+    const resultado = await drain.drainQueue(40, 25_000);
+
+    // As 60 de A foram adiadas no mesmo ciclo e não gastaram as 40 vagas: as 3 do perfil B (criadas depois) saíram.
+    assert.equal(resultado.deferred, 60);
+    assert.equal(resultado.processed, 4, "3 de B + a resposta pública de A; adiadas não contam");
+    assert.equal(resultado.sent, 4);
+    assert.equal(resultado.failed, 0);
+    assert.equal(meta.count("/messages"), 3);
+    assert.ok(meta.calls.filter((call) => call.path.endsWith("/messages")).every((call) => call.path.startsWith("/1002/")));
+    assert.ok((await lerFila(idsB)).every((l) => l.status === "sent"));
+
+    const esperado = mais_antiga.getTime() + 3600_000 + 5_000;
+    const linhasA = await lerFila(idsA);
+    assert.equal(linhasA.length, 60);
+    for (const linha of linhasA) {
+      assert.equal(linha.status, "pending");
+      assert.equal(linha.attempts, 1, "não gasta tentativa");
+      assert.ok(Math.abs(linha.available_at.getTime() - esperado) < 1000);
+      assert.match(linha.last_error ?? "", /^Limite de 200 mensagens por hora deste perfil: sai às \d\d:\d\d\.$/);
+    }
+    // Poucos comandos no banco, não um por mensagem: as 60 mudaram em no máximo 2 transações (as pegas no lote + as que ficaram na fila).
+    const [{ transacoes }] = await db.sql<{ transacoes: string }>("select count(distinct xmin::text) as transacoes from public.queue where id = any($1::uuid[])", [idsA]);
+    assert.ok(Number(transacoes) <= 2, `transações distintas: ${transacoes}`);
+
+    const [adiadaAntes] = await lerFila([maisTarde]);
+    assert.ok(adiadaAntes.available_at.getTime() > Date.now() + 2.5 * 3600_000, "a que já esperava mais tempo continua onde estava");
+    assert.equal(adiadaAntes.last_error, null);
+    const [publicaDepois] = await lerFila([publicaA]);
+    assert.equal(publicaDepois.status, "sent");
+    assert.equal(antesPublica.send_type, "public_reply");
+  });
+
   test("a resposta do /api/queue/drain ganha 'deferred' e o resto continua igual", async () => {
     const rota = await import("@/app/api/queue/drain/route");
     await jaEnviadas(contaA, 200, 10);
@@ -190,7 +235,7 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     assert.equal(resposta.status, 200);
     const corpo = (await resposta.json()) as Record<string, unknown>;
     assert.equal(corpo.ok, true);
-    assert.equal(corpo.processed, 3);
+    assert.equal(corpo.processed, 1, "adiadas não contam como processadas");
     assert.equal(corpo.sent, 1);
     assert.equal(corpo.failed, 0);
     assert.equal(corpo.deferred, 2);

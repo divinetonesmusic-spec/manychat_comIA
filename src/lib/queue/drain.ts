@@ -1,5 +1,6 @@
 ﻿import {
   claimQueueJobs,
+  deferPendingDms,
   deferQueueJobs,
   getConfig,
   getTemplateContext,
@@ -30,6 +31,7 @@ const BATCH_SIZE = 5;
  * O que não couber fica "pending" e sai no próximo minuto. Jobs presos em "sending" voltam para a fila.
  * Perfil que bateu no limite de 200 mensagens por hora: as mensagens diretas dele esperam o próximo horário
  * livre (sem gastar tentativa e sem virar "failed"); outros perfis e respostas públicas seguem normais.
+ * Quem foi adiado não conta nas 40 mensagens do ciclo: assim, um perfil parado no limite não impede os outros de sair.
  */
 export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(process.env.DRAIN_BUDGET_MS || 6000)) {
   const deadline = Date.now() + budgetMs;
@@ -58,9 +60,9 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
           stoppedEarly = true;
           break;
         }
-        processed += 1;
         const config = await getConfig(job.account_id);
         if (!config.instagram_access_token || !config.instagram_user_id) {
+          processed += 1;
           await markJobFailed(job.id, "Instagram não conectado para este perfil");
           failed += 1;
           continue;
@@ -78,6 +80,8 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
               ids: [],
             };
             atLimit.set(limitKey, wait);
+            // Todas as DMs e respostas privadas que esse perfil ainda tem na fila, de uma vez (um UPDATE só).
+            deferred += await deferPendingDms(config.account_id, availableAt, wait.note);
           }
           if (wait) {
             wait.ids.push(job.id);
@@ -86,6 +90,7 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
           }
         }
 
+        processed += 1;
         try {
           await sendJob(job, config.instagram_user_id, config.instagram_access_token);
           await markJobSent(job.id);

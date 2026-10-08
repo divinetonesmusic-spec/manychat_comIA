@@ -1285,6 +1285,23 @@ export async function deferQueueJobs(ids: string[], availableAt: Date, note: str
   );
 }
 
+/**
+ * Adia de uma vez todas as DMs e respostas privadas ainda "pending" do perfil que sairiam antes de `availableAt`
+ * (o limite de envios por hora foi atingido): não adianta o robô pegar uma por uma só para devolver.
+ * Não gasta tentativa; devolve quantas foram adiadas.
+ */
+export async function deferPendingDms(accountId: string | null | undefined, availableAt: Date, note: string): Promise<number> {
+  const { rowCount } = await query(
+    `update public.queue
+     set available_at = $2, last_error = $3
+     where status = 'pending' and send_type in ('dm', 'private_reply')
+       and account_id is not distinct from $1::uuid
+       and available_at < $2`,
+    [accountId ?? null, availableAt, note.slice(0, 500)],
+  );
+  return rowCount ?? 0;
+}
+
 export async function markJobSent(id: string) {
   await query("update public.queue set status = 'sent', sent_at = now(), last_error = null where id = $1", [id]);
 }
