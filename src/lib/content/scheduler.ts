@@ -538,6 +538,8 @@ export async function afterPublish(post: ContentPost, config: Config, mediaId: s
 }
 
 async function afterPublishLocked(post: ContentPost, config: Config, mediaId: string, done: { comment: boolean; automation: boolean }) {
+  // Story não tem comentário nem palavra-chave: nada de 1º comentário nem automação (e listPostsMissingAfterPublish não os procura).
+  if (isStoryType(post.publish_type)) return done;
   if (post.first_comment && !post.first_comment_id) {
     try {
       const comment = await createInstagramMediaComment({ mediaId, accessToken: config.instagram_access_token as string, message: post.first_comment });
@@ -578,6 +580,10 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
     }
   }
   return done;
+}
+
+function isStoryType(value: ContentPost["publish_type"]) {
+  return value === "story_image" || value === "story_video";
 }
 
 function assertConnected(config: Config) {

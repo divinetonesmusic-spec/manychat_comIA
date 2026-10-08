@@ -373,6 +373,7 @@ export async function listPostsMissingAfterPublish(limit = 5): Promise<ContentPo
   const { rows } = await query<ContentPost>(
     `select * from public.content_posts
      where status = 'published' and published_media_id is not null
+       and publish_type not in ('story_image', 'story_video') -- story não tem comentário nem palavra-chave
        and published_at > now() - interval '2 days'
        and (lock_until is null or lock_until < now())
        and ((first_comment <> '' and first_comment_id is null)
