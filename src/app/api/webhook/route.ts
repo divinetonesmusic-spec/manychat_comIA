@@ -14,6 +14,7 @@ import {
   type Automation,
   type AutomationTrigger,
 } from "@/lib/db/repositories";
+import { recordPendingDmSafely } from "@/lib/db/dm-pending";
 import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_PREFIX, hasExecutableFlow } from "@/lib/flow-executor";
 import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
 
@@ -421,7 +422,28 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
     }
   }
 
+  // Ninguém respondeu: nenhuma palavra-chave serviu, nenhum fluxo seguiu e não há automação padrão ligada.
+  // A mensagem de texto fica na fila de DMs sem resposta, esperando a resposta aprovada no Molde.
+  const typedText = event.message?.text;
+  if (!matches.length && typedText?.trim() && !event.message?.quick_reply) {
+    await recordPendingDmSafely({
+      accountId: account.id,
+      contactId,
+      instagramUserId: senderId,
+      username: event.sender?.username,
+      texto: typedText.trim(),
+      em: eventDate(event.timestamp),
+      eventId,
+    });
+  }
+
   return matches.length;
+}
+
+/** Hora da mensagem (a Meta manda em milissegundos); se vier estranha, vale o momento em que chegou. */
+function eventDate(timestamp: number | undefined) {
+  const date = new Date(Number(timestamp));
+  return Number.isFinite(date.getTime()) && date.getTime() > 0 && date.getTime() <= Date.now() + 5 * 60_000 ? date : new Date();
 }
 async function enqueueWelcomePrivateReply(input: {
   automation: Automation;

@@ -1,0 +1,287 @@
+import { query } from "@/lib/db/client";
+import { enqueueJob } from "@/lib/db/repositories";
+import { isMissingTables } from "@/lib/db/tracked-links";
+
+/**
+ * DMs sem resposta esperando o Molde (0006, seção 4): quando ninguém responde a uma mensagem, ela fica aqui até a dona
+ * aprovar uma resposta. O envio usa a fila normal (limite de 200 por hora, prazo de 24 h do Instagram, conta pausada).
+ * Sem a 0006 a tabela não existe (erro 42P01): o webhook ignora em silêncio e as rotas do Molde respondem 503.
+ */
+
+export { isMissingTables };
+
+export type PendingMessage = { texto: string; em: string; eventId: string };
+export type PendingStatus = "aguardando" | "na_fila" | "enviada" | "nao_enviada" | "expirada" | "descartada";
+
+const MAX_MESSAGES = 10;
+const MAX_TEXT_LENGTH = 2000;
+/** Margem antes do fim do prazo de 24 h em que o Molde deve parar de oferecer a resposta. */
+const DEADLINE_MARGIN_MINUTES = 10;
+
+export const NOTE_WINDOW_EXPIRED = "Passou o prazo de 24 h do Instagram.";
+export const NOTE_HUMAN_PAUSE = "O contato está em atendimento manual.";
+const NOTE_LOST_FROM_QUEUE = "A resposta saiu da fila de envios sem ser enviada.";
+const NOTE_COULD_NOT_SEND = "Não consegui enviar esta resposta.";
+const NOTE_NOT_QUEUED = "Não consegui colocar a resposta na fila de envios.";
+
+let warnedMissingTable = false;
+
+/**
+ * Guarda a DM sem resposta (cria a linha "aguardando" do contato ou acrescenta à que já existe, mantendo as 10 mais novas).
+ * Nunca lança erro: o webhook não pode falhar por causa disto. Sem a 0006 registra no log uma vez só por processo.
+ */
+export async function recordPendingDmSafely(input: {
+  accountId: string;
+  contactId: string;
+  instagramUserId: string;
+  username?: string | null;
+  texto: string;
+  em: Date;
+  eventId: string;
+}) {
+  try {
+    await recordPendingDm(input);
+  } catch (error) {
+    if (isMissingTables(error)) {
+      if (!warnedMissingTable) {
+        warnedMissingTable = true;
+        console.warn("[dms] a atualização 0006 ainda não foi colada no Supabase: as DMs sem resposta não estão sendo guardadas.");
+      }
+      return;
+    }
+    console.error("[dms] não consegui guardar a DM sem resposta:", error instanceof Error ? error.message : error);
+  }
+}
+
+async function recordPendingDm(input: Parameters<typeof recordPendingDmSafely>[0]) {
+  const message: PendingMessage = { texto: input.texto.slice(0, MAX_TEXT_LENGTH), em: input.em.toISOString(), eventId: input.eventId };
+  // A mesma mensagem entregue duas vezes pela Meta (mesmo eventId) não entra duas vezes.
+  await query(
+    `insert into public.dm_pending (account_id, contact_id, instagram_user_id, username, messages, last_message_at)
+     values ($1, $2, $3, $4, jsonb_build_array($5::jsonb), $6)
+     on conflict (contact_id) where status = 'aguardando' do update set
+       messages = (
+         select coalesce(jsonb_agg(x.m order by x.ord), '[]'::jsonb)
+         from (
+           select t.m, t.ord
+           from jsonb_array_elements(public.dm_pending.messages || jsonb_build_array($5::jsonb)) with ordinality as t(m, ord)
+           order by t.ord desc
+           limit ${MAX_MESSAGES}
+         ) x
+       ),
+       last_message_at = greatest(public.dm_pending.last_message_at, excluded.last_message_at),
+       username = coalesce(excluded.username, public.dm_pending.username),
+       updated_at = now()
+     where not (public.dm_pending.messages @> jsonb_build_array(jsonb_build_object('eventId', $7::text)))`,
+    [input.accountId, input.contactId, input.instagramUserId, input.username ?? null, JSON.stringify(message), input.em, input.eventId],
+  );
+}
+
+type Scope = { accountId?: string | null; id?: string | null };
+
+/**
+ * Põe em dia o que mudou sozinho desde a última vez:
+ * - "aguardando" cujo contato passou de 24 h sem falar vira "expirada";
+ * - "na_fila" acompanha o envio na fila: enviado -> "enviada"; falhou ou foi pulado -> "nao_enviada" com a frase em português.
+ */
+export async function refreshPending(scope: Scope = {}) {
+  const params = [scope.accountId ?? null, scope.id ?? null];
+  await query(
+    `update public.dm_pending d
+     set status = 'expirada', status_note = $3, updated_at = now()
+     from public.contacts c
+     where d.contact_id = c.id and d.status = 'aguardando'
+       and (c.last_response_at is null or c.last_response_at < now() - interval '24 hours')
+       and ($1::uuid is null or d.account_id = $1) and ($2::uuid is null or d.id = $2)`,
+    [...params, NOTE_WINDOW_EXPIRED],
+  );
+
+  // Linha "na_fila" ainda sem job (o servidor caiu entre uma coisa e outra) só é dada como perdida depois de 2 minutos.
+  await query(
+    `with n as (
+       select dp.id as dm_id,
+              case when q.id is null or q.status in ('failed', 'skipped') then 'nao_enviada'
+                   when q.status = 'sent' then 'enviada'
+                   else 'na_fila' end as new_status,
+              case when q.id is null then $3::text
+                   when q.status in ('failed', 'skipped') then
+                     case when q.last_error = '24h window expired' then $4::text
+                          when q.last_error = 'Contato pausado para atendimento humano' then $5::text
+                          else coalesce(nullif(q.last_error, ''), $6::text) end
+                   when q.status = 'pending' and q.last_error like 'Limite de %' then q.last_error
+                   else null end as new_note
+       from public.dm_pending dp
+       left join public.queue q on q.id = dp.queue_id
+       where dp.status = 'na_fila'
+         and (dp.queue_id is not null or dp.updated_at < now() - interval '2 minutes')
+         and ($1::uuid is null or dp.account_id = $1) and ($2::uuid is null or dp.id = $2)
+     )
+     update public.dm_pending d
+     set status = n.new_status, status_note = n.new_note, updated_at = now()
+     from n
+     where d.id = n.dm_id and d.status = 'na_fila'
+       and (n.new_status <> d.status or n.new_note is distinct from d.status_note)`,
+    [...params, NOTE_LOST_FROM_QUEUE, NOTE_WINDOW_EXPIRED, NOTE_HUMAN_PAUSE, NOTE_COULD_NOT_SEND],
+  );
+}
+
+export type PendingConversationLine = { de: "pessoa" | "perfil"; texto: string; em: string };
+
+export type PendingItem = {
+  id: string;
+  accountId: string | null;
+  username: string | null;
+  instagramUserId: string;
+  mensagens: { texto: string; em: string }[];
+  ultimaEm: string;
+  prazoAte: string | null;
+  status: PendingStatus;
+  resposta: string | null;
+  nota: string | null;
+  conversa: PendingConversationLine[];
+};
+
+type PendingRow = {
+  id: string;
+  account_id: string | null;
+  contact_id: string | null;
+  username: string | null;
+  instagram_user_id: string;
+  messages: PendingMessage[];
+  last_message_at: Date;
+  status: PendingStatus;
+  reply_text: string | null;
+  status_note: string | null;
+  last_response_at: Date | null;
+};
+
+/**
+ * Os "aguardando" e os que mudaram nas últimas 48 h (ou só o item `id`, seja qual for o estado), cada um com a conversa
+ * recente (os 6 últimos textos trocados com a pessoa: o que ela mandou e o que o perfil enviou).
+ */
+export async function listPending(scope: Scope = {}): Promise<PendingItem[]> {
+  const { rows } = await query<PendingRow>(
+    `select d.id, d.account_id, d.contact_id, coalesce(c.instagram_username, d.username) as username, d.instagram_user_id,
+            d.messages, d.last_message_at, d.status, d.reply_text, d.status_note, c.last_response_at
+     from public.dm_pending d
+     left join public.contacts c on c.id = d.contact_id
+     where ($1::uuid is null or d.account_id = $1)
+       and ($2::uuid is null or d.id = $2)
+       and ($2::uuid is not null or d.status = 'aguardando' or d.updated_at >= now() - interval '48 hours')
+     order by (d.status = 'aguardando') desc, d.last_message_at desc
+     limit 200`,
+    [scope.accountId ?? null, scope.id ?? null],
+  );
+  if (!rows.length) return [];
+
+  const { rows: lines } = await query<{ dm_id: string; de: "pessoa" | "perfil"; texto: string; em: Date }>(
+    `select d.id as dm_id, x.de, x.texto, x.em
+     from public.dm_pending d
+     cross join lateral (
+       select t.de, t.texto, t.em
+       from (
+         select 'pessoa'::text as de, e.payload #>> '{event,message,text}' as texto, e.received_at as em
+         from public.events e
+         where e.account_id = d.account_id and e.instagram_user_id = d.instagram_user_id
+           and e.event_type in ('message', 'story_reply')
+         union all
+         select 'perfil'::text, q.payload ->> 'text', coalesce(q.sent_at, q.created_at)
+         from public.queue q
+         where q.contact_id = d.contact_id and q.status = 'sent' and q.send_type = 'dm'
+       ) t
+       where t.texto is not null and t.texto <> ''
+       order by t.em desc
+       limit 6
+     ) x
+     where d.id = any($1::uuid[])`,
+    [rows.map((row) => row.id)],
+  );
+  const conversation = new Map<string, PendingConversationLine[]>();
+  for (const line of lines) {
+    const list = conversation.get(line.dm_id) ?? [];
+    list.push({ de: line.de, texto: line.texto, em: line.em.toISOString() });
+    conversation.set(line.dm_id, list);
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    accountId: row.account_id,
+    username: row.username,
+    instagramUserId: row.instagram_user_id,
+    mensagens: (row.messages ?? []).map((message) => ({ texto: message.texto, em: message.em })),
+    ultimaEm: row.last_message_at.toISOString(),
+    prazoAte: row.last_response_at ? new Date(row.last_response_at.getTime() + (24 * 60 - DEADLINE_MARGIN_MINUTES) * 60_000).toISOString() : null,
+    status: row.status,
+    resposta: row.reply_text,
+    nota: row.status_note,
+    conversa: (conversation.get(row.id) ?? []).sort((a, b) => a.em.localeCompare(b.em)),
+  }));
+}
+
+export type ReplyOutcome = "ok" | "not-found" | "closed" | "expired";
+
+/**
+ * Coloca a resposta aprovada na fila normal de envios. O texto vai como a dona aprovou (`literal`: sem trocar {{marcações}}).
+ * Não liga a pausa de atendimento humano. A fila decide o resto (limite por hora, prazo de 24 h, conta pausada).
+ */
+export async function queueReply(id: string, texto: string): Promise<ReplyOutcome> {
+  const { rows } = await query<PendingRow & { expired: boolean }>(
+    `select d.id, d.account_id, d.contact_id, d.instagram_user_id, d.messages, d.status,
+            (c.last_response_at is null or c.last_response_at < now() - interval '24 hours') as expired
+     from public.dm_pending d
+     left join public.contacts c on c.id = d.contact_id
+     where d.id = $1`,
+    [id],
+  );
+  const item = rows[0];
+  if (!item) return "not-found";
+  if (item.status !== "aguardando") return "closed";
+  if (item.expired) {
+    await query("update public.dm_pending set status = 'expirada', status_note = $2, updated_at = now() where id = $1 and status = 'aguardando'", [id, NOTE_WINDOW_EXPIRED]);
+    return "expired";
+  }
+
+  // Reserva o item antes de enfileirar: dois "enviar" ao mesmo tempo não mandam duas respostas.
+  const claimed = await query(
+    "update public.dm_pending set status = 'na_fila', reply_text = $2, status_note = null, updated_at = now() where id = $1 and status = 'aguardando'",
+    [id, texto],
+  );
+  if (!claimed.rowCount) return "closed";
+
+  try {
+    const lastEventId = item.messages.at(-1)?.eventId;
+    const queueId = await enqueueJob({
+      sendType: "dm",
+      accountId: item.account_id,
+      contactId: item.contact_id,
+      eventId: typeof lastEventId === "string" ? lastEventId : null,
+      instagramRecipientId: item.instagram_user_id,
+      availableAt: new Date(),
+      payload: { text: texto, origem: "molde_ia", literal: true },
+    });
+    if (!queueId) throw new Error("A fila não aceitou a resposta.");
+    await query("update public.dm_pending set queue_id = $2, updated_at = now() where id = $1", [id, queueId]);
+  } catch (error) {
+    await releaseClaim(id);
+    throw error;
+  }
+  return "ok";
+}
+
+/** A resposta não chegou à fila: volta a "aguardando" para a dona tentar de novo (ou, se a pessoa já mandou outra mensagem, fecha). */
+async function releaseClaim(id: string) {
+  try {
+    await query("update public.dm_pending set status = 'aguardando', reply_text = null, updated_at = now() where id = $1 and status = 'na_fila' and queue_id is null", [id]);
+  } catch (error) {
+    // Já existe outra linha "aguardando" desta pessoa (chegou mensagem nova no meio): esta fica como não enviada.
+    if ((error as { code?: string }).code !== "23505") throw error;
+    await query("update public.dm_pending set status = 'nao_enviada', status_note = $2, updated_at = now() where id = $1 and status = 'na_fila' and queue_id is null", [id, NOTE_NOT_QUEUED]);
+  }
+}
+
+export async function discardPending(id: string): Promise<"ok" | "not-found" | "closed"> {
+  const done = await query("update public.dm_pending set status = 'descartada', updated_at = now() where id = $1 and status = 'aguardando'", [id]);
+  if (done.rowCount) return "ok";
+  const { rows } = await query("select 1 from public.dm_pending where id = $1", [id]);
+  return rows.length ? "closed" : "not-found";
+}

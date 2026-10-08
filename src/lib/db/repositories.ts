@@ -1038,12 +1038,13 @@ export async function enqueueJob(input: {
   const contactPaused = input.contactId ? await isContactAutomationPaused(input.contactId) : false;
   const blockedByHumanPause = contactPaused && input.sendType !== "public_reply";
 
-  await query(
+  const { rows } = await query<{ id: string }>(
     `insert into public.queue (
       account_id, event_id, contact_id, automation_id, instagram_recipient_id,
       instagram_comment_id, send_type, payload, available_at, status, last_error
     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-    on conflict do nothing`,
+    on conflict do nothing
+    returning id`,
     [
       input.accountId ?? null,
       input.eventId ?? null,
@@ -1058,6 +1059,9 @@ export async function enqueueJob(input: {
       blockedByHumanPause ? "Contato pausado para atendimento humano" : null,
     ],
   );
+
+  // O id do job que entrou na fila (ou null se o banco ignorou por já existir um igual).
+  return rows[0]?.id ?? null;
 }
 
 export async function enqueueFollowups(input: {
