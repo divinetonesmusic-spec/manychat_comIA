@@ -118,7 +118,9 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
 
 async function sendJob(job: QueueJob, instagramUserId: string, accessToken: string) {
   const context = await getTemplateContext({ contactId: job.contact_id, automationId: job.automation_id });
-  const text = renderMessageTemplate(String(job.payload.text || ""), context);
+  // `literal`: o texto saiu pronto de uma pessoa (a resposta aprovada no Molde) e vai exatamente como está,
+  // mesmo que tenha {{marcações}}; as outras mensagens trocam as variáveis ({{name}} etc.).
+  const text = job.payload.literal === true ? String(job.payload.text || "") : renderMessageTemplate(String(job.payload.text || ""), context);
   const buttonLabel = renderOptionalString(job.payload.buttonLabel, context);
   const url = renderOptionalString(job.payload.url, context);
   const buttonPayload = renderOptionalString(job.payload.buttonPayload, context);
