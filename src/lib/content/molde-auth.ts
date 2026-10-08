@@ -43,3 +43,30 @@ export function publicView(post: ContentPost) {
     insightsAt: post.insights_at,
   };
 }
+
+const CAPTION_START_LENGTH = 140;
+
+/** Primeiros 140 caracteres da legenda, em uma linha só. */
+export function captionStart(caption: string | null | undefined) {
+  const oneLine = (caption ?? "").replace(/\s*[\r\n]+\s*/g, " ").trim();
+  return Array.from(oneLine).slice(0, CAPTION_START_LENGTH).join("");
+}
+
+/** O que o Molde vê de cada post publicado em /api/molde/resultados (sem tokens nem dados de contato). */
+export function resultView(post: ContentPost) {
+  return {
+    id: post.id,
+    externalRef: post.external_ref,
+    source: post.source,
+    accountId: post.account_id,
+    username: post.account_username,
+    publishType: post.publish_type,
+    title: post.title,
+    captionInicio: captionStart(post.caption),
+    publishedAt: post.published_at,
+    permalink: post.permalink,
+    insights: post.insights ?? {},
+    insightsAt: post.insights_at,
+    aiGenerated: Boolean(post.ai_generated),
+  };
+}

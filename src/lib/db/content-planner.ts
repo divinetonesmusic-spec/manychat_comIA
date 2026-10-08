@@ -435,6 +435,25 @@ export async function listContentPostsInRange(input: { accountId?: string | null
   return rows;
 }
 
+/**
+ * Posts já publicados de qualquer origem (Molde, tela Conteúdo), do mais novo para o mais velho, só dentro dos últimos
+ * `dias`. Usa o atalho content_posts_published_window_idx (0006); funciona também sem ele, só mais devagar.
+ */
+export async function listPublishedPosts(input: { accountId?: string | null; dias: number; limite: number }) {
+  const { rows } = await query<ContentPost>(
+    `select cp.*, ia.instagram_username as account_username
+     from public.content_posts cp left join public.instagram_accounts ia on ia.id = cp.account_id
+     where cp.status = 'published'
+       and cp.published_at is not null
+       and cp.published_at >= now() - make_interval(days => $2::int)
+       and ($1::uuid is null or cp.account_id = $1)
+     order by cp.published_at desc
+     limit $3`,
+    [input.accountId ?? null, input.dias, input.limite],
+  );
+  return rows;
+}
+
 export async function listPostsBySource(input: { accountId?: string | null; source: string; externalRefs?: string[]; limit?: number }) {
   const { rows } = await query<ContentPost>(
     `select cp.*, ia.instagram_username as account_username
