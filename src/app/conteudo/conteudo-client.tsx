@@ -53,6 +53,7 @@ type Draft = {
   linkUrl: string;
   linkLabel: string;
   publicReply: string;
+  aiGenerated: boolean;
   when: When;
   date: string;
   time: string;
@@ -377,7 +378,7 @@ export function PostList({ posts, onOpenPost }: { posts: ContentPost[]; onOpenPo
 
 /* ---------------- Compositor (novo / editar) ---------------- */
 
-function Composer({ initial, accountId, username, onClose, onSaved, onRemoved }: {
+export function Composer({ initial, accountId, username, onClose, onSaved, onRemoved }: {
   initial: Draft;
   accountId: string | null;
   username: string | null;
@@ -416,6 +417,7 @@ function Composer({ initial, accountId, username, onClose, onSaved, onRemoved }:
         linkUrl: isStory ? "" : draft.linkUrl.trim(),
         linkLabel: draft.linkLabel,
         publicReply: draft.publicReply,
+        aiGenerated: draft.aiGenerated,
         scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
         when: draft.when,
         publishNow: draft.when === "now",
@@ -499,6 +501,11 @@ function Composer({ initial, accountId, username, onClose, onSaved, onRemoved }:
               ) : null}
             </div>
           )}
+
+          <label className="check justify-start">
+            <input aria-label="Feito com IA" checked={draft.aiGenerated} className="h-5 w-5 shrink-0" onChange={(event) => set({ aiGenerated: event.target.checked })} type="checkbox" />
+            <span>Feito com IA (o Instagram mostra o aviso)</span>
+          </label>
 
           {!isStory ? (
             <>
@@ -787,7 +794,7 @@ function emptyItem(): DraftItem {
   return { type: "image", url: "", coverUrl: "" };
 }
 
-function emptyDraft(date?: string): Draft {
+export function emptyDraft(date?: string): Draft {
   const next = new Date(Date.now() + 60 * 60_000);
   return {
     publishType: "reel_video",
@@ -803,13 +810,14 @@ function emptyDraft(date?: string): Draft {
     linkUrl: "",
     linkLabel: "",
     publicReply: "",
+    aiGenerated: false, // post feito à mão começa sem o aviso; quem vem do Molde mostra o que veio
     when: "schedule",
     date: date ?? dayKey(next),
     time: date ? "18:00" : `${String(next.getHours()).padStart(2, "0")}:00`,
   };
 }
 
-function draftFromPost(post: ContentPost): Draft {
+export function draftFromPost(post: ContentPost): Draft {
   const at = post.scheduled_at ? new Date(post.scheduled_at) : new Date(Date.now() + 60 * 60_000);
   const items: DraftItem[] = (post.media_items ?? []).map((item: ContentMediaItem) => ({ type: item.type, url: item.url, coverUrl: item.cover_url ?? "" }));
   return {
@@ -827,6 +835,7 @@ function draftFromPost(post: ContentPost): Draft {
     linkUrl: post.link_url ?? "",
     linkLabel: post.link_label ?? "",
     publicReply: post.public_reply ?? "",
+    aiGenerated: Boolean(post.ai_generated),
     when: post.status === "draft" || post.status === "canceled" ? "draft" : "schedule",
     date: dayKey(at),
     time: timeLabel(at),
@@ -920,9 +929,9 @@ function chipTone(status: ContentPost["status"]) {
   return "border-dashed border-[var(--ms-border-strong)] bg-transparent text-[var(--ms-muted)]";
 }
 
-/** Cor da nota do post (lista e detalhe): neutra enquanto publica e depois de publicado (ex.: "Publicado; não consegui buscar o link"); vermelha só para erro. */
+/** Cor da nota do post (lista e detalhe): neutra enquanto publica, depois de publicado (ex.: "Publicado; não consegui buscar o link") e quando está agendado esperando vaga (limite de 100 por dia); vermelha só para erro. */
 export function lastErrorClass(status: ContentPost["status"]) {
-  return status === "publishing" || status === "published" ? "text-[var(--ms-muted)]" : "text-red-500";
+  return status === "publishing" || status === "published" || status === "scheduled" ? "text-[var(--ms-muted)]" : "text-red-500";
 }
 
 function statusClass(status: ContentPost["status"]) {

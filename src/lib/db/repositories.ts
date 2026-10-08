@@ -259,6 +259,8 @@ export type ContentPost = {
   lock_until?: string | null;
   /** Hora do pedido de publicação à Meta (migração 0003; ausente se ela ainda não foi aplicada). */
   publish_requested_at?: string | null;
+  /** "Feito com IA" (migração 0006; ausente se ela ainda não foi aplicada, e então vale como falso). */
+  ai_generated?: boolean;
 };
 export type InboxConversationMessage = {
   id: string;

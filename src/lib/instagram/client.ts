@@ -204,11 +204,14 @@ export async function createInstagramMediaContainer(input: {
   mediaUrl: string;
   caption?: string;
   coverUrl?: string | null;
+  /** Aviso "feito com IA". Só vai quando for verdadeiro; falso ou ausente deixa o corpo como sempre foi. */
+  aiGenerated?: boolean;
 }) {
   const url = new URL(`${GRAPH_BASE_URL}/${input.instagramUserId}/media`);
   const body: Record<string, unknown> = {
     caption: input.caption || "",
   };
+  if (input.aiGenerated === true) body.is_ai_generated = true;
 
   if (input.publishType === "reel_video") {
     body.media_type = "REELS";
@@ -230,6 +233,7 @@ export async function createInstagramMediaContainer(input: {
     body: JSON.stringify(body),
   });
 }
+/** Item do carrossel: nunca leva is_ai_generated (a Meta recusa o campo nos filhos; o aviso vai só no container pai). */
 export async function createInstagramCarouselItemContainer(input: {
   instagramUserId: string;
   accessToken: string;
@@ -259,6 +263,8 @@ export async function createInstagramCarouselContainer(input: {
   accessToken: string;
   children: string[];
   caption?: string;
+  /** Aviso "feito com IA": só no container pai (nos itens a Meta dá erro, por isso o item nunca recebe o campo). */
+  aiGenerated?: boolean;
 }) {
   const url = new URL(`${GRAPH_BASE_URL}/${input.instagramUserId}/media`);
 
@@ -268,6 +274,7 @@ export async function createInstagramCarouselContainer(input: {
       media_type: "CAROUSEL",
       children: input.children.join(","),
       caption: input.caption || "",
+      ...(input.aiGenerated === true ? { is_ai_generated: true } : {}),
     }),
   });
 }

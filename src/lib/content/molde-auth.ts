@@ -36,6 +36,7 @@ export function publicView(post: ContentPost) {
     permalink: post.permalink,
     lastError: post.last_error,
     keyword: post.keyword,
+    aiGenerated: Boolean(post.ai_generated),
     automationId: post.automation_id,
     firstCommentDone: Boolean(post.first_comment_id),
     insights: post.insights ?? {},

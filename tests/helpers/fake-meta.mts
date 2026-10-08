@@ -29,6 +29,8 @@ export type FakeMeta = {
   refreshExpiresIn: number;
   /** Se definido, a criação de container (POST /{ig-user-id}/media) responde este erro da Meta. */
   createMediaError: string | null;
+  /** Se true, a Meta recusa (erro 400) todo pedido de container que leve is_ai_generated. */
+  rejectAiFlag: boolean;
   /** Avisos recebidos pelo Telegram falso (POST api.telegram.org/bot<token>/sendMessage). */
   telegram: { token: string; body: Record<string, unknown> }[];
   /** Falha do Telegram falso: "rede" (sem conexão) ou uma resposta de erro da API. */
@@ -56,6 +58,7 @@ export function installFakeMeta(): FakeMeta {
     profile: { user_id: "17840000000000001", username: "conta_nova" },
     refreshExpiresIn: 5_184_000,
     createMediaError: null,
+    rejectAiFlag: false,
     telegram: [],
     telegramFails: null,
     reset: () => {
@@ -68,6 +71,7 @@ export function installFakeMeta(): FakeMeta {
       fake.feedFails = false;
       fake.refreshExpiresIn = 5_184_000;
       fake.createMediaError = null;
+      fake.rejectAiFlag = false;
       fake.telegram.length = 0;
       fake.telegramFails = null;
       containerCaption.clear();
@@ -133,6 +137,7 @@ export function installFakeMeta(): FakeMeta {
 
     if (path.endsWith("/media") && method === "POST") {
       if (fake.createMediaError) return json({ error: { message: fake.createMediaError } }, 400);
+      if (fake.rejectAiFlag && "is_ai_generated" in body) return json({ error: { message: "(#100) Invalid parameter: is_ai_generated is not supported for this request" } }, 400);
       const containerId = `container-${++seq}`;
       containerCaption.set(containerId, String(body.caption ?? ""));
       return json({ id: containerId });

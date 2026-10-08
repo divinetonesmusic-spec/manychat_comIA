@@ -56,6 +56,9 @@ const MAX_PUBLISHING_HOURS = 2;
 /** Texto mostrado depois do "Publicar agora" (tela Conteúdo e Molde). */
 export const PUBLISH_NOW_NOTICE = "Vai ao ar em até 2 minutos.";
 
+/** Frase do post quando a Meta recusa o aviso de "feito com IA" (o UaiFlow nunca tira o aviso sozinho). */
+export const AI_REFUSED_MESSAGE = 'O Instagram não aceitou o aviso de "feito com IA" neste post. Tente de novo mais tarde ou desmarque o aviso e publique.';
+
 /** Nota gravada quando a Meta confirma que publicou, mas o post não aparece no feed. */
 export const PUBLISHED_WITHOUT_LINK_NOTE = "Publicado; não consegui buscar o link";
 
@@ -150,6 +153,12 @@ async function runCycleSteps(
         else if (result === "failed") out.failed += 1;
         else out.waiting += 1;
       } catch (error) {
+        if (isAiRefusal(error)) {
+          // A Meta recusou o aviso de "feito com IA" (ex.: no container pai do carrossel): não adianta tentar de novo.
+          await markPostFailed(post, AI_REFUSED_MESSAGE, { containerId: post.container_id, pending });
+          out.failed += 1;
+          continue;
+        }
         await touchContentPost(post.id, translateError(error));
         out.waiting += 1;
       }
@@ -236,6 +245,7 @@ export async function startPost(post: ContentPost, config: Config, deadline = Da
     mediaUrl: post.media_url,
     coverUrl: post.cover_url,
     caption: post.caption,
+    aiGenerated: post.ai_generated === true,
   });
   await updateContentPostStatus({ id: post.id, status: "publishing", containerId: container.id, lastError: "A Meta está processando a mídia." });
 }
@@ -288,6 +298,7 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
         accessToken: config.instagram_access_token as string,
         children: items.map((item) => item.container_id as string),
         caption: post.caption,
+        aiGenerated: post.ai_generated === true, // só no container pai; os itens nunca levam o campo
       });
       await updateContentPostStatus({ id: post.id, status: "publishing", containerId: parent.id, lastError: "Montando o carrossel na Meta." });
       return "waiting";
@@ -563,8 +574,14 @@ function toInstagramPublishType(value: ContentPost["publish_type"]): InstagramPu
   return "feed_image";
 }
 
+function isAiRefusal(error: unknown) {
+  return /is_ai_generated/i.test(error instanceof Error ? error.message : String(error || ""));
+}
+
 export function translateError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "Erro desconhecido.");
+  // Antes das outras regras: a Meta recusou o aviso de IA. O post falha; o aviso nunca sai calado.
+  if (isAiRefusal(error)) return AI_REFUSED_MESSAGE;
   if (/content_publish|permission/i.test(message)) return "Falta a permissão de publicar. Reconecte o perfil aceitando instagram_business_content_publish.";
   if (/Media ID is not available|not ready/i.test(message)) return "A mídia ainda não terminou de processar na Meta.";
   if (/aspect ratio|resolution|duration|codec/i.test(message)) return "A Meta recusou o vídeo (formato, duração ou resolução). Reels: MP4 H.264, 9:16, de 3 s a 15 min.";

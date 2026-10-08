@@ -58,3 +58,44 @@ describe("nota do último envio em Contatos (onda final)", () => {
     assert.equal(renderToStaticMarkup(createElement(QueueNote, { status: "failed", text: null })), "");
   });
 });
+
+describe("caixa 'Feito com IA' no formulário do post (Fase 5)", () => {
+  const base = { account_id: "a", account_username: "c", publish_type: "reel_video", caption: "x", media_url: "https://midia.teste.invalid/a.mp4", cover_url: null, media_items: [], container_id: null, published_media_id: null, permalink: null, published_at: null, created_at: "2026-10-07T12:00:00Z", updated_at: "2026-10-07T12:00:00Z", scheduled_at: "2026-10-09T12:00:00Z", id: "p1", title: "Um", status: "scheduled", last_error: null };
+
+  async function formulario(initial: unknown) {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { Composer } = await import("@/app/conteudo/conteudo-client");
+    return renderToStaticMarkup(createElement(Composer, { initial: initial as never, accountId: "a", username: "conta", onClose: () => undefined, onSaved: () => undefined, onRemoved: () => undefined }));
+  }
+  const caixa = (html: string) => html.match(/<input[^>]*aria-label="Feito com IA"[^>]*>/)?.[0] ?? "";
+
+  test("post novo (feito à mão): a caixa existe, em português, 44 px de toque e desmarcada", async () => {
+    const { emptyDraft } = await import("@/app/conteudo/conteudo-client");
+    const html = await formulario(emptyDraft());
+    assert.match(html, /<label class="check[^"]*"[^>]*><input[^>]*aria-label="Feito com IA"/);
+    assert.match(html, /Feito com IA \(o Instagram mostra o aviso\)/);
+    assert.ok(caixa(html), "caixa não encontrada");
+    assert.doesNotMatch(caixa(html), /checked/);
+  });
+
+  test("post que veio do Molde com o aviso ligado: a caixa vem marcada; sem o aviso, desmarcada", async () => {
+    const { draftFromPost } = await import("@/app/conteudo/conteudo-client");
+    assert.match(caixa(await formulario(draftFromPost({ ...base, ai_generated: true } as never))), /checked/);
+    assert.doesNotMatch(caixa(await formulario(draftFromPost({ ...base, ai_generated: false } as never))), /checked/);
+    assert.doesNotMatch(caixa(await formulario(draftFromPost(base as never))), /checked/, "sem a coluna da 0006 vale como falso");
+  });
+
+  test("story também tem a caixa (a Meta aceita o aviso em story)", async () => {
+    const { draftFromPost } = await import("@/app/conteudo/conteudo-client");
+    assert.ok(caixa(await formulario(draftFromPost({ ...base, publish_type: "story_image" } as never))));
+  });
+});
+
+describe("nota do post agendado esperando vaga (limite de 100 por dia)", () => {
+  test("agendado com a nota do limite: cor neutra, não vermelha", () => {
+    assert.match(lastErrorClass("scheduled"), /ms-muted/);
+    assert.doesNotMatch(lastErrorClass("scheduled"), /red/);
+    assert.match(lastErrorClass("draft"), /text-red-500/);
+  });
+});

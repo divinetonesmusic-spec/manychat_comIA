@@ -20,6 +20,8 @@ export type PostPackage = {
   publicReply?: string;
   /** Textos da automação no idioma do avatar: quickReplyLabel, linkText, reminderText, publicReplies[], requireFollower. */
   automationOptions?: AutomationOptions;
+  /** "Feito com IA": o Instagram mostra o aviso no post. Ausente = não mexe (post novo começa sem aviso). */
+  aiGenerated?: boolean;
   source?: string;
   externalRef?: string | null;
 };
@@ -37,12 +39,14 @@ const EDITABLE_STATUSES = ["draft", "scheduled", "failed", "canceled"];
 export async function createPlannedPost(input: PostPackage): Promise<ContentPost> {
   const accountId = input.accountId ?? (await getDefaultInstagramAccount())?.id ?? null;
   const status = input.scheduledAt ? "scheduled" : "draft";
+  // A coluna ai_generated vem da migração 0006; sem ela, grava como antes (e o aviso de IA não vai).
+  const withAi = await hasAiGeneratedColumn();
   const { rows } = await query<ContentPost>(
     `insert into public.content_posts (
        account_id, publish_type, title, caption, media_url, cover_url, media_items, media_keys, status,
        scheduled_at, first_comment, keyword, dm_text, link_url, link_label, public_reply, source, external_ref,
-       automation_options
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       automation_options${withAi ? ", ai_generated" : ""}
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19${withAi ? ",$20" : ""})
      returning *`,
     [
       accountId,
@@ -64,6 +68,7 @@ export async function createPlannedPost(input: PostPackage): Promise<ContentPost
       input.source ?? "manual",
       input.externalRef ?? null,
       JSON.stringify(input.automationOptions ?? {}),
+      ...(withAi ? [input.aiGenerated === true] : []),
     ],
   );
   return rows[0];
@@ -123,19 +128,23 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
 
   // Conteúdo novo, tentativa nova: some o container antigo e o registro do pedido de publicação (0003).
   const resetRequest = (await hasPublishRequestedColumn()) ? ", publish_requested_at = null" : "";
+  // Só mexe no aviso de IA quando a edição traz o campo (e a coluna da 0006 existe); sem o campo, mantém o que está.
+  const setAi = input.aiGenerated !== undefined && (await hasAiGeneratedColumn());
+  const aiClause = setAi ? ", ai_generated = $19" : "";
   const { rows } = await query<ContentPost>(
     `update public.content_posts set
        publish_type = $2, title = $3, caption = $4, media_url = $5, cover_url = $6, media_items = $7,
        media_keys = $8, scheduled_at = $9, first_comment = $10, keyword = $11, dm_text = $12,
        link_url = $13, link_label = $14, public_reply = $15, status = $16, last_error = null,
        container_id = null, attempts = 0, automation_options = $17, publishing_started_at = null, lock_until = null,
-       media_deleted_at = case when $18 then null else media_deleted_at end${resetRequest}
+       media_deleted_at = case when $18 then null else media_deleted_at end${aiClause}${resetRequest}
      where id = $1
      returning *`,
     [
       id, next.publish_type, next.title, next.caption, mediaUrl, next.cover_url, JSON.stringify(next.media_items),
       next.media_keys, next.scheduled_at, next.first_comment, next.keyword, next.dm_text, next.link_url,
       next.link_label, next.public_reply, status, JSON.stringify(next.automation_options), newMedia,
+      ...(setAi ? [input.aiGenerated === true] : []),
     ],
   );
   return rows[0] ?? null;
@@ -189,24 +198,29 @@ export async function claimPostNow(id: string, lockSeconds = 60): Promise<Conten
 }
 
 /**
- * A coluna publish_requested_at vem da migração 0003. Enquanto ela não for colada no Supabase, o código
- * segue sem ela (comportamento antigo + reconhecer o container PUBLISHED). Confere no banco e guarda a resposta
- * (o "não" é conferido de novo a cada minuto, para pegar a migração assim que ela for aplicada).
+ * Colunas que vêm de migrações ainda não coladas no Supabase (publish_requested_at: 0003; ai_generated: 0006).
+ * Enquanto a migração não foi colada, o código segue sem elas (comportamento antigo). Confere no banco uma vez por
+ * processo e guarda o "sim" para sempre; o "não" é conferido de novo a cada minuto, para pegar a migração assim
+ * que ela for aplicada.
  */
-let publishRequestedColumn: { exists: boolean; checkedAt: number } | null = null;
-
-export async function hasPublishRequestedColumn() {
-  const cached = publishRequestedColumn;
-  if (cached && (cached.exists || Date.now() - cached.checkedAt < 60_000)) return cached.exists;
-  const { rows } = await query<{ exists: boolean }>(
-    `select exists (
-       select 1 from information_schema.columns
-       where table_schema = 'public' and table_name = 'content_posts' and column_name = 'publish_requested_at'
-     ) as exists`,
-  );
-  publishRequestedColumn = { exists: Boolean(rows[0]?.exists), checkedAt: Date.now() };
-  return publishRequestedColumn.exists;
+function columnProbe(column: string) {
+  let cached: { exists: boolean; checkedAt: number } | null = null;
+  return async () => {
+    if (cached && (cached.exists || Date.now() - cached.checkedAt < 60_000)) return cached.exists;
+    const { rows } = await query<{ exists: boolean }>(
+      `select exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'content_posts' and column_name = $1
+       ) as exists`,
+      [column],
+    );
+    cached = { exists: Boolean(rows[0]?.exists), checkedAt: Date.now() };
+    return cached.exists;
+  };
 }
+
+export const hasPublishRequestedColumn = columnProbe("publish_requested_at");
+export const hasAiGeneratedColumn = columnProbe("ai_generated");
 
 /** Grava a hora do pedido de publicação ANTES de chamar o media_publish. Sem a 0003, não faz nada. */
 export async function markPublishRequested(id: string) {

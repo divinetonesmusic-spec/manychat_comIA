@@ -67,6 +67,8 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
     linkLabel: optionalText(body.linkLabel, 20),
     publicReply: optionalText(body.publicReply, 300),
     automationOptions: parseAutomationOptions(body.automationOptions),
+    // "feito com IA": só vale boolean de verdade; qualquer outro tipo é ignorado
+    aiGenerated: typeof body.aiGenerated === "boolean" ? body.aiGenerated : undefined,
     source: optionalString(body.source)?.slice(0, 40),
     externalRef: optionalString(body.externalRef)?.slice(0, 200) ?? null,
   };

@@ -40,7 +40,7 @@ Sem build ou sem `TEST_DATABASE_URL`, ele aparece como pulado.
 ## Onde fica cada coisa
 
 - `tests/helpers/env.mts`: variáveis falsas (nada é segredo real).
-- `tests/helpers/db.mts`: cria o banco de teste e aplica as migrações. `createTestDatabase({ ate: "0002" })` simula um Supabase em que a 0003 ainda não foi colada (o mesmo vale para a 0005: `ate: "0004"`).
+- `tests/helpers/db.mts`: cria o banco de teste e aplica as migrações. `createTestDatabase({ ate: "0002" })` simula um Supabase em que a 0003 ainda não foi colada (o mesmo vale para a 0005: `ate: "0004"`, e para a 0006: `ate: "0005"`).
 - `tests/helpers/caixa.mts`: bases de contatos para os testes da Caixa de entrada (5.000 contatos em SQL, 300 pelo webhook) e a consulta antiga de `listContacts`, usada como referência.
 - `tests/helpers/fake-meta.mts`: Meta/Instagram/R2 falsos, com contagem de chamadas (ex.: quantas vezes o `media_publish` foi chamado) e opção de simular o corte do Netlify logo depois de a Meta publicar.
 - `tests/*.test.mts`: os testes (rodam no `npm test`).
