@@ -256,6 +256,17 @@ describe("DMs sem resposta para o Molde", { skip: semBanco }, () => {
       assert.equal((await db.sql("select 1 from public.dm_pending where instagram_user_id = 'p-descartada' and status = 'aguardando'")).length, 1);
     });
 
+    test("a mesma mensagem entregue duas vezes AO MESMO TEMPO não duplica (corrida no 'on conflict')", async () => {
+      for (let rodada = 0; rodada < 5; rodada += 1) {
+        const de = `corrida${rodada}`;
+        await enviarAoWebhook(evento(de, `mid-a-${de}`, "primeira"));
+        const repetida = evento(de, `mid-b-${de}`, "segunda");
+        await Promise.all([enviarAoWebhook(repetida), enviarAoWebhook(repetida), enviarAoWebhook(repetida)]);
+        const [linha] = await db.sql<{ messages: { texto: string }[] }>("select messages from public.dm_pending where instagram_user_id = $1", [de]);
+        assert.deepEqual(linha.messages.map((m) => m.texto), ["primeira", "segunda"], `rodada ${rodada}`);
+      }
+    });
+
     test("pediu 'parar' com item aguardando: o item é descartado com a frase e a resposta aprovada não sai", async () => {
       const pendente = await umaPendente();
       assert.equal((await dm("pessoa1", "Parar")).status, 200);

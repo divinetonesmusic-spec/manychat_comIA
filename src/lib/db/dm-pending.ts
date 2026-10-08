@@ -81,7 +81,8 @@ async function recordPendingDm(input: Parameters<typeof recordPendingDmSafely>[0
        ),
        last_message_at = greatest(public.dm_pending.last_message_at, excluded.last_message_at),
        username = coalesce(excluded.username, public.dm_pending.username),
-       updated_at = now()`,
+       updated_at = now()
+     where not (public.dm_pending.messages @> jsonb_build_array(jsonb_build_object('eventId', $7::text)))`,
     [input.accountId, input.contactId, input.instagramUserId, input.username ?? null, JSON.stringify(message), input.em, input.eventId],
   );
 }
