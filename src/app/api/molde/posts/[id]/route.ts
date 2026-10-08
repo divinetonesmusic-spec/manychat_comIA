@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getContentPost } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
-import { cancelPost, ContentError, editPost, removePost } from "@/lib/content/service";
+import { aiColumnWarning, cancelPost, ContentError, editPost, removePost } from "@/lib/content/service";
 import { PUBLISH_NOW_NOTICE, translateError } from "@/lib/content/scheduler";
 import { checkMoldeToken, publicView } from "@/lib/content/molde-auth";
 
@@ -22,6 +22,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (denied) return denied;
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  let warning: string | undefined;
   return handle(async () => {
     await moldePost(id);
     if (body.action === "cancel") return publicView(await cancelPost(id));
@@ -29,9 +30,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (!parsed.ok) throw new ContentError(parsed.error);
     const publishNow = parsed.publishNow || body.action === "publish_now" || body.action === "retry";
     const post = await editPost(id, parsed.value, publishNow);
+    // "warning" é campo novo (só acréscimo): aiGenerated:true sem a 0006 no Supabase não é guardado; o Molde trata como bloqueio.
+    warning = await aiColumnWarning(parsed.value);
     // "notice" é campo novo (só acréscimo): o relógio termina a publicação em até 2 min.
     return post ? { ...publicView(post), ...(publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}) } : null;
-  });
+  }, () => warning);
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {
@@ -44,9 +47,11 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   });
 }
 
-async function handle(work: () => Promise<unknown>) {
+async function handle(work: () => Promise<unknown>, warning: () => string | undefined = () => undefined) {
   try {
-    return NextResponse.json({ data: await work() });
+    const data = await work();
+    const aviso = warning();
+    return NextResponse.json(aviso ? { data, warning: aviso } : { data });
   } catch (error) {
     if (error instanceof ContentError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: translateError(error) }, { status: 500 });

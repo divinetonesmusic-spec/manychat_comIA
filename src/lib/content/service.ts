@@ -5,6 +5,7 @@ import {
   deleteContentPost,
   findPostByExternalRef,
   getContentPost,
+  hasAiGeneratedColumn,
   updatePlannedPost,
   type PostPackage,
 } from "@/lib/db/content-planner";
@@ -16,6 +17,14 @@ export class ContentError extends Error {
   constructor(message: string, public status = 400) {
     super(message);
   }
+}
+
+/** Aviso em português quando o pacote pede "feito com IA" mas a migração 0006 ainda não foi colada (o aviso não é guardado). */
+export const AI_COLUMN_MISSING_WARNING = "Falta colar a atualização 0006 no Supabase: o aviso de IA não foi guardado.";
+
+export async function aiColumnWarning(input: { aiGenerated?: boolean }): Promise<string | undefined> {
+  if (input.aiGenerated !== true) return undefined;
+  return (await hasAiGeneratedColumn()) ? undefined : AI_COLUMN_MISSING_WARNING;
 }
 
 export async function savePostPackage(input: PostPackage, publishNow: boolean): Promise<{ post: ContentPost | null; created: boolean }> {

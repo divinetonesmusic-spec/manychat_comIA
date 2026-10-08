@@ -20,6 +20,7 @@ describe("aviso de IA sem a migração 0006 aplicada", { skip: semBanco }, () =>
   let moldeRoute: typeof import("@/app/api/molde/posts/route");
   let moldeIdRoute: typeof import("@/app/api/molde/posts/[id]/route");
   let contentRoute: typeof import("@/app/api/content/route");
+  let contentIdRoute: typeof import("@/app/api/content/[id]/route");
 
   before(async () => {
     db = await createTestDatabase({ ate: "0005" });
@@ -27,6 +28,7 @@ describe("aviso de IA sem a migração 0006 aplicada", { skip: semBanco }, () =>
     moldeRoute = await import("@/app/api/molde/posts/route");
     moldeIdRoute = await import("@/app/api/molde/posts/[id]/route");
     contentRoute = await import("@/app/api/content/route");
+    contentIdRoute = await import("@/app/api/content/[id]/route");
   });
 
   beforeEach(async () => {
@@ -107,5 +109,37 @@ describe("aviso de IA sem a migração 0006 aplicada", { skip: semBanco }, () =>
     assert.equal(post.status, "scheduled");
     assert.match(String(post.last_error), /^Limite de 100 publicações em 24 h do Instagram: sai às \d{2}:\d{2}\.$/);
     assert.equal(meta.calls.filter((call) => call.method === "POST").length, 0);
+  });
+
+  const AVISO = "Falta colar a atualização 0006 no Supabase: o aviso de IA não foi guardado.";
+
+  test("aiGenerated:true sem a 0006: POST e PATCH do Molde e /api/content devolvem o warning em português", async () => {
+    const molde = await moldeRoute.POST(request("/api/molde/posts", {
+      headers: MOLDE,
+      json: { externalRef: "item-aviso", publishType: "reel", mediaUrl: "https://midia.teste.invalid/uaiflow/reel.mp4", aiGenerated: true, accountId, when: "draft" },
+    }));
+    const criado = await molde.json();
+    assert.equal(criado.warning, AVISO);
+    assert.equal(criado.data.aiGenerated, false);
+
+    const patch = await moldeIdRoute.PATCH(request(`/api/molde/posts/${criado.data.id}`, { method: "PATCH", headers: MOLDE, json: { aiGenerated: true } }), { params: Promise.resolve({ id: criado.data.id }) });
+    assert.equal((await patch.json()).warning, AVISO);
+
+    const tela = await contentRoute.POST(request("/api/content", { json: { accountId, publishType: "reel_video", mediaUrl: "https://midia.teste.invalid/uaiflow/reel.mp4", aiGenerated: true, when: "draft" } }));
+    assert.equal(tela.status, 200);
+    assert.equal((await tela.json()).warning, AVISO);
+
+    const telaPatch = await contentIdRoute.PATCH(request(`/api/content/${criado.data.id}`, { method: "PATCH", json: { aiGenerated: true } }), { params: Promise.resolve({ id: criado.data.id }) });
+    assert.equal((await telaPatch.json()).warning, AVISO);
+  });
+
+  test("sem warning quando o campo não vem, vem falso ou vem de outro tipo (nada a guardar)", async () => {
+    for (const aiGenerated of [undefined, false, "sim"]) {
+      const resposta = await moldeRoute.POST(request("/api/molde/posts", {
+        headers: MOLDE,
+        json: { externalRef: `item-${String(aiGenerated)}`, publishType: "reel", mediaUrl: "https://midia.teste.invalid/uaiflow/reel.mp4", aiGenerated, accountId, when: "draft" },
+      }));
+      assert.equal("warning" in (await resposta.json()), false, `aiGenerated=${String(aiGenerated)}`);
+    }
   });
 });

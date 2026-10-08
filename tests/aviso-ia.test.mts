@@ -191,6 +191,19 @@ describe("aviso de IA na publicação", { skip: semBanco }, () => {
     assert.equal((await patch({ aiGenerated: "sim" })).aiGenerated, false, "outro tipo é ignorado");
   });
 
+  test("com a 0006 colada não há warning (POST, PATCH e tela)", async () => {
+    const molde = await moldeRoute.POST(request("/api/molde/posts", {
+      headers: MOLDE,
+      json: { externalRef: "com-0006", publishType: "reel", mediaUrl: VIDEO, aiGenerated: true, accountId, when: "draft" },
+    }));
+    const criado = await molde.json();
+    assert.equal("warning" in criado, false);
+    const patch = await moldeIdRoute.PATCH(request(`/api/molde/posts/${criado.data.id}`, { method: "PATCH", headers: MOLDE, json: { aiGenerated: false } }), routeParams({ id: criado.data.id }));
+    assert.equal("warning" in (await patch.json()), false);
+    const tela = await contentRoute.POST(request("/api/content", { json: { accountId, publishType: "reel_video", mediaUrl: VIDEO, aiGenerated: true, when: "draft" } }));
+    assert.equal((await tela.json()).warning, undefined);
+  });
+
   test("o Molde mandando o mesmo item de novo sem o campo não apaga o aviso", async () => {
     await enviar({ publishType: "reel", mediaUrl: VIDEO, externalRef: "mesmo-item", aiGenerated: true, scheduledAt: new Date(Date.now() + 3600_000).toISOString() });
     const segundo = await enviar({ publishType: "reel", mediaUrl: VIDEO, externalRef: "mesmo-item", caption: "texto novo", scheduledAt: new Date(Date.now() + 3600_000).toISOString() });

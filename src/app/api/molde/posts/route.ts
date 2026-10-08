@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listPostsBySource } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
-import { ContentError, savePostPackage } from "@/lib/content/service";
+import { aiColumnWarning, ContentError, savePostPackage } from "@/lib/content/service";
 import { PUBLISH_NOW_NOTICE, translateError } from "@/lib/content/scheduler";
 import { checkMoldeToken, publicView } from "@/lib/content/molde-auth";
 
@@ -33,7 +33,9 @@ export async function POST(request: NextRequest) {
     const { post, created } = await savePostPackage({ ...parsed.value, source: "molde" }, parsed.publishNow);
     // "notice" é campo novo (só acréscimo): o "Publicar agora" não publica na hora, o relógio termina em até 2 min.
     const data = post ? { ...publicView(post), ...(parsed.publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}) } : null;
-    return NextResponse.json({ data, created }, { status: created ? 201 : 200 });
+    // "warning" é campo novo (só acréscimo): aiGenerated:true sem a 0006 no Supabase não é guardado; o Molde trata como bloqueio.
+    const warning = await aiColumnWarning(parsed.value);
+    return NextResponse.json({ data, created, ...(warning ? { warning } : {}) }, { status: created ? 201 : 200 });
   } catch (error) {
     if (error instanceof ContentError) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: translateError(error) }, { status: 500 });

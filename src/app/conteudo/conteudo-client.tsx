@@ -431,10 +431,10 @@ export function Composer({ initial, accountId, username, onClose, onSaved, onRem
       if (!result?.data) throw new Error(result?.error || "Não consegui salvar.");
       const post = result.data;
       if (post.status === "failed") onSaved(post, { tone: "error", text: post.last_error || "A Meta recusou a publicação." });
-      else if (post.status === "published") onSaved(post, { tone: "success", text: "Publicado! A automação da palavra-chave já está ligada." });
-      else if (post.status === "publishing") onSaved(post, { tone: "warn", text: result.warning || "Vai ao ar em até 2 minutos. O UaiFlow publica sozinho, faz o 1º comentário e liga a automação." });
-      else if (post.status === "scheduled") onSaved(post, { tone: "success", text: `Agendado para ${dateTimeLabel(new Date(postTime(post)))}.` });
-      else onSaved(post, { tone: "success", text: "Rascunho salvo." });
+      else if (post.status === "published") onSaved(post, { tone: result.warning ? "warn" : "success", text: `Publicado! A automação da palavra-chave já está ligada.${result.warning ? ` ${result.warning}` : ""}` });
+      else if (post.status === "publishing") onSaved(post, { tone: "warn", text: [result.warning?.startsWith("Vai ao ar") ? null : "Vai ao ar em até 2 minutos. O UaiFlow publica sozinho, faz o 1º comentário e liga a automação.", result.warning].filter(Boolean).join(" ") });
+      else if (post.status === "scheduled") onSaved(post, { tone: result.warning ? "warn" : "success", text: `Agendado para ${dateTimeLabel(new Date(postTime(post)))}.${result.warning ? ` ${result.warning}` : ""}` });
+      else onSaved(post, { tone: result.warning ? "warn" : "success", text: `Rascunho salvo.${result.warning ? ` ${result.warning}` : ""}` });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Erro ao salvar.");
     } finally {
