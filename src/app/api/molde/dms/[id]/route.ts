@@ -37,6 +37,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const outcome = acao === "enviar" ? await queueReply(id, texto) : await discardPending(id);
     if (outcome === "not-found") return answer("Mensagem não encontrada.", 404);
     if (outcome === "closed") return answer("Esta mensagem já foi respondida ou descartada.", 409);
+    if (outcome === "opted-out") return answer("Esta pessoa pediu para não receber mensagens.", 409);
     if (outcome === "expired") return answer("Passou o prazo de 24 h do Instagram para responder esta pessoa.", 409);
 
     // Já pode ter ficado claro que não sai (ex.: contato em atendimento manual): a resposta mostra o estado de agora.

@@ -19,6 +19,7 @@ import {
   sendPrivateReply,
   sendPublicCommentReply,
 } from "@/lib/instagram/client";
+import { cleanupOldPending } from "@/lib/db/dm-pending";
 import { renderMessageTemplate } from "@/lib/message-template";
 import { formatSaoPauloTime } from "@/lib/time";
 
@@ -38,6 +39,7 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
   const deadline = Date.now() + budgetMs;
   await recoverStaleQueueJobs();
   await markExpiredDmsSkipped();
+  await cleanupOldPending(); // DMs sem resposta fechadas há mais de 90 dias (no máximo 1 vez a cada 6 h, nunca falha)
 
   const total = Math.min(limit, MAX_JOBS_PER_DRAIN);
   let processed = 0;

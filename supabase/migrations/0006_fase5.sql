@@ -93,5 +93,9 @@ create unique index if not exists dm_pending_open_contact
 create index if not exists dm_pending_account_status_idx
   on public.dm_pending (account_id, status, last_message_at desc);
 
+-- Achar depressa as linhas de um contato (a mesma mensagem reentregue não vira outro item; limpeza dos itens velhos).
+create index if not exists dm_pending_contact_idx
+  on public.dm_pending (contact_id);
+
 -- Segurança por linha ligada e SEM política: só o servidor do UaiFlow (conexão direta do banco) lê e grava.
 alter table public.dm_pending enable row level security;

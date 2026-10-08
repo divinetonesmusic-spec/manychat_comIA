@@ -14,7 +14,7 @@ import {
   type Automation,
   type AutomationTrigger,
 } from "@/lib/db/repositories";
-import { recordPendingDmSafely } from "@/lib/db/dm-pending";
+import { discardPendingForContactSafely, recordPendingDmSafely } from "@/lib/db/dm-pending";
 import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_PREFIX, hasExecutableFlow } from "@/lib/flow-executor";
 import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
 
@@ -358,6 +358,7 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
   const normalizedText = normalizeWebhookText(text);
   if (isOptOutText(normalizedText)) {
     await setContactOptOut(contactId, true);
+    await discardPendingForContactSafely(contactId);
     if (settings.opt_out_automation_id) {
       const automation = await getAutomation(settings.opt_out_automation_id, account.id);
       if (automation?.active) await enqueueWelcomeDm({ automation, eventId, contactId, instagramUserId: senderId });

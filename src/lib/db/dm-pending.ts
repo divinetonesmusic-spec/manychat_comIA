@@ -23,6 +23,11 @@ export const NOTE_HUMAN_PAUSE = "O contato está em atendimento manual.";
 const NOTE_LOST_FROM_QUEUE = "A resposta saiu da fila de envios sem ser enviada.";
 const NOTE_COULD_NOT_SEND = "Não consegui enviar esta resposta.";
 const NOTE_NOT_QUEUED = "Não consegui colocar a resposta na fila de envios.";
+export const NOTE_OPTED_OUT = "A pessoa pediu para não receber mensagens.";
+/** Linhas fechadas (e as muito velhas que nunca fecharam) saem do banco depois disto. */
+const KEEP_DAYS = 90;
+const CLEANUP_EVERY_MS = 6 * 3600_000;
+const CLEANUP_BATCH = 500;
 
 let warnedMissingTable = false;
 
@@ -55,10 +60,15 @@ export async function recordPendingDmSafely(input: {
 
 async function recordPendingDm(input: Parameters<typeof recordPendingDmSafely>[0]) {
   const message: PendingMessage = { texto: input.texto.slice(0, MAX_TEXT_LENGTH), em: input.em.toISOString(), eventId: input.eventId };
-  // A mesma mensagem entregue duas vezes pela Meta (mesmo eventId) não entra duas vezes.
+  // Não entra se: a mesma mensagem (mesmo eventId, a Meta reentrega) já está em QUALQUER linha do contato, mesmo já
+  // respondida, descartada ou expirada (senão nasceria outro "aguardando" com mensagem já tratada); ou se a pessoa pediu para sair.
   await query(
     `insert into public.dm_pending (account_id, contact_id, instagram_user_id, username, messages, last_message_at)
-     values ($1, $2, $3, $4, jsonb_build_array($5::jsonb), $6)
+     select $1::uuid, $2::uuid, $3::text, $4::text, jsonb_build_array($5::jsonb), $6::timestamptz
+     where not exists (
+             select 1 from public.dm_pending o
+             where o.contact_id = $2 and o.messages @> jsonb_build_array(jsonb_build_object('eventId', $7::text)))
+       and not exists (select 1 from public.contacts c where c.id = $2 and c.opted_out_at is not null)
      on conflict (contact_id) where status = 'aguardando' do update set
        messages = (
          select coalesce(jsonb_agg(x.m order by x.ord), '[]'::jsonb)
@@ -71,8 +81,7 @@ async function recordPendingDm(input: Parameters<typeof recordPendingDmSafely>[0
        ),
        last_message_at = greatest(public.dm_pending.last_message_at, excluded.last_message_at),
        username = coalesce(excluded.username, public.dm_pending.username),
-       updated_at = now()
-     where not (public.dm_pending.messages @> jsonb_build_array(jsonb_build_object('eventId', $7::text)))`,
+       updated_at = now()`,
     [input.accountId, input.contactId, input.instagramUserId, input.username ?? null, JSON.stringify(message), input.em, input.eventId],
   );
 }
@@ -94,6 +103,16 @@ export async function refreshPending(scope: Scope = {}) {
        and (c.last_response_at is null or c.last_response_at < now() - interval '24 hours')
        and ($1::uuid is null or d.account_id = $1) and ($2::uuid is null or d.id = $2)`,
     [...params, NOTE_WINDOW_EXPIRED],
+  );
+
+  // Quem pediu para não receber mais mensagens não recebe a resposta aprovada.
+  await query(
+    `update public.dm_pending d
+     set status = 'descartada', status_note = $3, updated_at = now()
+     from public.contacts c
+     where d.contact_id = c.id and d.status = 'aguardando' and c.opted_out_at is not null
+       and ($1::uuid is null or d.account_id = $1) and ($2::uuid is null or d.id = $2)`,
+    [...params, NOTE_OPTED_OUT],
   );
 
   // Linha "na_fila" ainda sem job (o servidor caiu entre uma coisa e outra) só é dada como perdida depois de 2 minutos.
@@ -218,16 +237,17 @@ export async function listPending(scope: Scope = {}): Promise<PendingItem[]> {
   }));
 }
 
-export type ReplyOutcome = "ok" | "not-found" | "closed" | "expired";
+export type ReplyOutcome = "ok" | "not-found" | "closed" | "expired" | "opted-out";
 
 /**
  * Coloca a resposta aprovada na fila normal de envios. O texto vai como a dona aprovou (`literal`: sem trocar {{marcações}}).
  * Não liga a pausa de atendimento humano. A fila decide o resto (limite por hora, prazo de 24 h, conta pausada).
  */
 export async function queueReply(id: string, texto: string): Promise<ReplyOutcome> {
-  const { rows } = await query<PendingRow & { expired: boolean }>(
+  const { rows } = await query<PendingRow & { expired: boolean; opted_out: boolean }>(
     `select d.id, d.account_id, d.contact_id, d.instagram_user_id, d.messages, d.status,
-            (c.last_response_at is null or c.last_response_at < now() - interval '24 hours') as expired
+            (c.last_response_at is null or c.last_response_at < now() - interval '24 hours') as expired,
+            (c.opted_out_at is not null) as opted_out
      from public.dm_pending d
      left join public.contacts c on c.id = d.contact_id
      where d.id = $1`,
@@ -236,6 +256,10 @@ export async function queueReply(id: string, texto: string): Promise<ReplyOutcom
   const item = rows[0];
   if (!item) return "not-found";
   if (item.status !== "aguardando") return "closed";
+  if (item.opted_out) {
+    await query("update public.dm_pending set status = 'descartada', status_note = $2, updated_at = now() where id = $1 and status = 'aguardando'", [id, NOTE_OPTED_OUT]);
+    return "opted-out";
+  }
   if (item.expired) {
     await query("update public.dm_pending set status = 'expirada', status_note = $2, updated_at = now() where id = $1 and status = 'aguardando'", [id, NOTE_WINDOW_EXPIRED]);
     return "expired";
@@ -284,4 +308,47 @@ export async function discardPending(id: string): Promise<"ok" | "not-found" | "
   if (done.rowCount) return "ok";
   const { rows } = await query("select 1 from public.dm_pending where id = $1", [id]);
   return rows.length ? "closed" : "not-found";
+}
+
+/** O contato pediu para sair: fecha o que está aguardando. Nunca lança (sem a 0006 não há nada a fechar). */
+export async function discardPendingForContactSafely(contactId: string) {
+  try {
+    await query("update public.dm_pending set status = 'descartada', status_note = $2, updated_at = now() where contact_id = $1 and status = 'aguardando'", [contactId, NOTE_OPTED_OUT]);
+  } catch (error) {
+    if (!isMissingTables(error)) console.error("[dms] não consegui fechar as mensagens de quem pediu para sair:", error instanceof Error ? error.message : error);
+  }
+}
+
+let lastCleanup = 0;
+
+/** Só para os testes: libera a próxima limpeza. */
+export function resetCleanupThrottle() {
+  lastCleanup = 0;
+}
+
+/**
+ * Apaga as linhas fechadas (enviada, nao_enviada, expirada, descartada) com mais de 90 dias, e as "aguardando" paradas há mais de
+ * 90 dias (o prazo de 24 h passou há muito). No máximo 500 por rodada e uma vez a cada 6 h por processo: barato de chamar no drain.
+ * Nunca lança; sem a 0006 não faz nada. Devolve quantas apagou (ou 0 se não era a hora).
+ */
+export async function cleanupOldPending(options: { force?: boolean } = {}): Promise<number> {
+  const now = Date.now();
+  if (!options.force && now - lastCleanup < CLEANUP_EVERY_MS) return 0;
+  lastCleanup = now;
+  try {
+    const done = await query(
+      `delete from public.dm_pending
+       where id in (
+         select id from public.dm_pending
+         where (status not in ('aguardando', 'na_fila') and updated_at < now() - make_interval(days => $1))
+            or (status = 'aguardando' and last_message_at < now() - make_interval(days => $1))
+         limit ${CLEANUP_BATCH}
+       )`,
+      [KEEP_DAYS],
+    );
+    return done.rowCount ?? 0;
+  } catch (error) {
+    if (!isMissingTables(error)) console.error("[dms] não consegui limpar as mensagens antigas:", error instanceof Error ? error.message : error);
+    return 0;
+  }
 }
