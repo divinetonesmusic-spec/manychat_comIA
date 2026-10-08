@@ -120,10 +120,13 @@ describe("aviso de IA sem a migração 0006 aplicada", { skip: semBanco }, () =>
     }));
     const criado = await molde.json();
     assert.equal(criado.warning, AVISO);
+    assert.equal(criado.data.warning, AVISO, "também dentro de data: o robô 0.9.1 devolve só o data");
     assert.equal(criado.data.aiGenerated, false);
 
     const patch = await moldeIdRoute.PATCH(request(`/api/molde/posts/${criado.data.id}`, { method: "PATCH", headers: MOLDE, json: { aiGenerated: true } }), { params: Promise.resolve({ id: criado.data.id }) });
-    assert.equal((await patch.json()).warning, AVISO);
+    const corpoPatch = await patch.json();
+    assert.equal(corpoPatch.warning, AVISO);
+    assert.equal(corpoPatch.data.warning, AVISO);
 
     const tela = await contentRoute.POST(request("/api/content", { json: { accountId, publishType: "reel_video", mediaUrl: "https://midia.teste.invalid/uaiflow/reel.mp4", aiGenerated: true, when: "draft" } }));
     assert.equal(tela.status, 200);

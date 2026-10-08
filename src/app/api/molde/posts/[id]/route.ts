@@ -33,7 +33,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // "warning" é campo novo (só acréscimo): aiGenerated:true sem a 0006 no Supabase não é guardado; o Molde trata como bloqueio.
     warning = await aiColumnWarning(parsed.value);
     // "notice" é campo novo (só acréscimo): o relógio termina a publicação em até 2 min.
-    return post ? { ...publicView(post), ...(publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}) } : null;
+    // "warning" também vai dentro de "data": o robô do Mac (0.9.1) devolve só o "data" à página.
+    return post ? { ...publicView(post), ...(publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}), ...(warning ? { warning } : {}) } : null;
   }, () => warning);
 }
 

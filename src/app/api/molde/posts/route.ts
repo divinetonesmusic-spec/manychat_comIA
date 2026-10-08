@@ -32,9 +32,10 @@ export async function POST(request: NextRequest) {
   try {
     const { post, created } = await savePostPackage({ ...parsed.value, source: "molde" }, parsed.publishNow);
     // "notice" é campo novo (só acréscimo): o "Publicar agora" não publica na hora, o relógio termina em até 2 min.
-    const data = post ? { ...publicView(post), ...(parsed.publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}) } : null;
-    // "warning" é campo novo (só acréscimo): aiGenerated:true sem a 0006 no Supabase não é guardado; o Molde trata como bloqueio.
+    // "warning" (campo novo, só acréscimo): aiGenerated:true sem a 0006 no Supabase não é guardado; o Molde trata como bloqueio.
+    // Vai também dentro de "data" porque o robô do Mac (0.9.1) devolve só o "data" à página.
     const warning = await aiColumnWarning(parsed.value);
+    const data = post ? { ...publicView(post), ...(parsed.publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}), ...(warning ? { warning } : {}) } : null;
     return NextResponse.json({ data, created, ...(warning ? { warning } : {}) }, { status: created ? 201 : 200 });
   } catch (error) {
     if (error instanceof ContentError) return NextResponse.json({ error: error.message }, { status: error.status });
