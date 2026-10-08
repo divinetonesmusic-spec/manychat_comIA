@@ -230,6 +230,126 @@ describe("DMs sem resposta para o Molde", { skip: semBanco }, () => {
     });
   });
 
+  // ---------- rodada de correções 1 ----------
+
+  describe("mensagem reentregue, quem pediu para sair e a limpeza", () => {
+    const evento = (de: string, mid: string, texto: string) => ({ sender: { id: de, username: `user_${de}` }, message: { mid, text: texto } });
+
+    test("a Meta reentrega a mensagem depois de descartada, enviada ou expirada: não nasce outro 'aguardando'", async () => {
+      for (const [de, fechar] of [
+        ["p-descartada", async (id: string) => POST(id, { acao: "descartar" })],
+        ["p-enviada", async (id: string) => POST(id, { acao: "enviar", texto: "Oi!" })],
+        ["p-expirada", async (id: string) => { await db.sql("update public.dm_pending set status = 'expirada' where id = $1", [id]); }],
+      ] as const) {
+        await enviarAoWebhook(evento(de, `mid-${de}`, "oi"));
+        const [antes] = await db.sql<{ id: string }>("select id from public.dm_pending where instagram_user_id = $1", [de]);
+        await fechar(antes.id);
+        const reenvio = await enviarAoWebhook(evento(de, `mid-${de}`, "oi"));
+        assert.equal(reenvio.status, 200);
+        const linhas = await db.sql<{ status: string }>("select status from public.dm_pending where instagram_user_id = $1", [de]);
+        assert.equal(linhas.length, 1, `${de}: continua uma linha só`);
+        assert.notEqual(linhas[0].status, "aguardando", `${de}: nada reabriu`);
+      }
+      assert.equal((await filaTudo()).length, 1, "só a resposta aprovada de verdade está na fila");
+      // Uma mensagem NOVA (outro mid) da mesma pessoa abre item normalmente.
+      await enviarAoWebhook(evento("p-descartada", "mid-nova", "e agora?"));
+      assert.equal((await db.sql("select 1 from public.dm_pending where instagram_user_id = 'p-descartada' and status = 'aguardando'")).length, 1);
+    });
+
+    test("pediu 'parar' com item aguardando: o item é descartado com a frase e a resposta aprovada não sai", async () => {
+      const pendente = await umaPendente();
+      assert.equal((await dm("pessoa1", "Parar")).status, 200);
+      const [linha] = await db.sql<{ status: string; status_note: string }>("select status, status_note from public.dm_pending");
+      assert.equal(linha.status, "descartada");
+      assert.equal(linha.status_note, "A pessoa pediu para não receber mensagens.");
+      const resposta = await POST(pendente.id, { acao: "enviar", texto: "Oi!" });
+      assert.equal(resposta.status, 409);
+      assert.equal((await filaTudo()).length, 0);
+      const [visto] = await itens();
+      assert.equal(visto.status, "descartada");
+      assert.equal(visto.nota, "A pessoa pediu para não receber mensagens.");
+    });
+
+    test("contato marcado como 'não quer receber' por outro caminho: enviar recusa (409 com a frase) e o GET fecha o item", async () => {
+      const a = await umaPendente("pessoa1", "oi");
+      const b = await umaPendente("pessoa2", "olá");
+      await db.sql("update public.contacts set opted_out_at = now() where instagram_user_id = 'pessoa1'");
+      const recusa = await POST(a.id, { acao: "enviar", texto: "Oi!" });
+      assert.equal(recusa.status, 409);
+      assert.equal((await recusa.json()).error, "Esta pessoa pediu para não receber mensagens.");
+      assert.equal((await db.sql<{ status: string }>("select status from public.dm_pending where id = $1", [a.id]))[0].status, "descartada");
+      assert.equal((await filaTudo()).length, 0);
+
+      await db.sql("update public.contacts set opted_out_at = now() where instagram_user_id = 'pessoa2'");
+      const lista = await itens();
+      assert.equal(lista.find((i) => i.id === b.id)?.status, "descartada", "o GET também fecha");
+    });
+
+    test("quem pediu para sair e manda outra mensagem: não entra na fila; depois de 'começar' volta a entrar", async () => {
+      await dm("pessoa1", "parar");
+      await dm("pessoa1", "mas e o preço?");
+      assert.equal((await pendentes()).length, 0);
+      await dm("pessoa1", "começar");
+      await dm("pessoa1", "agora sim, e o preço?");
+      assert.equal((await pendentes()).length, 1);
+    });
+
+    test("limpeza: apaga fechadas com mais de 90 dias (e aguardando paradas há 90), mantém o resto; 500 por rodada; a cada 6 h", async () => {
+      const dms = await import("@/lib/db/dm-pending");
+      await dm("pessoa1", "a");
+      const [{ contact_id: contato, account_id: conta }] = await pendentes();
+      await db.sql("delete from public.dm_pending");
+      const linha = (status: string, dias: number, ultima = dias) => db.sql(
+        `insert into public.dm_pending (account_id, contact_id, instagram_user_id, status, updated_at, last_message_at)
+         values ($1, $2, 'x', $3, now() - make_interval(days => $4), now() - make_interval(days => $5))`,
+        [conta, contato, status, dias, ultima],
+      );
+      // fechadas velhas (somem), fechadas recentes (ficam), na_fila velha (fica: ainda acompanha o envio), aguardando velha (some) e recente (fica)
+      for (const status of ["enviada", "nao_enviada", "expirada", "descartada"]) { await linha(status, 91); await linha(status, 89); }
+      await linha("na_fila", 200);
+      await linha("aguardando", 5, 91);
+      const antes = (await db.sql("select 1 from public.dm_pending")).length;
+      assert.equal(antes, 10);
+
+      dms.resetCleanupThrottle();
+      assert.equal(await dms.cleanupOldPending(), 5, "4 fechadas velhas + 1 aguardando parada");
+      const restam = await db.sql<{ status: string; dias: number }>("select status, round(extract(epoch from now() - updated_at) / 86400)::int as dias from public.dm_pending order by status, dias");
+      assert.equal(restam.length, 5);
+      assert.deepEqual(restam.map((r) => r.status).sort(), ["descartada", "enviada", "expirada", "na_fila", "nao_enviada"]);
+      assert.ok(restam.filter((r) => r.status !== "na_fila").every((r) => r.dias === 89));
+
+      // Não é a hora de novo: nada a fazer, mesmo havendo velhas.
+      await linha("enviada", 120);
+      assert.equal(await dms.cleanupOldPending(), 0);
+      assert.equal(await dms.cleanupOldPending({ force: true }), 1);
+    });
+
+    test("o drain dispara a limpeza (e sem a tabela ou com erro ele não quebra)", async () => {
+      const dms = await import("@/lib/db/dm-pending");
+      await dm("pessoa1", "a");
+      const [{ contact_id: contato, account_id: conta }] = await pendentes();
+      await db.sql("delete from public.dm_pending");
+      await db.sql("insert into public.dm_pending (account_id, contact_id, instagram_user_id, status, updated_at) values ($1, $2, 'x', 'enviada', now() - interval '100 days')", [conta, contato]);
+      dms.resetCleanupThrottle();
+      await drain.drainQueue(40, 20_000);
+      assert.equal((await db.sql("select 1 from public.dm_pending")).length, 0);
+    });
+
+    test("limpeza em lotes de 500", async () => {
+      const dms = await import("@/lib/db/dm-pending");
+      await dm("pessoa1", "a");
+      const [{ contact_id: contato, account_id: conta }] = await pendentes();
+      await db.sql("delete from public.dm_pending");
+      await db.sql(
+        `insert into public.dm_pending (account_id, contact_id, instagram_user_id, status, updated_at)
+         select $1, $2, 'x', 'descartada', now() - interval '120 days' from generate_series(1, 650)`,
+        [conta, contato],
+      );
+      assert.equal(await dms.cleanupOldPending({ force: true }), 500);
+      assert.equal(await dms.cleanupOldPending({ force: true }), 150);
+    });
+  });
+
   // ---------- GET ----------
 
   describe("GET /api/molde/dms", () => {
