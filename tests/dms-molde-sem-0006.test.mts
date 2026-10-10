@@ -68,6 +68,38 @@ describe("DMs sem resposta sem a migração 0006", { skip: semBanco }, () => {
     assert.match(doDm[0], /0006/);
   });
 
+  test("'parar' sem a 0006: 200, sem erro no log; a resposta do Molde na fila é segurada e a confirmação de saída entra", async () => {
+    const repos = await import("@/lib/db/repositories");
+    assert.equal((await dm("pessoa3", "oi")).status, 200);
+    const [contato] = await db.sql<{ id: string; account_id: string }>("select id, account_id from public.contacts where instagram_user_id = 'pessoa3'");
+    const saida = await repos.createAutomation({ account_id: contato.account_id, name: "Saída", triggers: ["dm"], keywords: ["zzz-nunca"], match_type: "contains", welcome_dm: "Pronto, você saiu da lista." });
+    await db.sql(
+      `insert into public.profile_settings (id, account_id, opt_out_automation_id) values (true, $1, $2)
+       on conflict (account_id) do update set opt_out_automation_id = excluded.opt_out_automation_id`,
+      [contato.account_id, saida.id],
+    );
+    // Um job de resposta do Molde (como se tivesse entrado antes) e um de automação, os dois esperando.
+    await repos.enqueueJob({ sendType: "dm", accountId: contato.account_id, contactId: contato.id, instagramRecipientId: "pessoa3", payload: { text: "Resposta do Molde", origem: "molde_ia", literal: true } });
+    await repos.enqueueJob({ sendType: "dm", accountId: contato.account_id, contactId: contato.id, instagramRecipientId: "pessoa3", payload: { text: "Mensagem de automação" } });
+
+    const erros: string[] = [];
+    const originalError = console.error;
+    console.error = (...partes: unknown[]) => void erros.push(partes.join(" "));
+    try {
+      assert.equal((await dm("pessoa3", "parar")).status, 200);
+    } finally {
+      console.error = originalError;
+    }
+    assert.deepEqual(erros, [], "nenhum erro no log");
+    const fila = await db.sql<{ texto: string; status: string; last_error: string | null }>("select payload ->> 'text' as texto, status, last_error from public.queue order by created_at");
+    assert.deepEqual(fila.map((f) => [f.texto, f.status, f.last_error]), [
+      ["Resposta do Molde", "skipped", "A pessoa pediu para não receber mensagens."],
+      ["Mensagem de automação", "pending", null],
+      ["Pronto, você saiu da lista.", "pending", null],
+    ]);
+    await db.sql("delete from public.queue");
+  });
+
   test("GET /api/molde/dms: 503 com a frase (e sem token, 401)", async () => {
     const resposta = await listar.GET(request("/api/molde/dms", { headers: MOLDE }));
     assert.equal(resposta.status, 503);

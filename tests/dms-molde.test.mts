@@ -281,6 +281,63 @@ describe("DMs sem resposta para o Molde", { skip: semBanco }, () => {
       assert.equal(visto.nota, "A pessoa pediu para não receber mensagens.");
     });
 
+    test("aprovou, a resposta está na fila e a pessoa manda 'parar': a resposta do Molde não sai, o item fecha com a frase e a confirmação sai", async () => {
+      const saida = await automacao({ name: "Saída", triggers: ["dm"], keywords: ["zzz-nunca"], match_type: "contains", welcome_dm: "Pronto, você não vai mais receber mensagens." });
+      await configurar({ opt_out_automation_id: saida.id });
+      const pendente = await umaPendente();
+      const aprovada = await POST(pendente.id, { acao: "enviar", texto: "Oi! O ebook custa R$ 29." });
+      assert.equal(aprovada.status, 200);
+      assert.equal((await aprovada.json()).data.status, "na_fila");
+      const [{ queue_id: filaId }] = await db.sql<{ queue_id: string }>("select queue_id from public.dm_pending");
+
+      assert.equal((await dm("pessoa1", "parar")).status, 200);
+      const [job] = await filaDe(filaId);
+      assert.equal(job.status, "skipped", "a resposta do Molde foi segurada na fila");
+      assert.equal(job.last_error, "A pessoa pediu para não receber mensagens.");
+      const [linha] = await db.sql<{ status: string; status_note: string }>("select status, status_note from public.dm_pending");
+      assert.equal(linha.status, "nao_enviada");
+      assert.equal(linha.status_note, "A pessoa pediu para não receber mensagens.");
+
+      const resultado = await drain.drainQueue(40, 20_000);
+      assert.equal(resultado.sent, 1, "só a confirmação de saída");
+      const envios = meta.calls.filter((call) => call.path.endsWith("/messages")).map((call) => (call.body.message as { text: string }).text);
+      assert.deepEqual(envios, ["Pronto, você não vai mais receber mensagens."], "0 respostas do Molde; a confirmação saiu");
+
+      const [visto] = await itens();
+      assert.equal(visto.status, "nao_enviada");
+      assert.equal(visto.nota, "A pessoa pediu para não receber mensagens.");
+      assert.equal(visto.resposta, "Oi! O ebook custa R$ 29.");
+    });
+
+    test("'parar' só segura a resposta do Molde daquela pessoa: as de outras pessoas e as automações seguem", async () => {
+      const a = await umaPendente("pessoa1", "oi");
+      const b = await umaPendente("pessoa2", "olá");
+      assert.equal((await POST(a.id, { acao: "enviar", texto: "Para a pessoa 1" })).status, 200);
+      assert.equal((await POST(b.id, { acao: "enviar", texto: "Para a pessoa 2" })).status, 200);
+      await dm("pessoa1", "parar");
+      const fila = await db.sql<{ status: string; texto: string }>("select status, payload ->> 'text' as texto from public.queue order by created_at");
+      assert.deepEqual(fila.map((f) => [f.texto, f.status]), [["Para a pessoa 1", "skipped"], ["Para a pessoa 2", "pending"]]);
+      await drain.drainQueue(40, 20_000);
+      const envios = meta.calls.filter((call) => call.path.endsWith("/messages")).map((call) => (call.body.message as { text: string }).text);
+      assert.deepEqual(envios, ["Para a pessoa 2"]);
+    });
+
+    test("resposta que entrou na fila depois do 'parar' (no meio do caminho): o drain não manda e o item fecha com a frase", async () => {
+      const pendente = await umaPendente();
+      assert.equal((await POST(pendente.id, { acao: "enviar", texto: "Oi!" })).status, 200);
+      // O opt-out chegou por outro caminho, sem passar pelo webhook (ou a fila aceitou a resposta logo depois do "parar").
+      await db.sql("update public.contacts set opted_out_at = now() where instagram_user_id = 'pessoa1'");
+      const resultado = await drain.drainQueue(40, 20_000);
+      assert.equal(resultado.sent, 0);
+      assert.equal(meta.count("/messages"), 0);
+      const [fila] = await filaTudo();
+      assert.equal(fila.status, "skipped");
+      assert.equal(fila.last_error, "A pessoa pediu para não receber mensagens.");
+      const [visto] = await itens();
+      assert.equal(visto.status, "nao_enviada");
+      assert.equal(visto.nota, "A pessoa pediu para não receber mensagens.");
+    });
+
     test("contato marcado como 'não quer receber' por outro caminho: enviar recusa (409 com a frase) e o GET fecha o item", async () => {
       const a = await umaPendente("pessoa1", "oi");
       const b = await umaPendente("pessoa2", "olá");

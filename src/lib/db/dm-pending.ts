@@ -1,5 +1,5 @@
 import { query } from "@/lib/db/client";
-import { enqueueJob } from "@/lib/db/repositories";
+import { enqueueJob, MOLDE_REPLY_OPTED_OUT } from "@/lib/db/repositories";
 import { isMissingTables } from "@/lib/db/tracked-links";
 
 /**
@@ -23,7 +23,7 @@ export const NOTE_HUMAN_PAUSE = "O contato está em atendimento manual.";
 const NOTE_LOST_FROM_QUEUE = "A resposta saiu da fila de envios sem ser enviada.";
 const NOTE_COULD_NOT_SEND = "Não consegui enviar esta resposta.";
 const NOTE_NOT_QUEUED = "Não consegui colocar a resposta na fila de envios.";
-export const NOTE_OPTED_OUT = "A pessoa pediu para não receber mensagens.";
+export const NOTE_OPTED_OUT = MOLDE_REPLY_OPTED_OUT;
 /** Linhas fechadas (e as muito velhas que nunca fecharam) saem do banco depois disto. */
 const KEEP_DAYS = 90;
 const CLEANUP_EVERY_MS = 6 * 3600_000;
@@ -311,10 +311,34 @@ export async function discardPending(id: string): Promise<"ok" | "not-found" | "
   return rows.length ? "closed" : "not-found";
 }
 
-/** O contato pediu para sair: fecha o que está aguardando. Nunca lança (sem a 0006 não há nada a fechar). */
-export async function discardPendingForContactSafely(contactId: string) {
+/**
+ * O contato pediu para sair ("parar"). Nunca lança.
+ * 1. A resposta do Molde que a dona já aprovou e ainda espera na fila (job "pending" com origem molde_ia) não sai mais:
+ *    vira "skipped" com a frase. Isso funciona mesmo sem a 0006 (a fila é de antes dela).
+ * 2. Os itens "aguardando" viram "descartada" e os "na_fila" cuja resposta foi segurada viram "nao_enviada", com a frase.
+ * A confirmação de saída (automação de "parar") não é do Molde: continua saindo. Sem a 0006 a parte 2 é pulada em silêncio.
+ */
+export async function closePendingForOptOutSafely(contactId: string) {
+  let heldJobs: string[] = [];
+  try {
+    const { rows } = await query<{ id: string }>(
+      `update public.queue set status = 'skipped', last_error = $2
+       where contact_id = $1 and status = 'pending' and payload ->> 'origem' = 'molde_ia'
+       returning id`,
+      [contactId, MOLDE_REPLY_OPTED_OUT],
+    );
+    heldJobs = rows.map((row) => row.id);
+  } catch (error) {
+    console.error("[dms] não consegui segurar as respostas na fila de quem pediu para sair:", error instanceof Error ? error.message : error);
+  }
   try {
     await query("update public.dm_pending set status = 'descartada', status_note = $2, updated_at = now() where contact_id = $1 and status = 'aguardando'", [contactId, NOTE_OPTED_OUT]);
+    if (heldJobs.length) {
+      await query(
+        "update public.dm_pending set status = 'nao_enviada', status_note = $3, updated_at = now() where contact_id = $1 and status = 'na_fila' and queue_id = any($2::uuid[])",
+        [contactId, heldJobs, NOTE_OPTED_OUT],
+      );
+    }
   } catch (error) {
     if (!isMissingTables(error)) console.error("[dms] não consegui fechar as mensagens de quem pediu para sair:", error instanceof Error ? error.message : error);
   }

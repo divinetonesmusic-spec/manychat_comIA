@@ -1324,6 +1324,9 @@ export async function markJobFailed(id: string, error: string) {
   );
 }
 
+/** Motivo gravado no job quando a resposta do Molde não sai porque a pessoa pediu para parar (vira a nota do item). */
+export const MOLDE_REPLY_OPTED_OUT = "A pessoa pediu para não receber mensagens.";
+
 export async function markExpiredDmsSkipped() {
   await query(
     `update public.queue q
@@ -1344,6 +1347,19 @@ export async function markExpiredDmsSkipped() {
        and q.send_type in ('dm', 'private_reply')
        and c.human_paused_at is not null
        and (c.human_paused_until is null or c.human_paused_until > now())`,
+  );
+
+  // Resposta do Molde aprovada para quem depois pediu para parar não sai (o webhook já segura; aqui pega a que entrou
+  // na fila no meio do caminho). As outras mensagens (como a confirmação de saída) não mudam.
+  await query(
+    `update public.queue q
+     set status = 'skipped', last_error = $1
+     from public.contacts c
+     where q.contact_id = c.id
+       and q.status = 'pending'
+       and q.payload ->> 'origem' = 'molde_ia'
+       and c.opted_out_at is not null`,
+    [MOLDE_REPLY_OPTED_OUT],
   );
 }
 
