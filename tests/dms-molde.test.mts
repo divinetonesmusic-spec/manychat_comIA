@@ -362,7 +362,7 @@ describe("DMs sem resposta para o Molde", { skip: semBanco }, () => {
       assert.equal((await pendentes()).length, 1);
     });
 
-    test("limpeza: apaga fechadas com mais de 90 dias (e aguardando paradas há 90), mantém o resto; 500 por rodada; a cada 6 h", async () => {
+    test("limpeza: apaga fechadas e na_fila sem mudança há mais de 90 dias (e aguardando paradas há 90), mantém o resto; a cada 6 h", async () => {
       const dms = await import("@/lib/db/dm-pending");
       await dm("pessoa1", "a");
       const [{ contact_id: contato, account_id: conta }] = await pendentes();
@@ -372,19 +372,19 @@ describe("DMs sem resposta para o Molde", { skip: semBanco }, () => {
          values ($1, $2, 'x', $3, now() - make_interval(days => $4), now() - make_interval(days => $5))`,
         [conta, contato, status, dias, ultima],
       );
-      // fechadas velhas (somem), fechadas recentes (ficam), na_fila velha (fica: ainda acompanha o envio), aguardando velha (some) e recente (fica)
-      for (const status of ["enviada", "nao_enviada", "expirada", "descartada"]) { await linha(status, 91); await linha(status, 89); }
+      // fechadas e na_fila velhas (somem), fechadas e na_fila recentes (ficam), aguardando velha (some) e recente (fica)
+      for (const status of ["enviada", "nao_enviada", "expirada", "descartada", "na_fila"]) { await linha(status, 91); await linha(status, 89); }
       await linha("na_fila", 200);
       await linha("aguardando", 5, 91);
       const antes = (await db.sql("select 1 from public.dm_pending")).length;
-      assert.equal(antes, 10);
+      assert.equal(antes, 12);
 
       dms.resetCleanupThrottle();
-      assert.equal(await dms.cleanupOldPending(), 5, "4 fechadas velhas + 1 aguardando parada");
+      assert.equal(await dms.cleanupOldPending(), 7, "4 fechadas velhas + 2 na_fila velhas + 1 aguardando parada");
       const restam = await db.sql<{ status: string; dias: number }>("select status, round(extract(epoch from now() - updated_at) / 86400)::int as dias from public.dm_pending order by status, dias");
       assert.equal(restam.length, 5);
       assert.deepEqual(restam.map((r) => r.status).sort(), ["descartada", "enviada", "expirada", "na_fila", "nao_enviada"]);
-      assert.ok(restam.filter((r) => r.status !== "na_fila").every((r) => r.dias === 89));
+      assert.ok(restam.every((r) => r.dias === 89));
 
       // Não é a hora de novo: nada a fazer, mesmo havendo velhas.
       await linha("enviada", 120);

@@ -352,8 +352,8 @@ export function resetCleanupThrottle() {
 }
 
 /**
- * Apaga as linhas fechadas (enviada, nao_enviada, expirada, descartada) com mais de 90 dias, e as "aguardando" paradas há mais de
- * 90 dias (o prazo de 24 h passou há muito). No máximo 500 por rodada e uma vez a cada 6 h por processo: barato de chamar no drain.
+ * Apaga as linhas fechadas (enviada, nao_enviada, expirada, descartada) e as "na_fila" (ninguém mais acompanhou o envio) sem
+ * mudança há mais de 90 dias, e as "aguardando" paradas há mais de 90 dias (o prazo de 24 h passou há muito). No máximo 500 por rodada e uma vez a cada 6 h por processo: barato de chamar no drain.
  * Nunca lança; sem a 0006 não faz nada. Devolve quantas apagou (ou 0 se não era a hora).
  */
 export async function cleanupOldPending(options: { force?: boolean } = {}): Promise<number> {
@@ -365,7 +365,7 @@ export async function cleanupOldPending(options: { force?: boolean } = {}): Prom
       `delete from public.dm_pending
        where id in (
          select id from public.dm_pending
-         where (status not in ('aguardando', 'na_fila') and updated_at < now() - make_interval(days => $1))
+         where (status <> 'aguardando' and updated_at < now() - make_interval(days => $1))
             or (status = 'aguardando' and last_message_at < now() - make_interval(days => $1))
          limit ${CLEANUP_BATCH}
        )`,
