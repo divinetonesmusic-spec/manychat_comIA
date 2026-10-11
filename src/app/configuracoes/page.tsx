@@ -3,6 +3,7 @@ import { BellRing, Camera, CheckCircle2, ExternalLink, KeyRound, Link2, RefreshC
 import { AppFrame, PageHeader, formatDate, getTokenStatus } from "../app-frame";
 import { PendingLink } from "../pending-link";
 import { NotifyTestButton } from "./notify-test-button";
+import { TelegramWebhookButton } from "./telegram-webhook-button";
 import { getAppBaseUrl } from "@/lib/env";
 import { getConfig } from "@/lib/db/repositories";
 import { isTelegramConfigured } from "@/lib/notify";
@@ -90,11 +91,13 @@ export default async function ConfiguracoesPage() {
             </div>
             <p className="mt-3 text-sm leading-6 text-[var(--ms-muted)]">
               O UaiFlow avisa no Telegram quando um post não sai e quando a conexão do Instagram está para vencer.
+              Também pede a sua aprovação dos vídeos e das respostas preparadas pelo Molde, e manda um resumo todo domingo.
             </p>
             <p className={telegramConfigured ? "status-pill status-pill-green mt-3 w-fit" : "status-pill mt-3 w-fit"}>
               {telegramConfigured ? "Telegram configurado" : "Telegram ainda não configurado"}
             </p>
             <NotifyTestButton />
+            <TelegramWebhookButton />
           </div>
 
           <div className="panel p-5 sm:p-6">

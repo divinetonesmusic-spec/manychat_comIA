@@ -13,7 +13,8 @@
     "db:status": "node scripts/migration-status.cjs",
     "db:apply": "npm run db:migrate",
     "setup:check": "node scripts/check-env.cjs",
-    "release:check": "node scripts/release-check.cjs"
+    "release:check": "node scripts/release-check.cjs",
+    "telegram:webhook": "node scripts/telegram-webhook.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

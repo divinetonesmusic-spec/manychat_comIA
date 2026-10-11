@@ -24,6 +24,7 @@ const PUBLIC_PREFIXES = [
   "/api/token/refresh",
   "/api/health", // saúde do relógio para o monitor; não mostra segredo nem @ de conta
   "/api/molde", // protegido pelo MOLDE_API_TOKEN dentro das rotas
+  "/api/telegram/webhook", // os toques nos botões do Telegram: protegido pelo TELEGRAM_WEBHOOK_SECRET e pela assinatura de cada botão
   "/l", // links rastreados (/l/<código>): quem clica no Instagram não tem login; só redireciona e conta o clique
 ];
 

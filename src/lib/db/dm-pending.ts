@@ -158,6 +158,8 @@ export type PendingItem = {
   status: PendingStatus;
   resposta: string | null;
   nota: string | null;
+  /** O rascunho que o Molde preparou e espera o «Mandar» (0008); null sem rascunho. */
+  rascunho: string | null;
   conversa: PendingConversationLine[];
 };
 
@@ -216,6 +218,7 @@ export async function listPending(scope: Scope = {}): Promise<PendingItem[]> {
      where d.id = any($1::uuid[])`,
     [rows.map((row) => row.id)],
   );
+  const drafts = await draftsFor(rows.map((row) => row.id));
   const conversation = new Map<string, PendingConversationLine[]>();
   for (const line of lines) {
     const list = conversation.get(line.dm_id) ?? [];
@@ -234,6 +237,7 @@ export async function listPending(scope: Scope = {}): Promise<PendingItem[]> {
     status: row.status,
     resposta: row.reply_text,
     nota: row.status_note,
+    rascunho: row.status === "aguardando" ? drafts.get(row.id) ?? null : null,
     conversa: (conversation.get(row.id) ?? []).sort((a, b) => a.em.localeCompare(b.em)),
   }));
 }
@@ -376,4 +380,81 @@ export async function cleanupOldPending(options: { force?: boolean } = {}): Prom
     if (!isMissingTables(error)) console.error("[dms] não consegui limpar as mensagens antigas:", error instanceof Error ? error.message : error);
     return 0;
   }
+}
+
+// ---------- Rascunho de resposta (0008): o Molde prepara, a dona toca em «Mandar» na página ou no Telegram ----------
+
+export type DraftRow = {
+  id: string;
+  account_id: string | null;
+  account_username: string | null;
+  username: string | null;
+  status: PendingStatus;
+  messages: PendingMessage[];
+  reply_text: string | null;
+  draft_text: string | null;
+  draft_seq: number;
+  draft_at: Date | null;
+  telegram_msg_id: string | number | null;
+  updated_at: Date;
+};
+
+/** Lê a conversa com o rascunho (sem a 0008, lança o erro 42703 da coluna que falta). */
+export async function readDraft(id: string): Promise<DraftRow | null> {
+  const { rows } = await query<DraftRow>(
+    `select d.id, d.account_id, ia.instagram_username as account_username, coalesce(c.instagram_username, d.username) as username,
+            d.status, d.messages, d.reply_text, d.draft_text, d.draft_seq, d.draft_at, d.telegram_msg_id, d.updated_at
+     from public.dm_pending d
+     left join public.contacts c on c.id = d.contact_id
+     left join public.instagram_accounts ia on ia.id = d.account_id
+     where d.id = $1`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Guarda o rascunho que o Molde preparou (só para conversa "aguardando"). Cada rascunho novo ganha um número novo
+ * (draft_seq): um botão do Telegram de um rascunho anterior não manda o novo.
+ */
+export async function prepareDraft(id: string, texto: string): Promise<{ ok: true; seq: number } | { ok: false; motivo: "not-found" | "closed" }> {
+  const { rows } = await query<{ draft_seq: number }>(
+    `update public.dm_pending
+     set draft_text = $2, draft_seq = draft_seq + 1, draft_at = now(), telegram_msg_id = null, updated_at = now()
+     where id = $1 and status = 'aguardando'
+     returning draft_seq`,
+    [id, texto],
+  );
+  if (rows[0]) return { ok: true, seq: rows[0].draft_seq };
+  const { rows: exists } = await query("select 1 from public.dm_pending where id = $1", [id]);
+  return { ok: false, motivo: exists.length ? "closed" : "not-found" };
+}
+
+/** «Não mandar»: tira o rascunho (a conversa continua esperando no Molde). Só se o rascunho ainda for o mesmo. */
+export async function clearDraft(id: string, seq: number) {
+  const done = await query(
+    "update public.dm_pending set draft_text = null, updated_at = now() where id = $1 and draft_seq = $2 and status = 'aguardando' and draft_text is not null",
+    [id, seq],
+  );
+  return (done.rowCount ?? 0) > 0;
+}
+
+export async function saveDraftTelegramMessage(id: string, seq: number, messageId: number) {
+  await query("update public.dm_pending set telegram_msg_id = $3 where id = $1 and draft_seq = $2", [id, seq, messageId]);
+}
+
+/** Rascunhos das conversas pedidas (sem a 0008: nenhum, sem erro). */
+export async function draftsFor(ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  try {
+    const { rows } = await query<{ id: string; draft_text: string }>(
+      "select id, draft_text from public.dm_pending where id = any($1::uuid[]) and draft_text is not null",
+      [ids],
+    );
+    for (const row of rows) out.set(row.id, row.draft_text);
+  } catch (error) {
+    if ((error as { code?: string }).code !== "42703") throw error;
+  }
+  return out;
 }
