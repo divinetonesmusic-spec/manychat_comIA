@@ -16,6 +16,7 @@ const PUBLIC_EXACT_PATHS = [
 const PUBLIC_PREFIXES = [
   "/auth/callback",
   "/api/admin/login",
+  "/api/admin/logout", // só apaga o cookie de administrador; precisa funcionar mesmo com a sessão já vencida
   "/api/oauth/login",
   "/api/oauth/callback",
   "/api/webhook",

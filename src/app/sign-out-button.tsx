@@ -13,14 +13,15 @@ export function SignOutButton() {
   async function signOut() {
     setLoading(true);
 
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      router.push("/login");
-      router.refresh();
-    } catch {
+    // Sai das duas entradas: o cookie da senha de administrador (só o servidor apaga) e a sessão do Supabase.
+    const admin = await fetch("/api/admin/logout", { method: "POST" }).then((response) => response.ok, () => false);
+    const { error } = await supabase.auth.signOut().catch((caught: unknown) => ({ error: caught }));
+    if (!admin && error) {
       setLoading(false);
+      return;
     }
+    router.push("/login");
+    router.refresh();
   }
 
   return (
