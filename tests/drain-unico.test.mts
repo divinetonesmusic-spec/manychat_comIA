@@ -86,6 +86,38 @@ describe("relógio único", { skip: semBanco }, () => {
     }
   });
 
+  test("trava presa: os relógios saem sem trabalhar e, sem batimento há 15 min, o /api/health diz que é a trava", async () => {
+    const { DRAIN_LOCK_KEY } = await import("@/lib/queue/drain-lock");
+    const { readHealth } = await import("@/lib/health");
+    await db!.sql("delete from public.app_status where chave in ('relogio', 'relogio_pulado')");
+    await db!.sql("insert into public.app_status (chave, valor, atualizado_em) values ('relogio', '{}'::jsonb, now() - interval '20 minutes')");
+    const outro = new pg.Client({ connectionString: db!.url });
+    await outro.connect();
+    try {
+      await outro.query("begin");
+      await outro.query("select pg_advisory_xact_lock($1)", [DRAIN_LOCK_KEY]);
+      const route = await import("@/app/api/queue/drain/route");
+      for (let vez = 0; vez < 3; vez += 1) assert.equal((await (await route.GET(request("/api/queue/drain", { headers: WORKER }))).json()).skipped, true);
+      const [pulado] = await db!.sql<{ valor: { seguidas: number } }>("select valor from public.app_status where chave = 'relogio_pulado'");
+      assert.equal(pulado.valor.seguidas, 3);
+      const saude = await readHealth();
+      assert.equal(saude.ok, false);
+      assert.match(saude.motivo ?? "", /está sendo chamado, mas não trabalha há 20 minutos: saiu 3 vezes seguidas/);
+      await outro.query("commit");
+      await route.GET(request("/api/queue/drain", { headers: WORKER }));
+      assert.equal((await readHealth()).ok, true, "a trava soltou: o relógio trabalhou e o batimento voltou");
+      await route.GET(request("/api/queue/drain", { headers: WORKER })); // um "pulado" velho não conta depois do batimento
+    } finally {
+      await outro.end();
+    }
+  });
+
+  test("a conexão da trava tem prazo: solta sozinha em 30 s parada e nenhum comando passa de 5 s", async () => {
+    const { readFileSync } = await import("node:fs");
+    const fonte = readFileSync("src/lib/queue/drain-lock.ts", "utf8");
+    assert.match(fonte, /client\.query\("begin"\);\s*(\/\/[^\n]*\n\s*)*await client\.query\("set local idle_in_transaction_session_timeout = '30s'"\);\s*await client\.query\("set local statement_timeout = '5s'"\);/);
+  });
+
   test("a trava é solta no fim (também quando o relógio dá erro) e não sobra conexão aberta", async () => {
     const { withDrainLock } = await import("@/lib/queue/drain-lock");
     await assert.rejects(withDrainLock(async () => {

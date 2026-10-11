@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { safeEqualSecret } from "@/lib/secrets";
 import { drainQueue } from "@/lib/queue/drain";
 import { runContentCycle } from "@/lib/content/scheduler";
-import { recordClockBeat } from "@/lib/health";
+import { recordClockBeat, recordClockSkipped } from "@/lib/health";
 import { withDrainLock } from "@/lib/queue/drain-lock";
 import { notifyWaitingDms } from "@/lib/dm-alerts";
 import { cleanupOldRecords } from "@/lib/db/cleanup";
@@ -39,6 +39,7 @@ async function runDrain(request: NextRequest) {
   // Só um relógio por vez (o do pg_cron e os que cada webhook dispara): o segundo sai na hora, com sucesso.
   const locked = await withDrainLock(() => runCycle(request));
   if (!locked.ran) {
+    await recordClockSkipped(); // muitas seguidas sem batimento: o /api/health avisa que a trava ficou presa
     return NextResponse.json({ ok: true, skipped: true, motivo: "Outro relógio já está rodando; este saiu sem fazer nada." });
   }
   return NextResponse.json(locked.result);

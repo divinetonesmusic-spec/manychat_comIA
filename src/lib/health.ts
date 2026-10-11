@@ -22,6 +22,27 @@ export async function recordClockBeat(valor: Record<string, unknown> = {}) {
   }
 }
 
+/**
+ * O relógio foi chamado, mas saiu sem trabalhar porque outro estava rodando (trava do relógio). Conta quantas vezes
+ * seguidas isso aconteceu desde o último batimento (chave 'relogio_pulado'). Normal de vez em quando (o webhook também
+ * chama o relógio); muitas seguidas sem batimento = trava presa. Falha ignorada.
+ */
+export async function recordClockSkipped() {
+  try {
+    await query(
+      `insert into public.app_status (chave, valor, atualizado_em) values ('relogio_pulado', '{"seguidas":1}'::jsonb, now())
+       on conflict (chave) do update set
+         valor = jsonb_build_object('seguidas',
+           case when public.app_status.atualizado_em > coalesce((select s.atualizado_em from public.app_status s where s.chave = 'relogio'), '-infinity'::timestamptz)
+                then coalesce((public.app_status.valor ->> 'seguidas')::int, 0) + 1 else 1 end),
+         atualizado_em = now()`,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type HealthReport = {
   ok: boolean;
   /** Só quando ok = false: o que está errado, em português. */
@@ -40,7 +61,7 @@ export async function readHealth(now = new Date()): Promise<HealthReport> {
   // As duas consultas juntas, sob um prazo só (a resposta não pode passar do limite da função do Netlify).
   const consultas = Promise.allSettled([
     query<{ menor: Date | null }>("select min(token_expires_at) as menor from public.instagram_accounts"),
-    query<{ atualizado_em: Date }>("select atualizado_em from public.app_status where chave = 'relogio'"),
+    query<{ chave: string; atualizado_em: Date; valor: { seguidas?: number } }>("select chave, atualizado_em, valor from public.app_status where chave in ('relogio', 'relogio_pulado')"),
   ]);
   const resultado = await withTimeout(consultas).catch(() => null);
   if (!resultado) return bancoFora;
@@ -56,7 +77,9 @@ export async function readHealth(now = new Date()): Promise<HealthReport> {
     }
     return bancoFora;
   }
-  const atualizadoEm = batimentoResult.value.rows[0]?.atualizado_em;
+  const batimento = batimentoResult.value.rows.find((row) => row.chave === "relogio");
+  const pulado = batimentoResult.value.rows.find((row) => row.chave === "relogio_pulado");
+  const atualizadoEm = batimento?.atualizado_em;
   if (atualizadoEm) {
     const last = new Date(atualizadoEm);
     idleMs = Math.max(0, now.getTime() - last.getTime());
@@ -68,6 +91,17 @@ export async function readHealth(now = new Date()): Promise<HealthReport> {
     return { ok: false, motivo: "O relógio (publicação e fila de mensagens) ainda não rodou nenhuma vez. Confira o pg_cron no Supabase.", relogio, tokens };
   }
   if (idleMs > CLOCK_STALE_MINUTES * 60_000) {
+    // Chamado nos últimos minutos, mas saindo sem trabalhar: a trava do relógio ficou presa (não é o pg_cron).
+    const puladoRecente = pulado && new Date(pulado.atualizado_em).getTime() > (atualizadoEm ? new Date(atualizadoEm).getTime() : 0)
+      && now.getTime() - new Date(pulado.atualizado_em).getTime() < CLOCK_STALE_MINUTES * 60_000;
+    if (puladoRecente && (pulado.valor?.seguidas ?? 0) >= 3) {
+      return {
+        ok: false,
+        motivo: `O relógio está sendo chamado, mas não trabalha há ${relogio.minutos} minutos: saiu ${pulado.valor?.seguidas} vezes seguidas porque "outro relógio já está rodando". A trava pode ter ficado presa no banco; ela costuma soltar sozinha em 1 minuto. Se continuar, reinicie o projeto no Supabase (Project Settings → General → Restart project).`,
+        relogio,
+        tokens,
+      };
+    }
     return { ok: false, motivo: `O relógio (publicação e fila de mensagens) não roda há ${relogio.minutos} minutos. Confira o pg_cron no Supabase.`, relogio, tokens };
   }
   return { ok: true, relogio, tokens };

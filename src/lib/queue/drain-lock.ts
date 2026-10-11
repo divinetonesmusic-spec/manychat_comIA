@@ -23,6 +23,10 @@ export async function withDrainLock<T>(work: () => Promise<T>): Promise<DrainLoc
   try {
     await client.connect();
     await client.query("begin");
+    // Prazos da transação da trava: se a função cair sem fechar a conexão, o banco solta a trava em 30 s (o relógio
+    // inteiro leva ~9 s; o Netlify corta em 10–30 s). Nenhum comando nela pode passar de 5 s.
+    await client.query("set local idle_in_transaction_session_timeout = '30s'");
+    await client.query("set local statement_timeout = '5s'");
     const { rows } = await client.query<{ ok: boolean }>("select pg_try_advisory_xact_lock($1) as ok", [DRAIN_LOCK_KEY]);
     if (!rows[0]?.ok) {
       await closeLockClient(client, "rollback");
