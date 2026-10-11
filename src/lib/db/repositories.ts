@@ -1,5 +1,6 @@
 import { query } from "@/lib/db/client";
 import { toPublicConfig, toPublicInstagramAccount, type PublicInstagramAccount } from "@/lib/instagram/public-account";
+import { formatSaoPauloTime } from "@/lib/time";
 
 export type WorkspaceContext = {
   profile: {
@@ -1322,6 +1323,69 @@ export async function markJobFailed(id: string, error: string) {
      where id = $1`,
     [id, error.slice(0, 500)],
   );
+}
+
+/** Limite de uso da Meta: a 1ª espera é de 30 min e dobra a cada vez (30, 60, 120, 240, 240...). */
+export const META_LIMIT_FIRST_WAIT_MINUTES = 30;
+const META_LIMIT_MAX_WAIT_MINUTES = 240;
+/** Depois de tantas esperas seguidas (umas 15 h), o envio desiste e vira "falhou". */
+export const META_LIMIT_MAX_TIMES = 6;
+export const META_LIMIT_GAVE_UP = "A Meta continuou pedindo para esperar (limite de uso) por muitas horas. Este envio foi cancelado.";
+
+export function metaLimitNote(availableAt: Date) {
+  return `A Meta pediu para esperar (limite de uso). Nova tentativa às ${formatSaoPauloTime(availableAt)}.`;
+}
+
+/**
+ * A Meta pediu para esperar (limite de uso, códigos 4, 17, 32, 613, HTTP 429...). O envio volta para a fila bem mais tarde,
+ * sem gastar tentativa e sem virar "falhou": 30 min na 1ª vez, dobrando até 4 h. A contagem fica no próprio envio
+ * (payload.limiteMeta). Só desiste depois de 6 esperas seguidas. Devolve o horário da nova tentativa (ou null se desistiu).
+ */
+export async function deferJobForMetaLimit(id: string): Promise<{ availableAt: Date | null; note: string }> {
+  const { rows } = await query<{ vezes: number }>(
+    "select coalesce((payload ->> 'limiteMeta')::int, 0) + 1 as vezes from public.queue where id = $1",
+    [id],
+  );
+  const vezes = rows[0]?.vezes ?? 1;
+  if (vezes > META_LIMIT_MAX_TIMES) {
+    await query(
+      `update public.queue set status = 'failed', claimed_at = null, last_error = $2,
+              payload = jsonb_set(payload, '{limiteMeta}', to_jsonb($3::int))
+       where id = $1`,
+      [id, META_LIMIT_GAVE_UP, vezes],
+    );
+    return { availableAt: null, note: META_LIMIT_GAVE_UP };
+  }
+  const minutes = Math.min(META_LIMIT_FIRST_WAIT_MINUTES * 2 ** (vezes - 1), META_LIMIT_MAX_WAIT_MINUTES);
+  const availableAt = new Date(Date.now() + minutes * 60_000);
+  const note = metaLimitNote(availableAt);
+  await query(
+    `update public.queue
+     set status = 'pending', claimed_at = null, attempts = greatest(attempts - 1, 0),
+         available_at = $2, last_error = $3, payload = jsonb_set(payload, '{limiteMeta}', to_jsonb($4::int))
+     where id = $1`,
+    [id, availableAt, note, vezes],
+  );
+  return { availableAt, note };
+}
+
+/**
+ * A Meta pediu para esperar: os outros envios ainda "pending" do mesmo perfil que sairiam antes de `availableAt`
+ * esperam junto (não adianta chamar a Meta para ouvir o mesmo "espere"). Não gasta tentativa.
+ */
+export async function deferPendingJobsForAccount(accountId: string | null | undefined, availableAt: Date, note: string): Promise<number> {
+  const { rowCount } = await query(
+    `update public.queue
+     set available_at = $2, last_error = $3
+     where status = 'pending' and account_id is not distinct from $1::uuid and available_at < $2`,
+    [accountId ?? null, availableAt, note.slice(0, 500)],
+  );
+  return rowCount ?? 0;
+}
+
+/** DM com mídia e texto: o texto já saiu. Uma nova tentativa manda só a mídia (não repete o texto). */
+export async function markJobTextSent(id: string) {
+  await query("update public.queue set payload = jsonb_set(payload, '{textSent}', 'true'::jsonb) where id = $1", [id]);
 }
 
 /** Motivo gravado no job quando a resposta do Molde não sai porque a pessoa pediu para parar (vira a nota do item). */

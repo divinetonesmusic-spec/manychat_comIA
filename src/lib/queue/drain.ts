@@ -1,12 +1,15 @@
 ﻿import {
   claimQueueJobs,
+  deferJobForMetaLimit,
   deferPendingDms,
+  deferPendingJobsForAccount,
   deferQueueJobs,
   getConfig,
   getTemplateContext,
   markExpiredDmsSkipped,
   markJobFailed,
   markJobSent,
+  markJobTextSent,
   nextDmSlot,
   recoverStaleQueueJobs,
   releaseQueueJobs,
@@ -14,6 +17,7 @@
   type QueueJob,
 } from "@/lib/db/repositories";
 import {
+  isMetaRateLimit,
   sendDirectMediaMessage,
   sendDirectMessage,
   sendPrivateReply,
@@ -34,6 +38,8 @@ const BATCH_SIZE = 5;
  * Perfil que bateu no limite de 200 mensagens por hora: as mensagens diretas dele esperam o próximo horário
  * livre (sem gastar tentativa e sem virar "failed"); outros perfis e respostas públicas seguem normais.
  * Quem foi adiado não conta nas 40 mensagens do ciclo: assim, um perfil parado no limite não impede os outros de sair.
+ * Se a Meta pedir para esperar (limite de uso), o envio volta para a fila 30 min depois (dobrando a cada vez), sem gastar
+ * tentativa, e os outros envios do mesmo perfil esperam junto. Erros de verdade seguem como antes (3 tentativas, de 5 em 5 min).
  */
 export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(process.env.DRAIN_BUDGET_MS || 6000)) {
   const deadline = Date.now() + budgetMs;
@@ -49,6 +55,8 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
   let stoppedEarly = false;
   // Perfis que já bateram no limite neste ciclo: as próximas mensagens deles esperam sem consultar o banco de novo.
   const atLimit = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
+  // Perfis em que a Meta pediu para esperar neste ciclo: os próximos envios deles voltam para a fila sem chamar a Meta.
+  const metaWait = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
 
   while (processed < total) {
     if (deadline - Date.now() < 1500) { stoppedEarly = true; break; }
@@ -68,6 +76,14 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
           processed += 1;
           await markJobFailed(job.id, "Instagram não conectado para este perfil");
           failed += 1;
+          continue;
+        }
+
+        const accountKey = config.account_id ?? "";
+        const waitingMeta = metaWait.get(accountKey);
+        if (waitingMeta) {
+          waitingMeta.ids.push(job.id);
+          deferred += 1;
           continue;
         }
 
@@ -99,15 +115,26 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
           await markJobSent(job.id);
           sent += 1;
         } catch (error) {
-          failed += 1;
-          await markJobFailed(job.id, error instanceof Error ? error.message : "Erro desconhecido ao enviar");
+          if (isMetaRateLimit(error)) {
+            const wait = await deferJobForMetaLimit(job.id);
+            if (wait.availableAt) {
+              deferred += 1;
+              metaWait.set(accountKey, { availableAt: wait.availableAt, note: wait.note, ids: [] });
+              deferred += await deferPendingJobsForAccount(config.account_id, wait.availableAt, wait.note);
+            } else {
+              failed += 1;
+            }
+          } else {
+            failed += 1;
+            await markJobFailed(job.id, error instanceof Error ? error.message : "Erro desconhecido ao enviar");
+          }
         }
 
         await delay(SEND_DELAY_MS);
       }
     } finally {
       // Adiadas do lote, de uma vez só (também se algo falhar no meio: elas não podem ficar presas em "sending").
-      for (const wait of atLimit.values()) {
+      for (const wait of [...atLimit.values(), ...metaWait.values()]) {
         const ids = wait.ids.splice(0);
         await deferQueueJobs(ids, wait.availableAt, wait.note);
       }
@@ -161,8 +188,10 @@ async function sendJob(job: QueueJob, instagramUserId: string, accessToken: stri
 
   if (job.payload.type === "media") {
     if (!mediaUrl) throw new Error("Missing media URL for DM");
-    if (text) {
+    // O texto sai antes da mídia. Se a mídia falhar, a próxima tentativa manda só a mídia: o texto já foi (textSent).
+    if (text && job.payload.textSent !== true) {
       await sendDirectMessage({ instagramUserId, recipientId: job.instagram_recipient_id, accessToken, text });
+      await markJobTextSent(job.id);
     }
     await sendDirectMediaMessage({
       instagramUserId,

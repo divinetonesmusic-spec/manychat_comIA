@@ -277,6 +277,23 @@ export async function deferPostForPublishLimit(post: Pick<ContentPost, "id" | "a
   return rows[0] ?? null;
 }
 
+/**
+ * A Meta pediu para esperar (limite de uso) ou não respondeu a tempo: o post que ia começar volta para "agendado"
+ * daqui a `minutes`, com a nota. Com `keepAttempt` = false (limite de uso) a tentativa não conta; sem resposta conta.
+ */
+export async function deferPostForMeta(post: Pick<ContentPost, "id">, minutes: number, note: string, keepAttempt: boolean): Promise<ContentPost | null> {
+  const { rows } = await query<ContentPost>(
+    `update public.content_posts
+     set status = 'scheduled', scheduled_at = now() + make_interval(mins => $2), last_error = $3,
+         attempts = case when $4 then attempts else greatest(attempts - 1, 0) end,
+         publishing_started_at = null, lock_until = null
+     where id = $1 and status = 'publishing'
+     returning *`,
+    [post.id, minutes, note, keepAttempt],
+  );
+  return rows[0] ?? null;
+}
+
 /** Ids de mídia do Instagram que já pertencem a outro post do UaiFlow (a conferência do feed não pode pegá-los). */
 export async function listClaimedMediaIds(mediaIds: string[], exceptPostId: string): Promise<Set<string>> {
   if (!mediaIds.length) return new Set();

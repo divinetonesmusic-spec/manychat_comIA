@@ -2,6 +2,7 @@ import { createAutomation, getConfig, updateContentPostMediaItems, updateContent
 import {
   claimDueContentPosts,
   claimPostNow,
+  deferPostForMeta,
   deferPostForPublishLimit,
   failContentPost,
   getContentPost,
@@ -30,6 +31,8 @@ import {
   getInstagramMediaContainerStatus,
   getInstagramMediaInsights,
   getPublishedInstagramMedia,
+  isMetaRateLimit,
+  isMetaTimeout,
   listRecentInstagramMedia,
   publishInstagramMediaContainer,
   type InstagramPublishType,
@@ -37,6 +40,7 @@ import {
 import { deleteR2Object, keyFromPublicUrl } from "@/lib/content/r2";
 import { findMatchingMedia, parseMetaTimestamp, type FeedMedia } from "@/lib/content/publish-check";
 import { notifyPostFailed, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
+import { formatSaoPauloTime } from "@/lib/time";
 
 /**
  * Relógio do planner: roda junto com o /api/queue/drain (a cada minuto).
@@ -86,7 +90,7 @@ export async function publishPostNow(id: string, budgetMs = 4000) {
     const config = await getConfig(post.account_id);
     await startOrDefer(post, config, deadline);
   } catch (error) {
-    await markPostFailed(post, translateError(error), { pending });
+    if (!(await deferIfTemporary(post, error))) await markPostFailed(post, translateError(error), { pending });
   } finally {
     await unlockPost(post.id).catch(() => undefined);
   }
@@ -138,6 +142,10 @@ async function runCycleSteps(
         const config = await configFor(post.account_id);
         if ((await startOrDefer(post, config, deadline)) === "started") out.started += 1;
       } catch (error) {
+        if (await deferIfTemporary(post, error)) {
+          out.waiting += 1;
+          continue;
+        }
         out.failed += 1;
         await markPostFailed(post, translateError(error), { pending });
       }
@@ -216,6 +224,28 @@ async function runCycleSteps(
   }
 
   return out;
+}
+
+/** Espera depois de a Meta pedir para esperar (limite de uso) e depois de ela não responder a tempo. */
+export const META_LIMIT_POST_WAIT_MINUTES = 30;
+export const META_TIMEOUT_POST_WAIT_MINUTES = 5;
+
+/**
+ * Erro temporário da Meta ao começar um post: em vez de "Com erro", volta para "agendado" com a nota.
+ * - Limite de uso (códigos 4, 17, 32, 613, limite de publicações, HTTP 429): espera 30 min e a tentativa não conta.
+ * - A Meta não respondeu em 8 s: espera 5 min e a tentativa conta (na 3ª, vira "Com erro" como qualquer outra falha).
+ * Devolve true se adiou.
+ */
+async function deferIfTemporary(post: ContentPost, error: unknown) {
+  if (isMetaRateLimit(error)) {
+    const at = new Date(Date.now() + META_LIMIT_POST_WAIT_MINUTES * 60_000);
+    return Boolean(await deferPostForMeta(post, META_LIMIT_POST_WAIT_MINUTES, `A Meta pediu para esperar (limite de uso). Nova tentativa às ${formatSaoPauloTime(at)}.`, false));
+  }
+  if (isMetaTimeout(error) && (post.attempts ?? 0) < 3) {
+    const at = new Date(Date.now() + META_TIMEOUT_POST_WAIT_MINUTES * 60_000);
+    return Boolean(await deferPostForMeta(post, META_TIMEOUT_POST_WAIT_MINUTES, `A Meta não respondeu a tempo. Nova tentativa às ${formatSaoPauloTime(at)}.`, true));
+  }
+  return false;
 }
 
 /**
