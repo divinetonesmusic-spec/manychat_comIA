@@ -49,19 +49,22 @@ export type HealthReport = {
   motivo?: string;
   relogio: { ultimaVez: string | null; minutos: number | null };
   tokens: { menorPrazoDias: number | null };
+  /** Última vez que o robô do Mac pediu trabalho à fila do Molde (0008): o "Mac acordado". Não muda o `ok`. */
+  mac: { ultimaVez: string | null; minutos: number | null };
 };
 
 /** Para a rota pública /api/health: sem segredo, sem @ de conta. */
 export async function readHealth(now = new Date()): Promise<HealthReport> {
   const relogio: HealthReport["relogio"] = { ultimaVez: null, minutos: null };
   const tokens: HealthReport["tokens"] = { menorPrazoDias: null };
+  const mac: HealthReport["mac"] = { ultimaVez: null, minutos: null };
   let idleMs = 0;
-  const bancoFora = { ok: false, motivo: "O banco de dados (Supabase) não respondeu. Confira se o projeto não está pausado.", relogio, tokens };
+  const bancoFora = { ok: false, motivo: "O banco de dados (Supabase) não respondeu. Confira se o projeto não está pausado.", relogio, tokens, mac };
 
   // As duas consultas juntas, sob um prazo só (a resposta não pode passar do limite da função do Netlify).
   const consultas = Promise.allSettled([
     query<{ menor: Date | null }>("select min(token_expires_at) as menor from public.instagram_accounts"),
-    query<{ chave: string; atualizado_em: Date; valor: { seguidas?: number } }>("select chave, atualizado_em, valor from public.app_status where chave in ('relogio', 'relogio_pulado')"),
+    query<{ chave: string; atualizado_em: Date; valor: { seguidas?: number } }>("select chave, atualizado_em, valor from public.app_status where chave in ('relogio', 'relogio_pulado', 'molde_mac')"),
   ]);
   const resultado = await withTimeout(consultas).catch(() => null);
   if (!resultado) return bancoFora;
@@ -73,12 +76,18 @@ export async function readHealth(now = new Date()): Promise<HealthReport> {
 
   if (batimentoResult.status === "rejected") {
     if ((batimentoResult.reason as { code?: string })?.code === "42P01") {
-      return { ok: false, motivo: "Falta aplicar a migração 0004_saude.sql no Supabase (SQL Editor). Sem ela não dá para saber se o relógio está rodando.", relogio, tokens };
+      return { ok: false, motivo: "Falta aplicar a migração 0004_saude.sql no Supabase (SQL Editor). Sem ela não dá para saber se o relógio está rodando.", relogio, tokens, mac };
     }
     return bancoFora;
   }
   const batimento = batimentoResult.value.rows.find((row) => row.chave === "relogio");
   const pulado = batimentoResult.value.rows.find((row) => row.chave === "relogio_pulado");
+  const macRow = batimentoResult.value.rows.find((row) => row.chave === "molde_mac");
+  if (macRow?.atualizado_em) {
+    const last = new Date(macRow.atualizado_em);
+    mac.ultimaVez = last.toISOString();
+    mac.minutos = Math.floor(Math.max(0, now.getTime() - last.getTime()) / 60_000);
+  }
   const atualizadoEm = batimento?.atualizado_em;
   if (atualizadoEm) {
     const last = new Date(atualizadoEm);
@@ -88,7 +97,7 @@ export async function readHealth(now = new Date()): Promise<HealthReport> {
   }
 
   if (relogio.minutos === null) {
-    return { ok: false, motivo: "O relógio (publicação e fila de mensagens) ainda não rodou nenhuma vez. Confira o pg_cron no Supabase.", relogio, tokens };
+    return { ok: false, motivo: "O relógio (publicação e fila de mensagens) ainda não rodou nenhuma vez. Confira o pg_cron no Supabase.", relogio, tokens, mac };
   }
   if (idleMs > CLOCK_STALE_MINUTES * 60_000) {
     // Chamado nos últimos minutos, mas saindo sem trabalhar: a trava do relógio ficou presa (não é o pg_cron).
@@ -100,11 +109,12 @@ export async function readHealth(now = new Date()): Promise<HealthReport> {
         motivo: `O relógio está sendo chamado, mas não trabalha há ${relogio.minutos} minutos: saiu ${pulado.valor?.seguidas} vezes seguidas porque "outro relógio já está rodando". A trava pode ter ficado presa no banco; ela costuma soltar sozinha em 1 minuto. Se continuar, reinicie o projeto no Supabase (Project Settings → General → Restart project).`,
         relogio,
         tokens,
+        mac,
       };
     }
-    return { ok: false, motivo: `O relógio (publicação e fila de mensagens) não roda há ${relogio.minutos} minutos. Confira o pg_cron no Supabase.`, relogio, tokens };
+    return { ok: false, motivo: `O relógio (publicação e fila de mensagens) não roda há ${relogio.minutos} minutos. Confira o pg_cron no Supabase.`, relogio, tokens, mac };
   }
-  return { ok: true, relogio, tokens };
+  return { ok: true, relogio, tokens, mac };
 }
 
 /** Banco lento conta como fora do ar: a resposta não pode passar do limite da função do Netlify. */
