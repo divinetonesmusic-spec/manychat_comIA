@@ -15,7 +15,7 @@ Cada instalacao usa banco, credenciais e conta do Instagram proprios; nenhum dad
 - Next.js App Router e TypeScript
 - Tailwind CSS
 - Supabase Auth e Postgres
-- Vercel
+- Netlify (site no ar) e Cloudflare R2 (mídia)
 - Meta/Instagram Graph API com Instagram Login
 
 ## Instalacao tecnica resumida
@@ -52,11 +52,12 @@ npm run release:check # verifica o pacote antes de publicar
 - [Instalacao tecnica](docs/INSTALLATION.md)
 - [Supabase e migrations](docs/SUPABASE.md)
 - [Meta e Instagram](docs/META_INSTAGRAM.md)
-- [Vercel](docs/VERCEL.md)
+- [Netlify](docs/NETLIFY.md)
 - [Onboarding](docs/ONBOARDING.md)
 - [Transferencia](docs/TRANSFER.md)
 - [Checklist de release](docs/RELEASE_CHECKLIST.md)
 - [Avisos no Telegram, monitor e cópia do banco](docs/AVISOS_E_COPIA.md)
+- Atualizações do banco: [0003 e 0004](docs/ATUALIZACAO_0003_0004.md), [0005](docs/ATUALIZACAO_0005.md), [0006](docs/ATUALIZACAO_0006.md), [0007](docs/ATUALIZACAO_0007.md)
 
 ## Segredos
 

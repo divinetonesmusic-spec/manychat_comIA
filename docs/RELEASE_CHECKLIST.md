@@ -25,7 +25,7 @@
 
 ## Deploy
 
-- [ ] Todas as variaveis de `.env.example` existem na Vercel.
+- [ ] Todas as variaveis de `.env.example` existem no Netlify (Site configuration > Environment variables), inclusive `ALLOWED_EMAILS` com o seu e-mail.
 - [ ] `APP_BASE_URL` usa o dominio final e HTTPS.
 - [ ] `INSTAGRAM_REDIRECT_URI` termina em `/api/oauth/callback`.
 - [ ] Supabase Auth possui o dominio final nas Redirect URLs.
@@ -35,7 +35,7 @@
 
 ## Teste funcional
 
-- [ ] Cadastro/login funciona.
+- [ ] Login funciona (e-mail da lista `ALLOWED_EMAILS` e a senha de administrador); `/cadastro` leva para `/login`.
 - [ ] Instagram Business ou Creator conecta em `Perfis`.
 - [ ] Diagnostico nao apresenta erros.
 - [ ] DM recebida aparece na caixa de entrada.

@@ -1,5 +1,16 @@
--- Execute depois do deploy na Vercel, substituindo os placeholders.
--- Requer pg_cron e pg_net habilitados no Supabase.
+-- Relógio do UaiFlow no Supabase (pg_cron + pg_net). Rode no SQL Editor depois que o site estiver no ar no Netlify.
+--
+-- O que ele agenda:
+--   * uaiflow-drain-every-minute: a cada 1 minuto ('* * * * *') chama POST /api/queue/drain (envia a fila de mensagens,
+--     publica os posts agendados, avisa as DMs esperando no Telegram e limpa o banco 1 vez por hora).
+--   * uaiflow-refresh-weekly: toda segunda-feira às 9h UTC ('0 9 * * 1') chama POST /api/token/refresh (renova os tokens).
+--
+-- Antes de rodar, troque nas DUAS chamadas:
+--   * https://SEU-SITE.netlify.app pelo endereço do seu site no Netlify (ex.: https://uaiflow-divinetones.netlify.app);
+--   * SEU_WORKER_SECRET pelo mesmo valor de WORKER_SECRET das variáveis do Netlify.
+-- Este arquivo no GitHub nunca leva o segredo de verdade: depois de rodar, não salve nem envie a cópia com o valor trocado.
+-- Pode rodar de novo quando quiser (por exemplo, ao trocar o WORKER_SECRET): cada agendamento é apagado e criado de novo.
+-- Requer as extensões pg_cron e pg_net ligadas no Supabase (Database > Extensions).
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
@@ -12,7 +23,7 @@ select cron.schedule(
   '* * * * *',
   $$
   select net.http_post(
-    url := 'https://SEU-DOMINIO-VERCEL/api/queue/drain',
+    url := 'https://SEU-SITE.netlify.app/api/queue/drain',
     headers := jsonb_build_object('x-worker-secret', 'SEU_WORKER_SECRET')
   );
   $$
@@ -26,7 +37,7 @@ select cron.schedule(
   '0 9 * * 1',
   $$
   select net.http_post(
-    url := 'https://SEU-DOMINIO-VERCEL/api/token/refresh',
+    url := 'https://SEU-SITE.netlify.app/api/token/refresh',
     headers := jsonb_build_object('x-worker-secret', 'SEU_WORKER_SECRET')
   );
   $$

@@ -37,7 +37,7 @@ O UaiFlow agora agenda e publica sozinho (Reel, carrossel, foto e story) e, na h
 4. **Relógio**: o `supabase/cron.sql` de sempre (a cada minuto em `/api/queue/drain`). Em produção o relógio **exige** `WORKER_SECRET` no cabeçalho `x-worker-secret` (não aceita mais `?secret=` na URL).
 5. **Segurança (obrigatório antes de publicar o UaiFlow na internet)**:
    - No Supabase: *Authentication → Sign In / Providers → desligue "Allow new users to sign up"* (senão qualquer pessoa cria conta e mexe no seu Instagram).
-   - Opcional, mas recomendado: `ALLOWED_EMAILS=seu@email.com` (só esses e-mails entram).
+   - **Obrigatório no site no ar:** `ALLOWED_EMAILS=seu@email.com` (só esses e-mails entram com e-mail, link ou Google; vazio = só a senha de administrador).
    - `ADMIN_SESSION_SECRET` (32+ caracteres) e `ADMIN_PASSWORD` (12+). Sem eles, o login de administrador fica desligado em produção.
 
 Sem R2 o planner funciona do mesmo jeito com **links públicos colados**; só o botão *Enviar* fica indisponível.
@@ -48,18 +48,20 @@ Sem R2 o planner funciona do mesmo jeito com **links públicos colados**; só o 
 
 Se a Meta recusar: `erro` com a explicação em português e o botão **Tentar de novo**. Vídeo que a Meta não termina em 2 h (contadas do início da publicação) vira erro. Post preso é devolvido para a fila sozinho (até 3 tentativas); no carrossel, os itens já criados são aproveitados.
 
-Cada post tem uma trava curta: se o relógio, a tela aberta e o Molde agirem ao mesmo tempo, só um mexe no post — o 1º comentário e a automação nunca saem em dobro. Mídia de post cancelado fica 14 dias no R2; se ela já tiver sido apagada, reagendar pede o arquivo de novo.
+Cada post tem uma trava curta: se o relógio, a tela aberta e o Molde agirem ao mesmo tempo, só um mexe no post — o 1º comentário e a automação nunca saem em dobro. Mídia de post cancelado, de rascunho e de post com erro fica 14 dias sem mudança no R2 e depois é apagada (link colado de fora não é apagado). O post continua, com a nota "A mídia foi apagada do armazenamento depois de 14 dias parada. Envie a mídia de novo para agendar ou publicar." e o selo **Precisa de mídia nova** na tela; reagendar, publicar ou "Tentar de novo" pedem o arquivo de novo (o mesmo link antigo não serve).
+
+Se a Meta pedir para esperar (limite de uso: códigos 4, 17, 32, 613, 80002, limite de publicações ou HTTP 429), o post que ia começar volta para `agendado` daqui a 30 min com a nota "A Meta pediu para esperar (limite de uso). Nova tentativa às HH:MM." e a tentativa não conta. Se a Meta não responder em 8 s, espera 5 min (a tentativa conta). Nas mensagens, o limite de uso faz o envio esperar 30, 60, 120 e depois 240 min, sem gastar as 3 tentativas (desiste depois de 6 esperas seguidas).
 
 ## Porta do Molde (para o robô do Mac)
 
 Cabeçalho em todas as chamadas: `x-molde-token: <MOLDE_API_TOKEN>`.
 
 - `GET /api/molde/accounts` → perfis conectados.
-- `POST /api/molde/upload` `{ fileName, contentType, size, folder }` → `{ key, uploadUrl, publicUrl }`; o robô faz `PUT uploadUrl` com o arquivo.
+- `POST /api/molde/upload` `{ fileName, contentType, size, folder }` → `{ key, uploadUrl, publicUrl, size }`; o robô faz `PUT uploadUrl` com o arquivo. **`size` (em bytes) é obrigatório** desde a Fase 6 (sem ele: 400 "Falta o tamanho do arquivo (size, em bytes).") e vai assinado no link: o `PUT` tem de mandar `Content-Length` igual a `size` (o normal ao mandar um arquivo; envio em pedaços, sem `Content-Length`, é recusado pelo R2).
 - `POST /api/molde/posts` → pacote do post. Campos: `accountId, publishType (reel_video|carousel|feed_image|story_video|story_image), title, caption, mediaUrl | mediaItems[], coverUrl, mediaKeys[], scheduledAt (ISO) | publishNow, firstComment, keyword, dmText, linkUrl, linkLabel, publicReply, automationOptions { quickReplyLabel, linkText, reminderText, publicReplies[], requireFollower }, externalRef, aiGenerated` (boolean; `true` = o Instagram mostra "feito com IA", no carrossel só no container pai; opcional, outro tipo é ignorado; precisa da migração 0006 — sem ela o campo é aceito mas o aviso não vai).
   **Aviso de bloqueio (N6/N13):** quando `aiGenerated: true` chega e a 0006 ainda não foi colada, o `POST` e o `PATCH` de `/api/molde/posts` (e `/api/content`) respondem com `warning` = "Falta colar a atualização 0006 no Supabase: o aviso de IA não foi guardado." — no corpo (`warning`) **e** dentro de `data.warning`, porque o robô do Mac 0.9.1 devolve à página só o `data` (o post é criado, mas `data.aiGenerated` volta `false`). **O Molde deve tratar esse `warning` como bloqueio**: não agendar nem publicar o Reel/carrossel/story de IA até a 0006 estar colada, porque o post sairia sem o aviso.
   Mandar de novo o mesmo `externalRef` **atualiza** (não duplica), enquanto não tiver sido publicado. Depois de publicado, responde **409** (o Molde manda a versão nova com outra referência).
-- `GET /api/molde/posts?refs=a,b` → status, link do post, resultados e `aiGenerated`.
+- `GET /api/molde/posts?refs=a,b` → status, link do post, resultados, `aiGenerated` e `mediaDeleted` (`true` = a mídia saiu do R2; para publicar um rascunho ou post com erro assim, mande a mídia de novo).
 - `PATCH /api/molde/posts/:id` (editar, `action: publish_now | retry | cancel`) e `DELETE /api/molde/posts/:id`.
 - `GET /api/molde/resultados?accountId=&dias=90&limite=200` → todos os posts **publicados** (de qualquer origem: Molde ou tela Conteúdo) dos últimos `dias` (padrão 90, máximo 365), até `limite` (padrão 200, máximo 500), do mais novo para o mais velho: `{ data: [{ id, externalRef, source, accountId, username, publishType, title, captionInicio (140 caracteres, uma linha), publishedAt, permalink, insights, insightsAt, aiGenerated }] }`.
   **Atenção com `insights`:** o UaiFlow só atualiza os números de um post de 1 hora até **30 dias** depois de publicado (e no máximo a cada 6 horas); passou disso, ficam congelados. `insightsAt` mostra o dia da última leitura (`null` = nunca foi lido, e `insights` vem `{}`). O Molde deve tratar número de post com mais de 30 dias como **"última leitura"** (mostrando a data de `insightsAt`) e nunca como o número de hoje.

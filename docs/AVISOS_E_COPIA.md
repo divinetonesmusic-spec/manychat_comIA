@@ -2,7 +2,7 @@
 
 Este guia liga três proteções do UaiFlow. Nenhuma delas é obrigatória: sem elas o UaiFlow funciona igual, só não avisa.
 
-- **Avisos no Telegram.** O UaiFlow manda mensagem quando um post não sai, quando a renovação da conexão do Instagram falha e quando uma conexão vence em menos de 10 dias.
+- **Avisos no Telegram.** O UaiFlow manda mensagem quando um post não sai, quando a renovação da conexão do Instagram falha, quando uma conexão vence em menos de 10 dias e quando há mensagem direta esperando resposta há mais de 30 minutos (um aviso por perfil, no máximo a cada 2 horas; precisa da atualização 0007).
 - **Monitor (GitHub, a cada hora, no minuto 17).** Ele confere se o relógio do UaiFlow (que publica os posts e manda as DMs) está rodando. Se não estiver, avisa no Telegram, e o GitHub também manda um e-mail.
 - **Cópia do banco (GitHub, todo domingo às 03:23 de Brasília).** Guarda uma cópia criptografada do banco por 90 dias.
 

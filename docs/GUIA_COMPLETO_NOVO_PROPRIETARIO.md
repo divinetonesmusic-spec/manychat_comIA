@@ -258,8 +258,8 @@ Os jobs drenam a fila a cada minuto e renovam o token semanalmente.
 
 1. No Supabase, habilite as extensoes `pg_cron` e `pg_net` em **Database > Extensions**.
 2. Abra `supabase/cron.sql` no computador.
-3. Substitua `https://SEU-DOMINIO-VERCEL` pelo seu dominio.
-4. Substitua `SEU_WORKER_SECRET` pelo mesmo `WORKER_SECRET` cadastrado na Vercel.
+3. Substitua `https://SEU-SITE.netlify.app` pelo endereco do seu site (no Netlify, por exemplo `https://uaiflow-divinetones.netlify.app`).
+4. Substitua `SEU_WORKER_SECRET` pelo mesmo `WORKER_SECRET` cadastrado nas variaveis do site (Netlify).
 5. Copie todo o SQL.
 6. No Supabase, abra **SQL Editor > New query**, cole e clique em **Run**.
 

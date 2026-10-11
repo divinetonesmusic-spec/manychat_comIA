@@ -47,7 +47,7 @@ Nunca altere uma migration ja aplicada. Para mudar o banco, crie o proximo arqui
 Depois que o projeto estiver no ar, edite `supabase/cron.sql`:
 
 ```sql
-url := 'https://SEU-DOMINIO-VERCEL/api/queue/drain'
+url := 'https://SEU-SITE.netlify.app/api/queue/drain'
 headers := jsonb_build_object('x-worker-secret', 'SEU_WORKER_SECRET')
 ```
 
