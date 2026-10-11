@@ -152,8 +152,9 @@ describe("U-SEG-02: conectar conta pelo callback (com banco)", { skip: semBanco 
       { instagram_username: "payoff", is_default: false },
       { instagram_username: "ruthie", is_default: true },
     ]);
-    const [config] = await db!.sql<{ instagram_username: string | null }>("select instagram_username from public.config where id = true");
-    assert.notEqual(config.instagram_username, "payoff", "o espelho da conta padrão não muda para a conta nova");
+    const [config] = await db!.sql<{ instagram_username: string | null; instagram_access_token: string | null }>("select instagram_username, instagram_access_token from public.config where id = true");
+    assert.equal(config.instagram_username, null, "Fase 6: a tabela antiga (config) não recebe mais cópia de conta");
+    assert.equal(config.instagram_access_token, null, "nem de token");
   });
 
   test("reconectar a conta padrão mantém ela como padrão", async () => {

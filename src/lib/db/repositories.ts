@@ -377,20 +377,16 @@ export async function setDefaultInstagramAccount(accountId: string) {
     [accountId],
   );
 
-  const account = rows[0] ?? null;
-  if (account) await mirrorConfig(account);
-  return account;
+  return rows[0] ?? null;
 }
 
+/**
+ * Dados de conexão do perfil. O token vem só de public.instagram_accounts: a cópia antiga em public.config não é mais
+ * lida nem gravada (a 0007 copiou para instagram_accounts o token de conta que só existia lá). Sem conta, vazio.
+ */
 export async function getConfig(accountId?: string | null): Promise<Config> {
   const account = await getInstagramAccountById(accountId);
-  if (account) return accountToConfig(account);
-
-  const { rows } = await query<Omit<Config, "account_id">>(
-    "select instagram_access_token, instagram_user_id, instagram_username, instagram_name, instagram_profile_picture_url, token_expires_at, webhook_subscribed_at from public.config where id = true",
-  );
-
-  return rows[0] ? { account_id: null, ...rows[0] } : EMPTY_CONFIG;
+  return account ? accountToConfig(account) : EMPTY_CONFIG;
 }
 
 function accountToConfig(account: InstagramAccount): Config {
@@ -406,31 +402,6 @@ function accountToConfig(account: InstagramAccount): Config {
   };
 }
 
-async function mirrorConfig(account: InstagramAccount) {
-  await query(
-    `insert into public.config (
-      id, instagram_access_token, instagram_user_id, instagram_username,
-      instagram_name, instagram_profile_picture_url, token_expires_at, webhook_subscribed_at
-    ) values (true, $1, $2, $3, $4, $5, $6, $7)
-    on conflict (id) do update set
-      instagram_access_token = excluded.instagram_access_token,
-      instagram_user_id = excluded.instagram_user_id,
-      instagram_username = excluded.instagram_username,
-      instagram_name = excluded.instagram_name,
-      instagram_profile_picture_url = excluded.instagram_profile_picture_url,
-      token_expires_at = excluded.token_expires_at,
-      webhook_subscribed_at = excluded.webhook_subscribed_at`,
-    [
-      account.instagram_access_token,
-      account.instagram_user_id,
-      account.instagram_username,
-      account.instagram_name,
-      account.instagram_profile_picture_url,
-      account.token_expires_at,
-      account.webhook_subscribed_at,
-    ],
-  );
-}
 export async function getProfileSettings(accountId?: string | null): Promise<ProfileSettings> {
   const resolvedAccountId = accountId ?? (await getDefaultInstagramAccount())?.id ?? null;
 
@@ -549,31 +520,19 @@ export async function saveInstagramConfig(input: {
   );
 
   const account = rows[0];
-  if (account.is_default) await mirrorConfig(account);
   await getProfileSettings(account.id);
   return account;
 }
 
+/** Grava o token renovado na conta (só em public.instagram_accounts). Sem conta, não há onde gravar. */
 export async function updateToken(input: { accessToken: string; expiresAt: Date; accountId?: string | null }) {
   const account = await getInstagramAccountById(input.accountId);
-  if (account) {
-    const { rows } = await query<InstagramAccount>(
-      `update public.instagram_accounts
-       set instagram_access_token = $1, token_expires_at = $2, last_token_refresh_at = now()
-       where id = $3
-       returning *`,
-      [input.accessToken, input.expiresAt, account.id],
-    );
-
-    if (rows[0]?.is_default) await mirrorConfig(rows[0]);
-    return;
-  }
-
+  if (!account) return;
   await query(
-    `update public.config
+    `update public.instagram_accounts
      set instagram_access_token = $1, token_expires_at = $2, last_token_refresh_at = now()
-     where id = true`,
-    [input.accessToken, input.expiresAt],
+     where id = $3`,
+    [input.accessToken, input.expiresAt, account.id],
   );
 }
 export async function listAutomations(accountId?: string | null): Promise<Automation[]> {

@@ -167,10 +167,12 @@ describe("renovação de token de todas as contas (U-PUB-02)", { skip: semBanco 
     });
   });
 
-  test("a conta padrão continua espelhada na tabela config depois da renovação", async () => {
+  test("Fase 6: o token renovado fica só na conta (a tabela antiga config não recebe cópia)", async () => {
     await route.GET(request("/api/token/refresh", { headers: WORKER }));
-    const [config] = await db!.sql<{ instagram_access_token: string; instagram_username: string }>("select instagram_access_token, instagram_username from public.config where id = true");
-    assert.equal(config.instagram_username, "ruthie");
-    assert.match(config.instagram_access_token, /^IGAA-TESTE-RENOVADO-/);
+    const [config] = await db!.sql<{ instagram_access_token: string | null; instagram_username: string | null }>("select instagram_access_token, instagram_username from public.config where id = true");
+    assert.equal(config.instagram_access_token, null);
+    assert.equal(config.instagram_username, null);
+    const contas = await db!.sql<{ instagram_access_token: string }>("select instagram_access_token from public.instagram_accounts where instagram_username = 'ruthie'");
+    assert.match(contas[0].instagram_access_token, /^IGAA-TESTE-RENOVADO-/);
   });
 });
