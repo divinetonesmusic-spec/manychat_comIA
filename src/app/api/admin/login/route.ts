@@ -3,9 +3,9 @@ import {
   ADMIN_SESSION_MAX_AGE_SECONDS,
   createAdminSessionValue,
   getAdminCookieName,
-  isValidAdminPassword,
   safeNextPath,
 } from "@/lib/auth";
+import { isValidAdminPassword } from "@/lib/admin-password";
 import { clearFailedLogins, clientIp, isLoginBlocked, recordFailedLogin } from "@/lib/login-limit";
 
 export const runtime = "nodejs";
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const password = String(formData.get("password") || "");
   const next = safeNextPath(String(formData.get("next") || "/dashboard"));
-  const sessionValue = createAdminSessionValue();
+  const sessionValue = await createAdminSessionValue();
 
   if (!sessionValue) {
     return NextResponse.redirect(new URL(`/login?error=config&next=${encodeURIComponent(next)}`, request.url));

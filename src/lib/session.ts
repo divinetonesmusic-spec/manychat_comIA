@@ -16,7 +16,7 @@ export async function readUaiFlowSession(request: NextRequest): Promise<{ ok: bo
     return response;
   };
 
-  if (isValidAdminSession(request.cookies.get(getAdminCookieName())?.value)) return { ok: true, applyCookies };
+  if (await isValidAdminSession(request.cookies.get(getAdminCookieName())?.value)) return { ok: true, applyCookies };
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

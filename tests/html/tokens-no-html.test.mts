@@ -38,7 +38,7 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     [{ id: automationId }] = await db.sql<{ id: string }>("insert into public.automations (account_id, name, keywords) values ($1, 'Fluxo de teste', array['EBOOK']) returning id", [secondAccountId]);
 
     // Mesmo formato que o servidor gera ("<emitidoEm>.<assinatura>"); o servidor do teste usa o mesmo ADMIN_SESSION_SECRET.
-    cookie = `admin_session=${(await import("@/lib/auth")).createAdminSessionValue()}`;
+    cookie = `admin_session=${await (await import("@/lib/auth")).createAdminSessionValue()}`;
 
     server = spawn(process.execPath, [path.join(ROOT, "node_modules", "next", "dist", "bin", "next"), "start", "-p", String(PORT), "-H", "127.0.0.1"], {
       cwd: ROOT,

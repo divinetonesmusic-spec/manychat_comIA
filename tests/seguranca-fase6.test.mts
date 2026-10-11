@@ -10,6 +10,7 @@ import { request } from "./helpers/http.mjs";
 // O banco vem antes de qualquer módulo do app (o pool lê DATABASE_URL ao carregar).
 const db: TestDatabase | null = semBanco ? null : await createTestDatabase();
 const auth = await import("@/lib/auth");
+const adminPassword = await import("@/lib/admin-password");
 const { proxy } = await import("@/proxy");
 const DIA = 86_400_000;
 const SENHA = "senha-de-admin-de-teste-123";
@@ -62,7 +63,7 @@ describe("1b · ALLOWED_EMAILS", () => {
   let restaurar: () => void = () => undefined;
   afterEach(() => restaurar());
 
-  test("em produção, lista vazia: ninguém entra pelo Supabase", () => {
+  test("em produção, lista vazia: ninguém entra pelo Supabase", async () => {
     restaurar = comAmbiente({ NODE_ENV: "production", ALLOWED_EMAILS: undefined });
     assert.equal(auth.isAllowedEmail("dono@exemplo.com"), false);
     assert.equal(auth.isAllowedEmail(null), false);
@@ -71,7 +72,7 @@ describe("1b · ALLOWED_EMAILS", () => {
     assert.equal(auth.isAllowedEmail("dono@exemplo.com"), false, "só vírgulas e espaços também é lista vazia");
   });
 
-  test("em produção, com a lista: só quem está nela (sem diferença de maiúsculas)", () => {
+  test("em produção, com a lista: só quem está nela (sem diferença de maiúsculas)", async () => {
     restaurar = comAmbiente({ NODE_ENV: "production", ALLOWED_EMAILS: "Dono@Exemplo.com, outra@exemplo.com" });
     assert.equal(auth.isAllowedEmail("dono@exemplo.com"), true);
     assert.equal(auth.isAllowedEmail("OUTRA@exemplo.com"), true);
@@ -79,12 +80,12 @@ describe("1b · ALLOWED_EMAILS", () => {
     assert.equal(auth.isAllowedEmail(undefined), false);
   });
 
-  test("fora de produção, lista vazia continua deixando entrar (como antes)", () => {
+  test("fora de produção, lista vazia continua deixando entrar (como antes)", async () => {
     restaurar = comAmbiente({ NODE_ENV: "test", ALLOWED_EMAILS: undefined });
     assert.equal(auth.isAllowedEmail("qualquer@exemplo.com"), true);
   });
 
-  test("npm run setup:check avisa quando ALLOWED_EMAILS está vazio", () => {
+  test("npm run setup:check avisa quando ALLOWED_EMAILS está vazio", async () => {
     const env: NodeJS.ProcessEnv = { ...process.env, ALLOWED_EMAILS: "" };
     const resultado = spawnSync(process.execPath, ["scripts/check-env.cjs"], { env, encoding: "utf8", cwd: process.cwd() });
     assert.match(resultado.stderr, /ALLOWED_EMAILS está vazio/);
@@ -104,47 +105,47 @@ describe("1c · sessão de administrador conferida no servidor", () => {
   let restaurar: () => void = () => undefined;
   afterEach(() => restaurar());
 
-  test("cookie novo vale; o formato antigo (hash fixo do segredo) não vale mais", () => {
-    const valor = auth.createAdminSessionValue() as string;
+  test("cookie novo vale; o formato antigo (hash fixo do segredo) não vale mais", async () => {
+    const valor = await auth.createAdminSessionValue() as string;
     assert.match(valor, /^\d+\.[A-Za-z0-9_-]+$/);
-    assert.equal(auth.isValidAdminSession(valor), true);
+    assert.equal(await auth.isValidAdminSession(valor), true);
     const antigo = createHash("sha256").update(`${process.env.ADMIN_SESSION_SECRET}:uaiflow-admin-v1`).digest("hex");
-    assert.equal(auth.isValidAdminSession(antigo), false);
-    assert.equal(auth.isValidAdminSession(""), false);
-    assert.equal(auth.isValidAdminSession(undefined), false);
+    assert.equal(await auth.isValidAdminSession(antigo), false);
+    assert.equal(await auth.isValidAdminSession(""), false);
+    assert.equal(await auth.isValidAdminSession(undefined), false);
   });
 
-  test("vence em 30 dias (conferido no servidor) e não aceita data do futuro", () => {
+  test("vence em 30 dias (conferido no servidor) e não aceita data do futuro", async () => {
     const agora = Date.now();
-    const valor = auth.createAdminSessionValue(agora - 29 * DIA) as string;
-    assert.equal(auth.isValidAdminSession(valor, agora), true, "29 dias: ainda vale");
-    assert.equal(auth.isValidAdminSession(auth.createAdminSessionValue(agora - 31 * DIA) as string, agora), false, "31 dias: venceu");
-    assert.equal(auth.isValidAdminSession(auth.createAdminSessionValue(agora + DIA) as string, agora), false, "emitido amanhã: falso");
+    const valor = await auth.createAdminSessionValue(agora - 29 * DIA) as string;
+    assert.equal(await auth.isValidAdminSession(valor, agora), true, "29 dias: ainda vale");
+    assert.equal(await auth.isValidAdminSession(await auth.createAdminSessionValue(agora - 31 * DIA) as string, agora), false, "31 dias: venceu");
+    assert.equal(await auth.isValidAdminSession(await auth.createAdminSessionValue(agora + DIA) as string, agora), false, "emitido amanhã: falso");
   });
 
-  test("mexer na data ou na assinatura derruba; trocar o segredo derruba todas as sessões", () => {
-    const valor = auth.createAdminSessionValue() as string;
+  test("mexer na data ou na assinatura derruba; trocar o segredo derruba todas as sessões", async () => {
+    const valor = await auth.createAdminSessionValue() as string;
     const [emitido, assinatura] = valor.split(".");
-    assert.equal(auth.isValidAdminSession(`${Number(emitido) + 1000}.${assinatura}`), false, "data trocada");
-    assert.equal(auth.isValidAdminSession(`${emitido}.${assinatura.slice(0, -2)}xx`), false, "assinatura trocada");
-    assert.equal(auth.isValidAdminSession(`${valor}.a`), false, "pedaço a mais");
+    assert.equal(await auth.isValidAdminSession(`${Number(emitido) + 1000}.${assinatura}`), false, "data trocada");
+    assert.equal(await auth.isValidAdminSession(`${emitido}.${assinatura.slice(0, -2)}xx`), false, "assinatura trocada");
+    assert.equal(await auth.isValidAdminSession(`${valor}.a`), false, "pedaço a mais");
     restaurar = comAmbiente({ ADMIN_SESSION_SECRET: "outro-segredo-da-sessao-com-mais-de-32-caracteres" });
-    assert.equal(auth.isValidAdminSession(valor), false);
+    assert.equal(await auth.isValidAdminSession(valor), false);
   });
 
-  test("em produção sem segredo: não cria nem aceita sessão", () => {
-    const valor = auth.createAdminSessionValue() as string;
+  test("em produção sem segredo: não cria nem aceita sessão", async () => {
+    const valor = await auth.createAdminSessionValue() as string;
     restaurar = comAmbiente({ NODE_ENV: "production", ADMIN_SESSION_SECRET: undefined, WORKER_SECRET: undefined });
-    assert.equal(auth.createAdminSessionValue(), null);
-    assert.equal(auth.isValidAdminSession(valor), false);
+    assert.equal(await auth.createAdminSessionValue(), null);
+    assert.equal(await auth.isValidAdminSession(valor), false);
   });
 
   test("o proxy aceita o cookie novo e recusa o antigo e o vencido", async () => {
-    const valido = await proxy(request("/dashboard", { cookies: { admin_session: auth.createAdminSessionValue() as string } }));
+    const valido = await proxy(request("/dashboard", { cookies: { admin_session: await auth.createAdminSessionValue() as string } }));
     assert.equal(valido.headers.get("x-middleware-next"), "1");
 
     const antigo = createHash("sha256").update(`${process.env.ADMIN_SESSION_SECRET}:uaiflow-admin-v1`).digest("hex");
-    for (const cookie of [antigo, auth.createAdminSessionValue(Date.now() - 31 * DIA) as string]) {
+    for (const cookie of [antigo, await auth.createAdminSessionValue(Date.now() - 31 * DIA) as string]) {
       const response = await proxy(request("/dashboard", { cookies: { admin_session: cookie } }));
       assert.equal(location(response).pathname, "/login");
       const api = await proxy(request("/api/content", { cookies: { admin_session: cookie } }));
@@ -152,21 +153,25 @@ describe("1c · sessão de administrador conferida no servidor", () => {
     }
   });
 
-  test("senha de administrador: comparação em tempo constante, mínimo de 12 caracteres", () => {
+  test("senha de administrador: comparação em tempo constante, mínimo de 12 caracteres", async () => {
     restaurar = comAmbiente({ ADMIN_PASSWORD: SENHA });
-    assert.equal(auth.isValidAdminPassword(SENHA), true);
-    assert.equal(auth.isValidAdminPassword(`${SENHA} `), false);
-    assert.equal(auth.isValidAdminPassword(""), false);
+    assert.equal(adminPassword.isValidAdminPassword(SENHA), true);
+    assert.equal(adminPassword.isValidAdminPassword(`${SENHA} `), false);
+    assert.equal(adminPassword.isValidAdminPassword(""), false);
     restaurar();
     restaurar = comAmbiente({ ADMIN_PASSWORD: "curta" });
-    assert.equal(auth.isValidAdminPassword("curta"), false);
+    assert.equal(adminPassword.isValidAdminPassword("curta"), false);
   });
 
-  test("auth.ts não compara senha nem cookie com === (U-SEG da Fase 6)", async () => {
+  test("auth.ts (lido pelo proxy) não usa Buffer nem node:crypto; senha e cookie em tempo constante", async () => {
     const { readFileSync } = await import("node:fs");
     const fonte = readFileSync("src/lib/auth.ts", "utf8");
     assert.ok(!/password === expected/.test(fonte));
-    assert.ok(fonte.includes("timingSafeEqual"));
+    // O proxy lê este arquivo: só Web Crypto (crypto.subtle.verify compara em tempo constante), nada de Buffer/node:crypto.
+    assert.ok(fonte.includes("crypto.subtle.verify("));
+    assert.ok(!/from "node:|\bBuffer\b\.|require\(/.test(fonte), "nada do Node no arquivo que o proxy usa");
+    assert.ok(!fonte.includes('from "@/lib/secrets"'), "nem por tabela (secrets usa node:crypto)");
+    assert.ok(readFileSync("src/lib/admin-password.ts", "utf8").includes("safeEqualSecret("), "a senha continua com timingSafeEqual");
   });
 });
 
@@ -237,7 +242,7 @@ describe("1c · limite de 5 senhas erradas por endereço em 15 minutos (com a 00
     assert.ok(cookie?.value);
     assert.equal(cookie.maxAge, 60 * 60 * 24 * 30);
     assert.equal(cookie.httpOnly, true);
-    assert.equal(auth.isValidAdminSession(cookie.value), true);
+    assert.equal(await auth.isValidAdminSession(cookie.value), true);
   });
 
   test("5 erradas bloqueiam o endereço (até a senha certa); outro endereço continua entrando", async () => {

@@ -15,7 +15,7 @@ const db: TestDatabase | null = semBanco ? null : await createTestDatabase();
 const oauth = await import("@/lib/oauth-state");
 const loginRoute = await import("@/app/api/oauth/login/route");
 const callbackRoute = await import("@/app/api/oauth/callback/route");
-const adminCookie = (await import("@/lib/auth")).createAdminSessionValue() as string;
+const adminCookie = (await (await import("@/lib/auth")).createAdminSessionValue()) as string;
 const MINUTOS = 60_000;
 
 function location(response: Response) {

@@ -8,7 +8,7 @@ import { request } from "./helpers/http.mjs";
 const meta = installFakeMeta();
 const { proxy } = await import("@/proxy");
 const route = await import("@/app/api/notify/test/route");
-const adminCookie = (await import("@/lib/auth")).createAdminSessionValue() as string;
+const adminCookie = (await (await import("@/lib/auth")).createAdminSessionValue()) as string;
 
 describe("POST /api/notify/test", () => {
   afterEach(() => {

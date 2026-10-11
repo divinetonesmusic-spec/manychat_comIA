@@ -38,7 +38,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (isValidAdminSession(request.cookies.get(getAdminCookieName())?.value)) {
+  if (await isValidAdminSession(request.cookies.get(getAdminCookieName())?.value)) {
     return NextResponse.next();
   }
 

@@ -1,6 +1,8 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { safeEqualSecret } from "@/lib/secrets";
-
+/**
+ * Sessão de administrador e regras de entrada. Este arquivo é lido também pelo proxy: usa só o que existe em qualquer
+ * runtime (Web Crypto, TextEncoder, atob/btoa), sem Buffer nem node:crypto. A senha de administrador fica em
+ * src/lib/admin-password.ts (só a rota de login, que roda em Node).
+ */
 const COOKIE_NAME = "admin_session";
 
 /** A sessão de administrador vale 30 dias a partir da entrada (conferido no servidor, não só no navegador). */
@@ -17,38 +19,58 @@ function adminSessionSecret() {
   return process.env.ADMIN_SESSION_SECRET || process.env.WORKER_SECRET || (process.env.NODE_ENV === "production" ? "" : "local-dev-session");
 }
 
-function sign(secret: string, issuedAt: string) {
-  return createHmac("sha256", secret).update(`uaiflow-admin-v2:${issuedAt}`).digest("base64url");
+const encoder = new TextEncoder();
+
+function hmacKey(secret: string, usage: "sign" | "verify") {
+  return crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [usage]);
+}
+
+function signedData(issuedAt: string) {
+  return encoder.encode(`uaiflow-admin-v2:${issuedAt}`);
+}
+
+function toBase64Url(bytes: Uint8Array) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function fromBase64Url(value: string): Uint8Array<ArrayBuffer> | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  try {
+    const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4));
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Valor do cookie de admin: "<emitidoEm>.<assinatura>", onde a assinatura é um HMAC do segredo sobre a hora da entrada
- * (o segredo nunca vai para o navegador). Trocar o segredo derruba todas as sessões. Sem segredo, devolve null.
+ * Valor do cookie de admin: "<emitidoEm>.<assinatura>", onde a assinatura é um HMAC-SHA256 do segredo sobre a hora da
+ * entrada (o segredo nunca vai para o navegador). Trocar o segredo derruba todas as sessões. Sem segredo, devolve null.
  */
-export function createAdminSessionValue(now = Date.now()): string | null {
+export async function createAdminSessionValue(now = Date.now()): Promise<string | null> {
   const secret = adminSessionSecret();
   if (!secret) return null;
   const issuedAt = String(Math.floor(now));
-  return `${issuedAt}.${sign(secret, issuedAt)}`;
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret, "sign"), signedData(issuedAt)));
+  return `${issuedAt}.${toBase64Url(signature)}`;
 }
 
-/** Confere o cookie de admin: assinatura certa (comparação em tempo constante) e dentro dos 30 dias. */
-export function isValidAdminSession(value: string | null | undefined, now = Date.now()) {
+/**
+ * Confere o cookie de admin: dentro dos 30 dias e com a assinatura certa. Quem compara é o crypto.subtle.verify
+ * (comparação em tempo constante, igual em qualquer runtime).
+ */
+export async function isValidAdminSession(value: string | null | undefined, now = Date.now()): Promise<boolean> {
   const secret = adminSessionSecret();
   if (!secret || !value || value.length > 200) return false;
   const [issuedAt, signature, ...rest] = value.split(".");
   if (rest.length || !issuedAt || !signature || !/^\d{1,16}$/.test(issuedAt)) return false;
   const issued = Number(issuedAt);
   if (issued > now + CLOCK_SKEW_MS || now - issued > ADMIN_SESSION_MAX_AGE_SECONDS * 1000) return false;
-  const expected = Buffer.from(sign(secret, issuedAt));
-  const given = Buffer.from(signature);
-  return given.length === expected.length && timingSafeEqual(given, expected);
-}
-
-export function isValidAdminPassword(password: string) {
-  const expected = process.env.ADMIN_PASSWORD;
-  if (!expected || expected.length < 12) return false;
-  return safeEqualSecret(password, expected);
+  const given = fromBase64Url(signature);
+  if (!given || given.length !== 32) return false;
+  return crypto.subtle.verify("HMAC", await hmacKey(secret, "verify"), given, signedData(issuedAt));
 }
 
 /**
