@@ -36,6 +36,15 @@ describe("CI (.github/workflows/ci.yml)", () => {
   });
 
   test("scripts com sintaxe válida", () => assertBashSyntax("ci.yml", steps));
+
+  test("Fase 6: actions/checkout e actions/setup-node na versão atual (v7), com cache do npm", () => {
+    for (const job of Object.values(workflow.jobs)) {
+      const usos = job.steps.map((step) => step.uses).filter(Boolean);
+      assert.ok(usos.includes("actions/checkout@v7"), JSON.stringify(usos));
+      assert.ok(usos.includes("actions/setup-node@v7"), JSON.stringify(usos));
+      assert.equal(job.steps.find((step) => step.uses === "actions/setup-node@v7")?.with?.cache, "npm");
+    }
+  });
 });
 
 describe("trava dos testes de banco na CI", () => {
