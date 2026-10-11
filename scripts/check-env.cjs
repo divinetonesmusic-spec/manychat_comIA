@@ -56,6 +56,14 @@ if (!telegramSet.length) warnings.push("Telegram não configurado: o UaiFlow nã
 
 if (process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length < 12) warnings.push("ADMIN_PASSWORD deve ter pelo menos 12 caracteres.");
 
+// Quem pode entrar pelo Supabase (e-mail, link ou Google). No site no ar a lista é obrigatória.
+const allowedEmails = (process.env.ALLOWED_EMAILS || "").split(",").map((item) => item.trim()).filter(Boolean);
+if (!allowedEmails.length) {
+  warnings.push("ALLOWED_EMAILS está vazio: no site no ar ninguém entra com e-mail, link ou Google; só a senha de administrador (ADMIN_PASSWORD). Coloque o seu e-mail, por exemplo ALLOWED_EMAILS=voce@gmail.com, nas variáveis do Netlify.");
+} else if (allowedEmails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+  warnings.push("ALLOWED_EMAILS tem um item que não parece e-mail. Use e-mails separados por vírgula, por exemplo voce@gmail.com,socia@gmail.com.");
+}
+
 console.log(loaded ? "Arquivo .env.local carregado." : ".env.local nao encontrado; usando variaveis do processo.");
 if (missing.length) errors.push(`Variaveis ausentes: ${missing.join(", ")}`);
 if (placeholderKeys.length) errors.push(`Substitua os valores de exemplo: ${placeholderKeys.join(", ")}`);

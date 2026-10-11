@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { safeEqualSecret } from "@/lib/secrets";
 import { drainQueue } from "@/lib/queue/drain";
 import { runContentCycle } from "@/lib/content/scheduler";
 import { recordClockBeat } from "@/lib/health";
@@ -27,7 +28,7 @@ async function runDrain(request: NextRequest) {
   if (!expected && process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Defina WORKER_SECRET nas variáveis do servidor." }, { status: 503 });
   }
-  if (expected && providedSecret !== expected) {
+  if (expected && !safeEqualSecret(providedSecret, expected)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 

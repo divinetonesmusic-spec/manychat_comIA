@@ -1,24 +1,54 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { safeEqualSecret } from "@/lib/secrets";
+
 const COOKIE_NAME = "admin_session";
+
+/** A sessão de administrador vale 30 dias a partir da entrada (conferido no servidor, não só no navegador). */
+export const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+/** Folga para relógios um pouco adiantados. */
+const CLOCK_SKEW_MS = 5 * 60_000;
 
 export function getAdminCookieName() {
   return COOKIE_NAME;
 }
 
+/** Em produção, sem ADMIN_SESSION_SECRET (ou WORKER_SECRET) o login de admin fica desligado. */
+function adminSessionSecret() {
+  return process.env.ADMIN_SESSION_SECRET || process.env.WORKER_SECRET || (process.env.NODE_ENV === "production" ? "" : "local-dev-session");
+}
+
+function sign(secret: string, issuedAt: string) {
+  return createHmac("sha256", secret).update(`uaiflow-admin-v2:${issuedAt}`).digest("base64url");
+}
+
 /**
- * Valor do cookie de admin: um hash do segredo (o segredo nunca vai para o navegador).
- * Em produção, sem ADMIN_SESSION_SECRET (ou WORKER_SECRET) o login de admin fica desligado.
+ * Valor do cookie de admin: "<emitidoEm>.<assinatura>", onde a assinatura é um HMAC do segredo sobre a hora da entrada
+ * (o segredo nunca vai para o navegador). Trocar o segredo derruba todas as sessões. Sem segredo, devolve null.
  */
-export async function createAdminSessionValue(): Promise<string | null> {
-  const secret = process.env.ADMIN_SESSION_SECRET || process.env.WORKER_SECRET || (process.env.NODE_ENV === "production" ? "" : "local-dev-session");
+export function createAdminSessionValue(now = Date.now()): string | null {
+  const secret = adminSessionSecret();
   if (!secret) return null;
-  const data = new TextEncoder().encode(`${secret}:uaiflow-admin-v1`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const issuedAt = String(Math.floor(now));
+  return `${issuedAt}.${sign(secret, issuedAt)}`;
+}
+
+/** Confere o cookie de admin: assinatura certa (comparação em tempo constante) e dentro dos 30 dias. */
+export function isValidAdminSession(value: string | null | undefined, now = Date.now()) {
+  const secret = adminSessionSecret();
+  if (!secret || !value || value.length > 200) return false;
+  const [issuedAt, signature, ...rest] = value.split(".");
+  if (rest.length || !issuedAt || !signature || !/^\d{1,16}$/.test(issuedAt)) return false;
+  const issued = Number(issuedAt);
+  if (issued > now + CLOCK_SKEW_MS || now - issued > ADMIN_SESSION_MAX_AGE_SECONDS * 1000) return false;
+  const expected = Buffer.from(sign(secret, issuedAt));
+  const given = Buffer.from(signature);
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 export function isValidAdminPassword(password: string) {
   const expected = process.env.ADMIN_PASSWORD;
-  return Boolean(expected && expected.length >= 12 && password === expected);
+  if (!expected || expected.length < 12) return false;
+  return safeEqualSecret(password, expected);
 }
 
 /**
@@ -38,9 +68,17 @@ export function safeNextPath(value: string | null | undefined, fallback = "/dash
   return next;
 }
 
-/** Lista opcional de e-mails que podem entrar (ALLOWED_EMAILS=a@x.com,b@y.com). Vazia = qualquer conta do Supabase. */
+/** Lista de e-mails que podem entrar pelo Supabase (e-mail, link ou Google): ALLOWED_EMAILS=a@x.com,b@y.com. */
+export function allowedEmailList() {
+  return (process.env.ALLOWED_EMAILS || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+/**
+ * Quem pode entrar pelo Supabase. Em produção a lista é obrigatória: vazia, ninguém entra por aqui (só a senha de
+ * administrador). Fora de produção (computador e testes), lista vazia deixa qualquer conta do Supabase entrar.
+ */
 export function isAllowedEmail(email: string | null | undefined) {
-  const list = (process.env.ALLOWED_EMAILS || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
-  if (!list.length) return true;
+  const list = allowedEmailList();
+  if (!list.length) return process.env.NODE_ENV !== "production";
   return Boolean(email && list.includes(email.toLowerCase()));
 }

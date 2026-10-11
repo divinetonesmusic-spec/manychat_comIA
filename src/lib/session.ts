@@ -1,6 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createAdminSessionValue, getAdminCookieName, isAllowedEmail } from "@/lib/auth";
+import { getAdminCookieName, isAllowedEmail, isValidAdminSession } from "@/lib/auth";
 
 type CookieToSet = { name: string; value: string; options?: Parameters<NextResponse["cookies"]["set"]>[2] };
 
@@ -16,8 +16,7 @@ export async function readUaiFlowSession(request: NextRequest): Promise<{ ok: bo
     return response;
   };
 
-  const adminValue = await createAdminSessionValue();
-  if (adminValue && request.cookies.get(getAdminCookieName())?.value === adminValue) return { ok: true, applyCookies };
+  if (isValidAdminSession(request.cookies.get(getAdminCookieName())?.value)) return { ok: true, applyCookies };
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

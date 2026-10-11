@@ -1,7 +1,6 @@
 import "./helpers/env.mjs";
 import { after, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { createTestDatabase, semBanco, type TestDatabase } from "./helpers/db.mjs";
 import { installFakeMeta } from "./helpers/fake-meta.mjs";
 import { request } from "./helpers/http.mjs";
@@ -16,7 +15,7 @@ const db: TestDatabase | null = semBanco ? null : await createTestDatabase();
 const oauth = await import("@/lib/oauth-state");
 const loginRoute = await import("@/app/api/oauth/login/route");
 const callbackRoute = await import("@/app/api/oauth/callback/route");
-const adminCookie = createHash("sha256").update(`${process.env.ADMIN_SESSION_SECRET}:uaiflow-admin-v1`).digest("hex");
+const adminCookie = (await import("@/lib/auth")).createAdminSessionValue() as string;
 const MINUTOS = 60_000;
 
 function location(response: Response) {

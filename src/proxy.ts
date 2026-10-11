@@ -1,11 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { createAdminSessionValue, getAdminCookieName, isAllowedEmail } from "@/lib/auth";
+import { getAdminCookieName, isAllowedEmail, isValidAdminSession } from "@/lib/auth";
 
 const PUBLIC_EXACT_PATHS = [
   "/",
   "/login",
-  "/cadastro",
   "/recuperar-senha",
   "/privacidade",
   "/exclusao-de-dados",
@@ -30,13 +29,16 @@ const PUBLIC_PREFIXES = [
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // O cadastro foi desligado: quem abrir o endereço antigo vai para a entrada.
+  if (pathname === "/cadastro" || pathname.startsWith("/cadastro/")) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
   if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  const adminSession = request.cookies.get(getAdminCookieName())?.value;
-  const adminValue = await createAdminSessionValue();
-  if (adminValue && adminSession === adminValue) {
+  if (isValidAdminSession(request.cookies.get(getAdminCookieName())?.value)) {
     return NextResponse.next();
   }
 

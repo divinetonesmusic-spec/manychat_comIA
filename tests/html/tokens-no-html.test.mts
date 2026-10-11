@@ -2,7 +2,6 @@ import "../helpers/env.mjs";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { createTestDatabase, semBanco, type TestDatabase } from "../helpers/db.mjs";
@@ -38,8 +37,8 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     );
     [{ id: automationId }] = await db.sql<{ id: string }>("insert into public.automations (account_id, name, keywords) values ($1, 'Fluxo de teste', array['EBOOK']) returning id", [secondAccountId]);
 
-    const secret = process.env.ADMIN_SESSION_SECRET as string;
-    cookie = `admin_session=${createHash("sha256").update(`${secret}:uaiflow-admin-v1`).digest("hex")}`;
+    // Mesmo formato que o servidor gera ("<emitidoEm>.<assinatura>"); o servidor do teste usa o mesmo ADMIN_SESSION_SECRET.
+    cookie = `admin_session=${(await import("@/lib/auth")).createAdminSessionValue()}`;
 
     server = spawn(process.execPath, [path.join(ROOT, "node_modules", "next", "dist", "bin", "next"), "start", "-p", String(PORT), "-H", "127.0.0.1"], {
       cwd: ROOT,
@@ -167,12 +166,14 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     assert.ok(html.indexOf("Avançado: configuração na Meta") < html.indexOf("Abrir o painel da Meta (avançado)"), "o botão fica dentro do bloco");
   });
 
-  test("U-UX-03: o login não oferece mais 'Criar conta' (e a rota /cadastro continua abrindo)", async () => {
+  test("Fase 6: o login não oferece 'Criar conta' e /cadastro leva para /login", async () => {
     const login = await (await fetch(`${BASE}/login`)).text();
     assert.match(login, /Entrar na UaiFlow/);
-    assert.doesNotMatch(login, /Criar conta|Nao tem uma conta/);
-    const cadastro = await fetch(`${BASE}/cadastro`);
-    assert.equal(cadastro.status, 200);
+    assert.match(login, /Entrar com a senha de administrador/);
+    assert.doesNotMatch(login, /Criar conta|Nao tem uma conta|Criar minha conta/);
+    const cadastro = await fetch(`${BASE}/cadastro`, { redirect: "manual" });
+    assert.equal(cadastro.status, 307);
+    assert.equal(new URL(cadastro.headers.get("location") as string, BASE).pathname, "/login");
   });
 
   test("U-UX-01: Início e Caixa de entrada falam em português simples (sem Fila, Eventos, payload nem Webhook)", async () => {

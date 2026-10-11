@@ -24,7 +24,7 @@ const forbiddenTracked = [
 const requiredEnvKeys = [
   "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY", "DATABASE_URL", "DATABASE_POOL_MAX", "APP_BASE_URL",
-  "ADMIN_PASSWORD", "ADMIN_SESSION_SECRET", "WORKER_SECRET", "META_API_VERSION",
+  "ADMIN_PASSWORD", "ADMIN_SESSION_SECRET", "ALLOWED_EMAILS", "WORKER_SECRET", "META_API_VERSION",
   "INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "INSTAGRAM_REDIRECT_URI", "WEBHOOK_VERIFY_TOKEN",
 ];
 const secretPatterns = [
@@ -66,6 +66,9 @@ try {
 } catch (error) {
   errors.push(error.message);
 }
+
+// Lembrete: o site no ar só deixa entrar por e-mail quem está em ALLOWED_EMAILS (vazio = só a senha de administrador).
+console.warn("[aviso] Antes de publicar: confira ALLOWED_EMAILS nas variáveis do Netlify. Vazio, no site no ar ninguém entra com e-mail, link ou Google; só a senha de administrador.");
 
 if (errors.length) {
   for (const error of errors) console.error(`[erro] ${error}`);

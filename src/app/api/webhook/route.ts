@@ -17,6 +17,7 @@ import {
 import { closePendingForOptOutSafely, recordPendingDmSafely } from "@/lib/db/dm-pending";
 import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_PREFIX, hasExecutableFlow } from "@/lib/flow-executor";
 import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
+import { safeEqualSecret } from "@/lib/secrets";
 
 export const runtime = "nodejs";
 
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
-  if (mode === "subscribe" && token === process.env.WEBHOOK_VERIFY_TOKEN && challenge) {
+  if (mode === "subscribe" && safeEqualSecret(token, process.env.WEBHOOK_VERIFY_TOKEN) && challenge) {
     return new NextResponse(challenge, { status: 200 });
   }
 

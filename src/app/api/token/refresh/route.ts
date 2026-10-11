@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { safeEqualSecret } from "@/lib/secrets";
 import { refreshAllInstagramTokens, tokenRefreshAlerts } from "@/lib/instagram/token-refresh";
 import { notifyTokenAlerts } from "@/lib/notify";
 
@@ -19,7 +20,7 @@ async function refresh(request: NextRequest) {
   if (!expected && process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Defina WORKER_SECRET nas variáveis do servidor." }, { status: 503 });
   }
-  if (expected && providedSecret !== expected) {
+  if (expected && !safeEqualSecret(providedSecret, expected)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 

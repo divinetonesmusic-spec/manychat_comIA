@@ -1,7 +1,6 @@
 import "./helpers/env.mjs";
 import { after, afterEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { installFakeMeta } from "./helpers/fake-meta.mjs";
 import { request } from "./helpers/http.mjs";
 
@@ -9,7 +8,7 @@ import { request } from "./helpers/http.mjs";
 const meta = installFakeMeta();
 const { proxy } = await import("@/proxy");
 const route = await import("@/app/api/notify/test/route");
-const adminCookie = createHash("sha256").update(`${process.env.ADMIN_SESSION_SECRET}:uaiflow-admin-v1`).digest("hex");
+const adminCookie = (await import("@/lib/auth")).createAdminSessionValue() as string;
 
 describe("POST /api/notify/test", () => {
   afterEach(() => {
