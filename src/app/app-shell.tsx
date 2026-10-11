@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { Bot, CircleHelp, Contact, GitBranch, Home, ImageIcon, Inbox, Plus, Settings, UserCircle, Workflow } from "lucide-react";
+import { CircleHelp, Contact, GitBranch, Home, ImageIcon, Inbox, Plus, Settings, UserCircle, Workflow } from "lucide-react";
 import { SignOutButton } from "./sign-out-button";
 import { ThemeToggle } from "./theme-toggle";
 import { BrandMark } from "@/components/brand-mark";
@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-export type AppSection = "inicio" | "automacoes" | "fluxos" | "conteudo" | "perfis" | "contatos" | "inbox" | "configuracoes" | "ai";
+export type AppSection = "inicio" | "automacoes" | "fluxos" | "conteudo" | "perfis" | "contatos" | "inbox" | "configuracoes";
 
 type AppShellProps = {
   active: AppSection;
@@ -43,19 +43,20 @@ type AppShellProps = {
   children: ReactNode;
 };
 
+// O UaiFlow é o painel de operação: saúde, perfis, contatos e configurações. Criar e aprovar posts e respostas agora é
+// no Molde; as telas de conteúdo, conversas, automações e fluxos ficam no grupo "Avançado".
 const navigation = [
   { key: "inicio", label: "Início", icon: Home, href: "/dashboard" },
-  { key: "inbox", label: "Caixa de entrada", icon: Inbox, href: "/caixa-de-entrada" },
-  { key: "conteudo", label: "Conteúdo", icon: ImageIcon, href: "/conteudo" },
-  { key: "contatos", label: "Contatos", icon: Contact, href: "/contatos" },
-  { key: "automacoes", label: "Automações", icon: Workflow, href: "/automacoes" },
   { key: "perfis", label: "Perfis", icon: UserCircle, href: "/perfis" },
+  { key: "contatos", label: "Contatos", icon: Contact, href: "/contatos" },
+  { key: "configuracoes", label: "Configurações", icon: Settings, href: "/configuracoes" },
 ] as const;
 
 const advancedNavigation = [
+  { key: "conteudo", label: "Conteúdo", icon: ImageIcon, href: "/conteudo" },
+  { key: "inbox", label: "Caixa de entrada", icon: Inbox, href: "/caixa-de-entrada" },
+  { key: "automacoes", label: "Automações", icon: Workflow, href: "/automacoes" },
   { key: "fluxos", label: "Fluxos", icon: GitBranch, href: "/fluxos" },
-  { key: "ai", label: "Assistente UaiFlow", icon: Bot, href: "/automacoes#ai" },
-  { key: "configuracoes", label: "Configurações", icon: Settings, href: "/configuracoes" },
 ] as const;
 
 export function AppShell({ active, connected, accounts = [], activeAccountId = null, children }: AppShellProps) {

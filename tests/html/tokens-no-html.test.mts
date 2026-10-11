@@ -150,11 +150,16 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
   test("U-UX-01/03: o menu traz o grupo Avançado; sem busca nem sino no topo", async () => {
     const html = await (await fetch(`${BASE}/dashboard`, { headers: { cookie } })).text();
     assert.match(html, />Avançado</);
-    for (const rotulo of ["Início", "Caixa de entrada", "Conteúdo", "Contatos", "Automações", "Perfis", "Fluxos", "Assistente UaiFlow", "Configurações"]) {
+    for (const rotulo of ["Início", "Perfis", "Contatos", "Configurações", "Conteúdo", "Caixa de entrada", "Automações", "Fluxos"]) {
       assert.ok(html.includes(`<span>${rotulo}</span>`), `falta o item do menu: ${rotulo}`);
     }
-    assert.ok(html.indexOf("<span>Perfis</span>") < html.indexOf(">Avançado<"), "Perfis fica no grupo principal, antes do Avançado");
-    assert.ok(html.indexOf(">Avançado<") < html.indexOf("<span>Fluxos</span>"), "Fluxos fica depois do título Avançado");
+    assert.ok(!html.includes("Assistente UaiFlow"), "o item sem destino saiu");
+    for (const principal of ["Início", "Perfis", "Contatos", "Configurações"]) {
+      assert.ok(html.indexOf(`<span>${principal}</span>`) < html.indexOf(">Avançado<"), `${principal} fica no grupo principal, antes do Avançado`);
+    }
+    for (const avancado of ["Conteúdo", "Caixa de entrada", "Automações", "Fluxos"]) {
+      assert.ok(html.indexOf(">Avançado<") < html.indexOf(`<span>${avancado}</span>`), `${avancado} fica depois do título Avançado`);
+    }
     assert.doesNotMatch(html, /search-input|Buscar automacoes|aria-label="Notificacoes"/);
   });
 

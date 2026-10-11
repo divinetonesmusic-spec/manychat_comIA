@@ -51,12 +51,6 @@ const labels: Record<AppSection, { eyebrow: string; title: string; description: 
     description: "Verificando a conta, a conexão com o Instagram e os endereços oficiais.",
     icon: <Settings size={20} />,
   },
-  ai: {
-    eyebrow: "Assistente UaiFlow",
-    title: "Carregando assistente",
-    description: "Preparando contexto do editor visual.",
-    icon: <Workflow size={20} />,
-  },
 };
 
 type Props = {

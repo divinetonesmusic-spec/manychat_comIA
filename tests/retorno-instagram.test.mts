@@ -134,13 +134,19 @@ describe("botões que não faziam nada saíram; menu agrupado", () => {
     assert.ok(!existsSync("src/app/cadastro/page.tsx"), "a página de cadastro saiu");
   });
 
-  test("menu: grupo principal e grupo 'Avançado', com acentos, na ordem pedida", () => {
+  test("menu (Fase 6): painel de operação no grupo principal; Conteúdo, Caixa de entrada, Automações e Fluxos no 'Avançado'", () => {
     const rotulos = (trecho: string) => [...trecho.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
     const principal = shell.match(/const navigation = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
     const avancado = shell.match(/const advancedNavigation = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
-    assert.deepEqual(rotulos(principal), ["Início", "Caixa de entrada", "Conteúdo", "Contatos", "Automações", "Perfis"]);
-    assert.deepEqual(rotulos(avancado), ["Fluxos", "Assistente UaiFlow", "Configurações"]);
+    assert.deepEqual(rotulos(principal), ["Início", "Perfis", "Contatos", "Configurações"]);
+    assert.deepEqual(rotulos(avancado), ["Conteúdo", "Caixa de entrada", "Automações", "Fluxos"]);
     assert.ok(/<SidebarGroupLabel>Avançado<\/SidebarGroupLabel>/.test(shell));
+  });
+
+  test("menu: sem o 'Assistente UaiFlow' (apontava para uma âncora que não existe)", () => {
+    assert.ok(!shell.includes("Assistente UaiFlow"));
+    assert.ok(!shell.includes("#ai"));
+    assert.ok(!readFileSync("src/app/app-loading.tsx", "utf8").includes("Assistente UaiFlow"));
   });
 
   test("Perfis: passo a passo da Meta recolhido e barra de salvar fixa só no computador", () => {
