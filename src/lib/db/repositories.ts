@@ -262,6 +262,8 @@ export type ContentPost = {
   publish_requested_at?: string | null;
   /** "Feito com IA" (migração 0006; ausente se ela ainda não foi aplicada, e então vale como falso). */
   ai_generated?: boolean;
+  /** Esperas seguidas por limite de uso da Meta (0007). */
+  meta_limit_waits?: number;
 };
 export type InboxConversationMessage = {
   id: string;

@@ -3,6 +3,7 @@ import {
   claimDueContentPosts,
   claimPostNow,
   deferPostForMeta,
+  deferPostForMetaLimit,
   deferPostForPublishLimit,
   failContentPost,
   getContentPost,
@@ -16,6 +17,7 @@ import {
   MAX_POSTS_PER_24H,
   publishedLast24h,
   recoverStuckPosts,
+  resetMetaLimitWaits,
   saveInsights,
   setPostAutomation,
   setPostFirstComment,
@@ -88,9 +90,11 @@ export async function publishPostNow(id: string, budgetMs = 4000) {
   const pending: PendingNotice[] = [];
   try {
     const config = await getConfig(post.account_id);
+    await resetMetaLimitWaits(post.id); // pedido da pessoa: as esperas seguidas recomeçam do zero
     await startOrDefer(post, config, deadline);
   } catch (error) {
-    if (!(await deferIfTemporary(post, error))) await markPostFailed(post, translateError(error), { pending });
+    const deferred = await deferIfTemporary(post, error);
+    if (deferred !== "deferred") await markPostFailed(post, deferred === "gave_up" ? META_LIMIT_POST_GAVE_UP : translateError(error), { pending });
   } finally {
     await unlockPost(post.id).catch(() => undefined);
   }
@@ -140,14 +144,18 @@ async function runCycleSteps(
       if (timeLeft() < 1500) { out.stoppedEarly = true; break; }
       try {
         const config = await configFor(post.account_id);
-        if ((await startOrDefer(post, config, deadline)) === "started") out.started += 1;
+        if ((await startOrDefer(post, config, deadline)) === "started") {
+          out.started += 1;
+          if (post.meta_limit_waits) await resetMetaLimitWaits(post.id);
+        }
       } catch (error) {
-        if (await deferIfTemporary(post, error)) {
+        const deferred = await deferIfTemporary(post, error);
+        if (deferred === "deferred") {
           out.waiting += 1;
           continue;
         }
         out.failed += 1;
-        await markPostFailed(post, translateError(error), { pending });
+        await markPostFailed(post, deferred === "gave_up" ? META_LIMIT_POST_GAVE_UP : translateError(error), { pending });
       }
     }
   }
@@ -235,19 +243,23 @@ export const META_TIMEOUT_POST_WAIT_MINUTES = 5;
  * Erro temporário da Meta ao começar um post: em vez de "Com erro", volta para "agendado" com a nota.
  * - Limite de uso (códigos 4, 17, 32, 613, limite de publicações, HTTP 429): espera 30 min e a tentativa não conta.
  * - A Meta não respondeu em 8 s: espera 5 min e a tentativa conta (na 3ª, vira "Com erro" como qualquer outra falha).
- * Devolve true se adiou.
+ * Limite de uso tem teto: 6 esperas seguidas (contador meta_limit_waits, 0007; sem ela, as 3 tentativas do post).
+ * Devolve "deferred" (adiou), "gave_up" (passou do teto: vira "Com erro") ou false (não é erro temporário).
  */
-async function deferIfTemporary(post: ContentPost, error: unknown) {
+async function deferIfTemporary(post: ContentPost, error: unknown): Promise<"deferred" | "gave_up" | false> {
   if (isMetaRateLimit(error)) {
     const at = new Date(Date.now() + META_LIMIT_POST_WAIT_MINUTES * 60_000);
-    return Boolean(await deferPostForMeta(post, META_LIMIT_POST_WAIT_MINUTES, `A Meta pediu para esperar (limite de uso). Nova tentativa às ${formatSaoPauloTime(at)}.`, false));
+    return deferPostForMetaLimit(post, META_LIMIT_POST_WAIT_MINUTES, `A Meta pediu para esperar (limite de uso). Nova tentativa às ${formatSaoPauloTime(at)}.`);
   }
   if (isMetaTimeout(error) && (post.attempts ?? 0) < 3) {
     const at = new Date(Date.now() + META_TIMEOUT_POST_WAIT_MINUTES * 60_000);
-    return Boolean(await deferPostForMeta(post, META_TIMEOUT_POST_WAIT_MINUTES, `A Meta não respondeu a tempo. Nova tentativa às ${formatSaoPauloTime(at)}.`, true));
+    return (await deferPostForMeta(post, META_TIMEOUT_POST_WAIT_MINUTES, `A Meta não respondeu a tempo. Nova tentativa às ${formatSaoPauloTime(at)}.`, true)) ? "deferred" : false;
   }
   return false;
 }
+
+/** Frase do post que desistiu depois de 6 esperas seguidas pelo limite de uso da Meta. */
+export const META_LIMIT_POST_GAVE_UP = "A Meta continuou pedindo para esperar (limite de uso) por muitas horas. Tente de novo mais tarde.";
 
 /**
  * Limite do Instagram (100 publicações por perfil em 24 h): com 95 já gastas, o post não começa. Volta para "agendado"

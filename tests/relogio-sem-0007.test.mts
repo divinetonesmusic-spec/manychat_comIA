@@ -42,9 +42,33 @@ describe("relógio sem a migração 0007", { skip: semBanco }, () => {
     await db?.close();
   });
 
+  test("post com limite de uso da Meta sem a 0007: cada espera gasta uma tentativa; na 3ª vira 'Com erro' (nunca espera para sempre)", async () => {
+    const { insertPost, readPost } = await import("./helpers/seed.mjs");
+    const scheduler = await import("@/lib/content/scheduler");
+    const [{ id: conta }] = await db.sql<{ id: string }>("select id from public.instagram_accounts limit 1");
+    const id = await insertPost(db, conta);
+    meta.createMediaFailure = { status: 429, error: { message: "Too many calls" } };
+    try {
+      await scheduler.runContentCycle(8000);
+      let post = await readPost(db, id);
+      assert.equal(post.status, "scheduled");
+      assert.equal(post.attempts, 1);
+      await db.sql("update public.content_posts set attempts = 2, scheduled_at = now() - interval '1 minute' where id = $1", [id]);
+      await scheduler.runContentCycle(8000);
+      post = await readPost(db, id);
+      assert.equal(post.status, "failed");
+      assert.equal(post.last_error, scheduler.META_LIMIT_POST_GAVE_UP);
+    } finally {
+      meta.createMediaFailure = null;
+      meta.telegram.length = 0;
+      await db.sql("delete from public.content_posts");
+    }
+  });
+
   test("o banco de teste está mesmo sem a 0007", async () => {
     assert.equal((await db.sql("select 1 from information_schema.columns where table_name = 'dm_pending' and column_name = 'notified_at'")).length, 0);
     assert.equal((await db.sql("select 1 from pg_class where relname = 'queue_finished_idx'")).length, 0);
+    assert.equal((await db.sql("select 1 from information_schema.columns where table_name = 'content_posts' and column_name = 'meta_limit_waits'")).length, 0);
   });
 
   test("o relógio responde 200; nem aviso de DM nem limpeza; nada é apagado; o aviso vai ao log uma vez só", async () => {

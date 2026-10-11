@@ -9,6 +9,7 @@
 --   4 · Tokens do Instagram num lugar só: se alguma conta só tinha o token na tabela antiga (public.config), ele é
 --       copiado para a tabela das contas (public.instagram_accounts). A tabela antiga NÃO é apagada.
 --   5 · Estado interno (public.app_status, a mesma da 0004): criada aqui também, caso a 0004 não tenha sido colada.
+--   6 · Posts: um contador de esperas seguidas por limite de uso da Meta (no máximo 6; depois o post vira "Com erro").
 --
 -- Pode ser colada mais de uma vez: "if not exists" e "on conflict do nothing" pulam o que já existe e não mudam nenhum dado.
 -- O UaiFlow funciona sem ela: a senha de administrador fica sem o limite de tentativas, o aviso de DM no Telegram não sai
@@ -85,6 +86,12 @@ where c.id = true
   and c.instagram_access_token is not null
   and c.instagram_user_id is not null
 on conflict (instagram_user_id) do nothing;
+
+-- 6 · Esperas do post por limite de uso da Meta ----------------------------------------------------------------
+-- Quantas vezes seguidas a Meta pediu para esperar ao começar este post. Volta a 0 quando o post começa ou é editado.
+-- Sem esta coluna, cada espera gasta uma das 3 tentativas do post.
+alter table public.content_posts
+  add column if not exists meta_limit_waits integer not null default 0;
 
 comment on table public.config is
   'Antiga: até a 0007 guardava uma cópia do token da conta padrão. O UaiFlow não lê nem grava mais tokens aqui (use public.instagram_accounts).';

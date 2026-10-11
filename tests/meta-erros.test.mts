@@ -253,6 +253,29 @@ describe("posts: erro temporário da Meta não vira 'Com erro'", { skip: semBanc
     assert.equal(meta.telegram.length, 0, "nenhum aviso de 'Com erro'");
   });
 
+  test("teto de 6 esperas seguidas: a 7ª vira 'Com erro' com aviso no Telegram; começar de verdade zera o contador", async () => {
+    const id = await insertPost(db!, conta);
+    meta.createMediaFailure = { status: 400, error: { message: "(#4) Application request limit reached", code: 4 } };
+    await scheduler.runContentCycle(8000);
+    let post = await readPost(db!, id);
+    assert.equal(post.status, "scheduled");
+    assert.equal(post.meta_limit_waits, 1);
+    assert.equal(post.attempts, 0);
+
+    await db!.sql("update public.content_posts set meta_limit_waits = 6, scheduled_at = now() - interval '1 minute' where id = $1", [id]);
+    await scheduler.runContentCycle(8000);
+    post = await readPost(db!, id);
+    assert.equal(post.status, "failed");
+    assert.equal(post.last_error, scheduler.META_LIMIT_POST_GAVE_UP);
+    assert.equal(meta.telegram.length, 1, "aviso de 'Com erro'");
+    assert.match(String(meta.telegram[0].body.text), /limite de uso/);
+
+    const outro = await insertPost(db!, conta, { meta_limit_waits: 3 });
+    meta.createMediaFailure = null;
+    await scheduler.runContentCycle(8000);
+    assert.equal((await readPost(db!, outro)).meta_limit_waits, 0, "começou: as esperas seguidas voltam a 0");
+  });
+
   test("limite de publicações (subcódigo 2207042) também espera", async () => {
     const id = await insertPost(db!, conta);
     meta.createMediaFailure = { status: 400, error: { message: "The user has reached the publishing limit", code: 9, error_subcode: 2207042 } };

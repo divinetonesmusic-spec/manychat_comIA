@@ -131,7 +131,8 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
   }
 
   // Conteúdo novo, tentativa nova: some o container antigo e o registro do pedido de publicação (0003).
-  const resetRequest = (await hasPublishRequestedColumn()) ? ", publish_requested_at = null" : "";
+  const resetRequest = ((await hasPublishRequestedColumn()) ? ", publish_requested_at = null" : "")
+    + ((await hasMetaLimitWaitsColumn()) ? ", meta_limit_waits = 0" : "");
   // Só mexe no aviso de IA quando a edição traz o campo (e a coluna da 0006 existe); sem o campo, mantém o que está.
   const setAi = input.aiGenerated !== undefined && (await hasAiGeneratedColumn());
   const aiClause = setAi ? ", ai_generated = $19" : "";
@@ -225,6 +226,7 @@ function columnProbe(column: string) {
 
 export const hasPublishRequestedColumn = columnProbe("publish_requested_at");
 export const hasAiGeneratedColumn = columnProbe("ai_generated");
+export const hasMetaLimitWaitsColumn = columnProbe("meta_limit_waits");
 
 /** Grava a hora do pedido de publicação ANTES de chamar o media_publish. Sem a 0003, não faz nada. */
 export async function markPublishRequested(id: string) {
@@ -278,6 +280,38 @@ export async function deferPostForPublishLimit(post: Pick<ContentPost, "id" | "a
     [post.id, availableAt, note],
   );
   return rows[0] ?? null;
+}
+
+/** Limite de uso da Meta: no máximo 6 esperas seguidas por post (as mesmas das mensagens); na 7ª vez, "Com erro". */
+export const META_LIMIT_POST_MAX_TIMES = 6;
+
+/**
+ * A Meta pediu para esperar (limite de uso) ao começar o post. Com a coluna meta_limit_waits (0007): soma 1 espera,
+ * devolve a tentativa e adia; depois de 6 esperas seguidas devolve "gave_up" (quem chamou marca "Com erro").
+ * Sem a 0007: cada espera gasta uma tentativa e, na 3ª, devolve "gave_up".
+ */
+export async function deferPostForMetaLimit(post: Pick<ContentPost, "id" | "attempts">, minutes: number, note: string): Promise<"deferred" | "gave_up"> {
+  if (await hasMetaLimitWaitsColumn()) {
+    const { rows } = await query<{ meta_limit_waits: number }>("select meta_limit_waits from public.content_posts where id = $1", [post.id]);
+    if ((rows[0]?.meta_limit_waits ?? 0) >= META_LIMIT_POST_MAX_TIMES) return "gave_up";
+    const { rowCount } = await query(
+      `update public.content_posts
+       set status = 'scheduled', scheduled_at = now() + make_interval(mins => $2), last_error = $3,
+           attempts = greatest(attempts - 1, 0), meta_limit_waits = meta_limit_waits + 1,
+           publishing_started_at = null, lock_until = null
+       where id = $1 and status = 'publishing'`,
+      [post.id, minutes, note],
+    );
+    return rowCount ? "deferred" : "gave_up";
+  }
+  if ((post.attempts ?? 0) >= 3) return "gave_up";
+  return (await deferPostForMeta(post, minutes, note, true)) ? "deferred" : "gave_up";
+}
+
+/** O post começou na Meta (ou foi editado / pedido de novo): as esperas seguidas por limite de uso voltam a 0. */
+export async function resetMetaLimitWaits(id: string) {
+  if (!(await hasMetaLimitWaitsColumn())) return;
+  await query("update public.content_posts set meta_limit_waits = 0 where id = $1 and meta_limit_waits <> 0", [id]);
 }
 
 /**
