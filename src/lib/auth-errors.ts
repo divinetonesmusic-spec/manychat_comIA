@@ -3,10 +3,12 @@ const fallbackMessage = "Não consegui entrar. Tente de novo.";
 const exactMessages: Record<string, string> = {
   config: "A entrada ainda não está configurada: defina ADMIN_SESSION_SECRET (ou WORKER_SECRET) e ADMIN_PASSWORD (12 ou mais caracteres) nas variáveis do servidor.",
   "1": "Senha incorreta.",
+  bloqueado: "Muitas tentativas com a senha errada. Espere 15 minutos e tente de novo.",
+  nao_autorizado: "Este e-mail não tem acesso ao UaiFlow. Entre com a senha de administrador ou peça para incluir o seu e-mail em ALLOWED_EMAILS.",
   "user already registered": "Este e-mail já está cadastrado. Use Entrar ou peça um link de entrada por e-mail.",
   "invalid login credentials": "E-mail ou senha incorretos.",
   "email not confirmed": "Confirme seu e-mail antes de entrar.",
-  "signup is disabled": "O cadastro está temporariamente desativado.",
+  "signup is disabled": "O cadastro está fechado. Só entra quem já tem acesso ao UaiFlow.",
   "email rate limit exceeded": "Muitas tentativas. Aguarde alguns minutos e tente novamente.",
   "user not found": "Não encontrei uma conta com esse e-mail.",
   "token has expired or is invalid": "O link venceu ou não é válido. Peça um novo link.",
@@ -15,6 +17,7 @@ const exactMessages: Record<string, string> = {
 };
 
 const partialMessages: Array<[string, string]> = [
+  ["signups not allowed", "O cadastro está fechado. Só entra quem já tem acesso ao UaiFlow."],
   ["already registered", "Este e-mail já está cadastrado. Use Entrar ou peça um link de entrada por e-mail."],
   ["invalid login", "E-mail ou senha incorretos."],
   ["invalid credentials", "E-mail ou senha incorretos."],

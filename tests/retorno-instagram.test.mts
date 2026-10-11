@@ -1,7 +1,7 @@
 import "./helpers/env.mjs";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 /**
  * U-UX-03: o aviso que aparece depois da volta do login do Instagram (função pura) e os botões que
@@ -125,11 +125,13 @@ describe("botões que não faziam nada saíram; menu agrupado", () => {
     assert.ok(!/\bSearch\b/.test(shell));
   });
 
-  test("auth-form.tsx: sem 'Criar conta' (a rota /cadastro continua existindo)", () => {
+  test("auth-form.tsx: sem 'Criar conta', sem cadastro e o link por e-mail não cria conta (Fase 6: a página /cadastro saiu)", () => {
     const form = readFileSync("src/app/auth-form.tsx", "utf8");
     assert.ok(!form.includes("Criar conta"));
     assert.ok(!form.includes("Nao tem uma conta"));
-    assert.ok(readFileSync("src/app/cadastro/page.tsx", "utf8").length > 0);
+    assert.ok(!form.includes("signUp("), "o formulário não cadastra ninguém");
+    assert.ok(form.includes("shouldCreateUser: false"), "o link por e-mail só serve para quem já tem conta");
+    assert.ok(!existsSync("src/app/cadastro/page.tsx"), "a página de cadastro saiu");
   });
 
   test("menu: grupo principal e grupo 'Avançado', com acentos, na ordem pedida", () => {

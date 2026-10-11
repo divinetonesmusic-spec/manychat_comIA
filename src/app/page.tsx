@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Check, MessageCircle, PlayCircle, ShieldCheck, Sparkles, Workflow } from "lucide-react";
+import { ArrowRight, Check, MessageCircle, ShieldCheck, Sparkles, Workflow } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 
 export default function LandingPage() {
@@ -19,8 +19,7 @@ export default function LandingPage() {
             <a className="hover:text-[var(--ms-foreground)]" href="#precos">Preços</a>
           </nav>
           <div className="flex items-center gap-2">
-            <Link className="btn-secondary hidden sm:inline-flex" href="/login">Entrar</Link>
-            <Link className="btn-primary" href="/cadastro">Cadastrar</Link>
+            <Link className="btn-primary" href="/login">Entrar</Link>
           </div>
         </div>
       </header>
@@ -43,13 +42,9 @@ export default function LandingPage() {
               Crie automações que respondem comentários, mandam mensagens no direct, entregam links e organizam seus contatos, sem ferramentas confusas e tudo em português.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link className="btn-primary h-12 px-5" href="/cadastro">
-                Começar grátis
+              <Link className="btn-primary h-12 px-5" href="/login">
+                Entrar no painel
                 <ArrowRight size={17} />
-              </Link>
-              <Link className="inline-flex h-12 items-center justify-center gap-2 rounded-lg border border-white/25 bg-white/10 px-5 text-sm font-bold text-white backdrop-blur transition hover:bg-white/16" href="/login">
-                <PlayCircle size={17} />
-                Ver painel
               </Link>
             </div>
             <div className="mt-8 grid gap-3 text-sm text-white/78 sm:grid-cols-3">
@@ -124,8 +119,8 @@ export default function LandingPage() {
             <h2 className="text-2xl font-bold">Pronto para montar sua primeira automação?</h2>
             <p className="mt-2 text-sm text-[var(--ms-muted)]">Entre no painel e conecte seu Instagram profissional.</p>
           </div>
-          <Link className="btn-primary h-12 px-5" href="/cadastro">
-            Criar conta
+          <Link className="btn-primary h-12 px-5" href="/login">
+            Entrar
             <ArrowRight size={17} />
           </Link>
         </div>
