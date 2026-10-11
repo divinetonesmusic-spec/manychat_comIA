@@ -6,6 +6,7 @@ import { recordClockBeat, recordClockSkipped } from "@/lib/health";
 import { withDrainLock } from "@/lib/queue/drain-lock";
 import { notifyWaitingDms } from "@/lib/dm-alerts";
 import { cleanupOldRecords } from "@/lib/db/cleanup";
+import { runMoldeClock } from "@/lib/molde/relogio";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -21,7 +22,8 @@ export async function POST(request: NextRequest) {
 /**
  * Relógio do sistema (chamado a cada minuto pelo pg_cron do Supabase):
  * 1) envia a fila de DMs/respostas; 2) publica posts agendados, 1º comentário, automação, resultados e limpeza da mídia;
- * 3) avisa no Telegram as DMs esperando resposta; 4) limpa o banco (1 vez por hora). Só um relógio roda por vez.
+ * 3) avisa no Telegram as DMs esperando resposta; 4) fila do Molde (trabalhos parados, avisos, aprovações, relatório de
+ * domingo); 5) limpa o banco (1 vez por hora). Só um relógio roda por vez.
  * Tudo dentro de ~9 s para caber no plano grátis de funções serverless.
  */
 async function runDrain(request: NextRequest) {
@@ -69,11 +71,14 @@ async function runCycle(request: NextRequest) {
   // DMs esperando resposta há mais de 30 min: 1 aviso por perfil no Telegram (no máximo a cada 2 h). Nunca falha.
   const avisosDm = await notifyWaitingDms({ deadline, origin: request.nextUrl.origin });
 
+  // Fila do Molde: trabalhos cujo Mac sumiu voltam para a fila, avisos no Telegram e o relatório de domingo. Nunca falha.
+  const molde = await runMoldeClock({ deadline, origin: request.nextUrl.origin }).catch(() => null);
+
   // Limpeza do banco (eventos de mais de 90 dias, envios terminados há mais de 30), no máximo 1 vez por hora. Nunca falha.
   const limpeza = await cleanupOldRecords({ deadline });
 
   // Batimento para o /api/health (migração 0004). Falha ignorada: sem a 0004 o relógio segue normal.
   await recordClockBeat({ ms: Date.now() - startedAt });
 
-  return { ok: true, ...queue, content, avisosDm, limpeza, ms: Date.now() - startedAt };
+  return { ok: true, ...queue, content, avisosDm, molde, limpeza, ms: Date.now() - startedAt };
 }

@@ -52,6 +52,11 @@ if (!process.env.MOLDE_API_TOKEN) warnings.push("MOLDE_API_TOKEN vazio: o Molde 
 const telegramKeys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
 const telegramSet = telegramKeys.filter((key) => process.env[key]);
 if (telegramSet.length === 1) warnings.push(`Telegram incompleto (falta ${telegramKeys.filter((key) => !process.env[key]).join(", ")}). Sem as duas variáveis, nenhum aviso é enviado.`);
+const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+if (webhookSecret && !/^[A-Za-z0-9_-]{24,256}$/.test(webhookSecret)) warnings.push("TELEGRAM_WEBHOOK_SECRET deve ter de 24 a 256 letras, números, _ ou - (sem espaço).");
+if (telegramSet.length === 2 && !webhookSecret) warnings.push("TELEGRAM_WEBHOOK_SECRET vazio: os avisos saem, mas sem os botões «Aprovar» e «Mandar» (veja docs/ATUALIZACAO_0008.md).");
+const teto = process.env.MOLDE_TETO_USD;
+if (teto && !(Number(teto.replace(",", ".")) >= 0)) warnings.push("MOLDE_TETO_USD deve ser um número (em dólares), por exemplo 50.");
 if (!telegramSet.length) warnings.push("Telegram não configurado: o UaiFlow não manda avisos no celular (opcional; veja docs/AVISOS_E_COPIA.md).");
 
 if (process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length < 12) warnings.push("ADMIN_PASSWORD deve ter pelo menos 12 caracteres.");

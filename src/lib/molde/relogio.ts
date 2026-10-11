@@ -1,0 +1,168 @@
+import { query } from "@/lib/db/client";
+import { CLAIMABLE_STATES, expireLeases, isMissing0008 } from "@/lib/molde/jobs";
+import { sendTelegram, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
+import { maybeSendWeeklyReport, type WeeklyReportResult } from "@/lib/relatorio-semanal";
+import { sendDmDraftApproval, sendJobApproval } from "@/lib/telegram/approvals";
+import { telegramBotConfig } from "@/lib/telegram/api";
+
+/**
+ * A parte do Molde no relógio (a cada minuto, depois do planner e do aviso de DMs). Tudo curto e dentro do prazo:
+ * 1. Trabalhos cujo Mac sumiu (prazo de 10 min vencido) voltam para a fila; na 3ª vez viram "erro".
+ * 2. Avisos no Telegram (só com o Telegram configurado), todos juntos e com o mesmo prazo:
+ *    - trabalhos que viraram "erro" (1 aviso por trabalho);
+ *    - "O Mac parece desligado": nenhum Mac pediu trabalho há mais de 30 min e há trabalho esperando há mais de 30 min
+ *      (1 aviso por vez que o Mac some; repete depois de 12 h se continuar assim);
+ *    - mensagens de aprovação que não saíram na hora (trabalhos e respostas de DM), de novo a cada 10 min por 1 dia;
+ *    - o relatório de domingo.
+ * Sem a 0008 só o relatório roda (sem a parte dos gastos). Nunca lança erro.
+ */
+export const MAC_ASLEEP_MINUTES = 30;
+const MAC_ALERT_REPEAT_HOURS = 12;
+const ERROR_ALERT_MAX = 5;
+const RESEND_MAX = 3;
+
+let warnedMissing = false;
+
+export type MoldeClockResult = {
+  devolvidos: number;
+  erros: number;
+  avisos: number;
+  aprovacoes: number;
+  relatorio: WeeklyReportResult;
+  motivo?: "sem_tempo" | "sem_migracao" | "erro";
+};
+
+export async function runMoldeClock(options: { deadline: number; origin?: string | null; now?: Date }): Promise<MoldeClockResult> {
+  const out: MoldeClockResult = { devolvidos: 0, erros: 0, avisos: 0, aprovacoes: 0, relatorio: { sent: false } };
+  const timeLeft = () => options.deadline - Date.now();
+  if (timeLeft() < 300) return { ...out, motivo: "sem_tempo", relatorio: { sent: false, motivo: "sem_tempo" } };
+
+  const sends: Array<() => Promise<boolean>> = [];
+  let has0008 = true;
+  try {
+    const expired = await expireLeases();
+    out.devolvidos = expired.devolvidos;
+    out.erros = expired.erros;
+  } catch (error) {
+    if (isMissing0008(error)) {
+      has0008 = false;
+      out.motivo = "sem_migracao";
+      if (!warnedMissing) {
+        warnedMissing = true;
+        console.warn("[molde] a atualização 0008 ainda não foi colada no Supabase: a fila de trabalho do Molde está desligada.");
+      }
+    } else {
+      console.error("[molde] não consegui conferir os trabalhos parados:", error instanceof Error ? error.message : error);
+      out.motivo = "erro";
+      has0008 = false;
+    }
+  }
+
+  const telegramTimeout = () => Math.min(TELEGRAM_TIMEOUT_MS, timeLeft() - 300);
+  if (has0008 && telegramBotConfig() && timeLeft() > 1200) {
+    try {
+      sends.push(...(await errorAlerts(telegramTimeout())));
+      sends.push(...(await macAsleepAlert(telegramTimeout())));
+      sends.push(...(await resendApprovals(telegramTimeout())));
+    } catch (error) {
+      console.error("[molde] não consegui preparar os avisos do Molde:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  // O relatório de domingo corre junto com os avisos (cada um com o seu prazo).
+  const report = maybeSendWeeklyReport({ deadline: options.deadline, origin: options.origin, now: options.now });
+  const [results, relatorio] = await Promise.all([Promise.all(sends.map((send) => send())), report]);
+  out.avisos = results.filter(Boolean).length;
+  out.relatorio = relatorio;
+  return out;
+}
+
+/** Trabalhos que viraram "erro" nos últimos 2 dias e ainda não foram avisados: 1 mensagem com todos. */
+async function errorAlerts(timeoutMs: number): Promise<Array<() => Promise<boolean>>> {
+  const { rows } = await query<{ id: string; titulo: string; ref: string; erro: string | null; username: string | null }>(
+    `select j.id, j.titulo, j.ref, j.erro, ia.instagram_username as username
+     from public.molde_jobs j left join public.instagram_accounts ia on ia.id = j.account_id
+     where j.estado = 'erro' and j.aviso_erro_em is null and j.atualizado_em > now() - interval '2 days'
+     order by j.atualizado_em
+     limit ${ERROR_ALERT_MAX}`,
+  );
+  if (!rows.length || timeoutMs < 500) return [];
+  const lines = rows.map((row) => {
+    const conta = row.username ? ` (@${row.username})` : "";
+    const motivo = (row.erro ?? "").trim() || "sem detalhe.";
+    return `- «${row.titulo || row.ref}»${conta}: ${motivo.length > 300 ? `${motivo.slice(0, 299)}…` : motivo}`;
+  });
+  const text = [
+    rows.length === 1 ? "UaiFlow: um trabalho do Molde deu erro." : `UaiFlow: ${rows.length} trabalhos do Molde deram erro.`,
+    ...lines,
+    "Abra a página do Molde para tentar de novo.",
+  ].join("\n");
+  return [() => sendTelegram(text, { timeoutMs }).then(async (result) => {
+    if (!result.ok) return false;
+    await query("update public.molde_jobs set aviso_erro_em = now() where id = any($1::uuid[])", [rows.map((row) => row.id)]).catch(() => undefined);
+    return true;
+  })];
+}
+
+/** "O Mac parece desligado: tem N coisas esperando." */
+async function macAsleepAlert(timeoutMs: number): Promise<Array<() => Promise<boolean>>> {
+  const { rows } = await query<{ esperando: number; avisar: boolean }>(
+    `with mac as (select atualizado_em from public.app_status where chave = 'molde_mac'),
+          aviso as (select atualizado_em from public.app_status where chave = 'aviso_mac')
+     select (select count(*)::int from public.molde_jobs where estado = any($1::text[])) as esperando,
+            (
+              exists (select 1 from public.molde_jobs where estado = any($1::text[]) and atualizado_em < now() - make_interval(mins => $2))
+              and coalesce((select atualizado_em from mac), '-infinity'::timestamptz) < now() - make_interval(mins => $2)
+              and (
+                (select atualizado_em from aviso) is null
+                or (select atualizado_em from aviso) < coalesce((select atualizado_em from mac), '-infinity'::timestamptz)
+                or (select atualizado_em from aviso) < now() - make_interval(hours => $3)
+              )
+            ) as avisar`,
+    [CLAIMABLE_STATES, MAC_ASLEEP_MINUTES, MAC_ALERT_REPEAT_HOURS],
+  );
+  const row = rows[0];
+  if (!row?.avisar || timeoutMs < 500) return [];
+  const coisas = row.esperando === 1 ? "1 coisa esperando" : `${row.esperando} coisas esperando`;
+  const text = [
+    `UaiFlow: o Mac parece desligado: tem ${coisas} na fila do Molde.`,
+    "Ligue o Mac e abra o app Claude: o Estúdio do Molde pega o trabalho sozinho.",
+  ].join("\n");
+  return [() => sendTelegram(text, { timeoutMs }).then(async (result) => {
+    if (!result.ok) return false;
+    await query(
+      `insert into public.app_status (chave, valor, atualizado_em) values ('aviso_mac', $1::jsonb, now())
+       on conflict (chave) do update set valor = excluded.valor, atualizado_em = excluded.atualizado_em`,
+      [JSON.stringify({ esperando: row.esperando })],
+    ).catch(() => undefined);
+    return true;
+  })];
+}
+
+/** Mensagens de aprovação que não saíram na hora (o Telegram falhou): de novo a cada 10 min, por até 1 dia. */
+async function resendApprovals(timeoutMs: number): Promise<Array<() => Promise<boolean>>> {
+  if (timeoutMs < 500) return [];
+  const { rows: jobs } = await query<{ id: string }>(
+    `select id from public.molde_jobs
+     where estado = 'esperando_aprovacao' and telegram_msg_id is null
+       and atualizado_em < now() - interval '1 minute' and atualizado_em > now() - interval '1 day'
+       and (telegram_aviso_em is null or telegram_aviso_em < now() - interval '10 minutes')
+     order by atualizado_em
+     limit ${RESEND_MAX}`,
+  );
+  const out = jobs.map((job) => () => sendJobApproval(job.id, { timeoutMs }));
+  try {
+    const { rows: drafts } = await query<{ id: string; draft_seq: number }>(
+      `select id, draft_seq from public.dm_pending
+       where status = 'aguardando' and draft_text is not null and telegram_msg_id is null
+         and draft_at < now() - interval '1 minute' and draft_at > now() - interval '1 day'
+         and (telegram_aviso_em is null or telegram_aviso_em < now() - interval '10 minutes')
+       order by draft_at
+       limit ${RESEND_MAX}`,
+    );
+    out.push(...drafts.map((draft) => () => sendDmDraftApproval(draft.id, draft.draft_seq, { timeoutMs })));
+  } catch (error) {
+    if (!isMissing0008(error)) throw error; // sem a 0006 a tabela não existe: só os trabalhos
+  }
+  return out;
+}
