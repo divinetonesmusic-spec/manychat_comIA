@@ -36,26 +36,23 @@ function warnUnavailable(error: unknown) {
   console.warn("[login] não consegui conferir o limite de tentativas; seguindo sem limite:", error instanceof Error ? error.message : error);
 }
 
-/** true = este endereço errou a senha 5 vezes nos últimos 15 minutos (bloqueado por enquanto). */
-export async function isLoginBlocked(ip: string) {
+/**
+ * Conta a tentativa ANTES de conferir a senha (grava e depois conta): assim, pedidos ao mesmo tempo não passam de 5.
+ * true = este endereço já fez mais de 5 tentativas sem acertar nos últimos 15 minutos (bloqueado por enquanto).
+ */
+export async function registerLoginAttempt(ip: string) {
   try {
+    const hash = ipHash(ip);
+    await query("insert into public.admin_login_attempts (ip_hash) values ($1)", [hash]);
     const { rows } = await query<{ count: number }>(
       `select count(*)::int as count from public.admin_login_attempts
        where ip_hash = $1 and attempted_at > now() - make_interval(mins => $2)`,
-      [ipHash(ip), LOGIN_WINDOW_MINUTES],
+      [hash, LOGIN_WINDOW_MINUTES],
     );
-    return (rows[0]?.count ?? 0) >= MAX_FAILED_LOGINS;
+    return (rows[0]?.count ?? 0) > MAX_FAILED_LOGINS;
   } catch (error) {
     warnUnavailable(error);
     return false;
-  }
-}
-
-export async function recordFailedLogin(ip: string) {
-  try {
-    await query("insert into public.admin_login_attempts (ip_hash) values ($1)", [ipHash(ip)]);
-  } catch (error) {
-    warnUnavailable(error);
   }
 }
 

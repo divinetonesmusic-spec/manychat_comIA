@@ -127,7 +127,7 @@ describe("1c · sessão de administrador conferida no servidor", () => {
     const valor = await auth.createAdminSessionValue() as string;
     const [emitido, assinatura] = valor.split(".");
     assert.equal(await auth.isValidAdminSession(`${Number(emitido) + 1000}.${assinatura}`), false, "data trocada");
-    assert.equal(await auth.isValidAdminSession(`${emitido}.${assinatura.slice(0, -2)}xx`), false, "assinatura trocada");
+    assert.equal(await auth.isValidAdminSession(`${emitido}.${assinatura[0] === "A" ? "B" : "A"}${assinatura.slice(1)}`), false, "assinatura trocada");
     assert.equal(await auth.isValidAdminSession(`${valor}.a`), false, "pedaço a mais");
     restaurar = comAmbiente({ ADMIN_SESSION_SECRET: "outro-segredo-da-sessao-com-mais-de-32-caracteres" });
     assert.equal(await auth.isValidAdminSession(valor), false);
@@ -258,8 +258,24 @@ describe("1c · limite de 5 senhas erradas por endereço em 15 minutos (com a 00
     assert.equal(location(outro).pathname, "/perfis");
 
     const linhas = await db!.sql<{ ip_hash: string }>("select ip_hash from public.admin_login_attempts");
-    assert.equal(linhas.length, 5);
+    assert.equal(linhas.length, 6, "5 erradas + a bloqueada (cada pedido conta)");
     assert.ok(linhas.every((linha) => /^[0-9a-f]{64}$/.test(linha.ip_hash) && !linha.ip_hash.includes("203.0.113.7")), "guarda só o hash");
+  });
+
+  test("10 senhas erradas ao mesmo tempo: no máximo 5 são conferidas; o resto já sai bloqueado", async () => {
+    const respostas = await Promise.all(Array.from({ length: 10 }, () => entrar("senha-errada-qualquer", "203.0.113.50")));
+    const erros = respostas.map((resposta) => location(resposta).searchParams.get("error"));
+    assert.ok(erros.filter((erro) => erro === "1").length <= 5, JSON.stringify(erros));
+    assert.equal(erros.filter((erro) => erro === "bloqueado").length + erros.filter((erro) => erro === "1").length, 10);
+    assert.equal(location(await entrar(SENHA, "203.0.113.50")).searchParams.get("error"), "bloqueado", "depois disso nem a senha certa entra");
+  });
+
+  test("x-nf-client-connection-ip (Netlify) vale mais que x-forwarded-for", async () => {
+    for (let i = 0; i < 5; i += 1) {
+      await login.POST(request("/api/admin/login", { form: { password: "errada-errada" }, headers: { "x-nf-client-connection-ip": "203.0.113.60", "x-forwarded-for": `10.0.0.${i}` } }));
+    }
+    const bloqueada = await login.POST(request("/api/admin/login", { form: { password: SENHA }, headers: { "x-nf-client-connection-ip": "203.0.113.60", "x-forwarded-for": "10.9.9.9" } }));
+    assert.equal(location(bloqueada).searchParams.get("error"), "bloqueado", "trocar o x-forwarded-for não escapa do limite");
   });
 
   test("tentativas de mais de 15 minutos não contam", async () => {
