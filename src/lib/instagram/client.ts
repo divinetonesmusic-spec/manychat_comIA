@@ -5,7 +5,7 @@ import {
   requireEnv,
 } from "@/lib/env";
 
-type GraphResponse<T> = T & { error?: { message: string; type?: string; code?: number } };
+type GraphResponse<T> = T & { error?: { message: string; type?: string; code?: number; error_subcode?: number; error_user_msg?: string } };
 
 export type InstagramProfile = {
   user_id: string;
@@ -15,7 +15,7 @@ export type InstagramProfile = {
 };
 
 export async function exchangeCodeForLongToken(code: string, redirectUri: string) {
-  const shortTokenResponse = await fetch(IG_OAUTH_TOKEN_URL, {
+  const shortTokenResponse = await metaFetch(IG_OAUTH_TOKEN_URL, {
     method: "POST",
     body: new URLSearchParams({
       client_id: requireEnv("INSTAGRAM_APP_ID"),
@@ -32,7 +32,7 @@ export async function exchangeCodeForLongToken(code: string, redirectUri: string
   longTokenUrl.searchParams.set("client_secret", requireEnv("INSTAGRAM_APP_SECRET"));
   longTokenUrl.searchParams.set("access_token", shortToken.access_token);
 
-  const longTokenResponse = await fetch(longTokenUrl);
+  const longTokenResponse = await metaFetch(longTokenUrl);
 
   return readGraphResponse<{ access_token: string; token_type: string; expires_in: number }>(longTokenResponse);
 }
@@ -42,7 +42,7 @@ export async function refreshLongLivedToken(accessToken: string) {
   url.searchParams.set("grant_type", "ig_refresh_token");
   url.searchParams.set("access_token", accessToken);
 
-  const response = await fetch(url);
+  const response = await metaFetch(url);
   return readGraphResponse<{ access_token: string; token_type: string; expires_in: number }>(response);
 }
 
@@ -51,7 +51,7 @@ export async function getInstagramProfile(accessToken: string) {
   url.searchParams.set("fields", "user_id,username,name,profile_picture_url");
   url.searchParams.set("access_token", accessToken);
 
-  const response = await fetch(url);
+  const response = await metaFetch(url);
   return readGraphResponse<InstagramProfile>(response);
 }
 
@@ -422,7 +422,7 @@ export async function sendPublicCommentReply(input: {
   text: string;
 }) {
   const url = new URL(`${GRAPH_BASE_URL}/${input.commentId}/replies`);
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${input.accessToken}`,
@@ -508,8 +508,80 @@ function buildMediaMessage(type: "image" | "audio" | "video", url: string) {
   };
 }
 
+/** Prazo de cada chamada à Meta. Sem prazo, uma Meta lenta segurava o relógio até o Netlify cortar a função. */
+export const META_TIMEOUT_MS = 8000;
+
+/** Códigos da Meta para "espere um pouco" (limite de uso): 4, 17, 32, 613 e 80002 (limite do Instagram). */
+const RATE_LIMIT_CODES = new Set([4, 17, 32, 613, 80002]);
+/** Subcódigo da Meta para o limite de publicações do perfil (posts em 24 h). */
+const PUBLISH_LIMIT_SUBCODE = 2207042;
+
+export type MetaErrorKind = "rate_limit" | "timeout" | "other";
+
+/**
+ * Erro de uma chamada à Meta, com o que ela mandou: status HTTP, `code` e `error_subcode`.
+ * A mensagem continua no formato de sempre ("Instagram Graph vXX: ...") para as telas e traduções que já a usam.
+ */
+export class MetaApiError extends Error {
+  readonly status: number | null;
+  readonly code: number | null;
+  readonly subcode: number | null;
+  readonly kind: MetaErrorKind;
+
+  constructor(message: string, details: { status?: number | null; code?: number | null; subcode?: number | null; kind?: MetaErrorKind } = {}) {
+    super(message);
+    this.name = "MetaApiError";
+    this.status = details.status ?? null;
+    this.code = details.code ?? null;
+    this.subcode = details.subcode ?? null;
+    this.kind = details.kind ?? classifyMetaError(this.status, this.code, this.subcode);
+  }
+
+  /** true = vale tentar de novo mais tarde (limite de uso ou a Meta não respondeu a tempo). */
+  get temporary() {
+    return this.kind !== "other";
+  }
+}
+
+function classifyMetaError(status: number | null, code: number | null, subcode: number | null): MetaErrorKind {
+  if (status === 429) return "rate_limit";
+  if (code !== null && RATE_LIMIT_CODES.has(code)) return "rate_limit";
+  if (subcode === PUBLISH_LIMIT_SUBCODE) return "rate_limit";
+  return "other";
+}
+
+/** A Meta pediu para esperar (limite de uso ou de publicações). Nesses casos não adianta tentar de novo em 5 minutos. */
+export function isMetaRateLimit(error: unknown): error is MetaApiError {
+  return error instanceof MetaApiError && error.kind === "rate_limit";
+}
+
+/** A Meta não respondeu dentro do prazo. */
+export function isMetaTimeout(error: unknown): error is MetaApiError {
+  return error instanceof MetaApiError && error.kind === "timeout";
+}
+
+/** Prazo atual (só os testes mudam, por META_TIMEOUT_MS no ambiente, para não esperar 8 s). */
+function metaTimeoutMs() {
+  const fromEnv = Number(process.env.META_TIMEOUT_MS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : META_TIMEOUT_MS;
+}
+
+/** fetch com prazo de 8 s. Estourou: MetaApiError do tipo "timeout" (erro temporário). */
+async function metaFetch(input: URL | string, init: RequestInit = {}) {
+  const timeoutMs = metaTimeoutMs();
+  try {
+    return await fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new MetaApiError(`Instagram Graph ${META_API_VERSION}: a Meta não respondeu em ${Math.round(timeoutMs / 1000)} s. Tente de novo em alguns minutos.`, { kind: "timeout" });
+    }
+    throw error;
+  }
+}
+
 async function graphFetch<T>(url: URL, accessToken: string, init: RequestInit = {}) {
-  const response = await fetch(url, {
+  const response = await metaFetch(url, {
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -526,7 +598,11 @@ async function readGraphResponse<T>(response: Response): Promise<T> {
 
   if (!response.ok || payload.error) {
     const details = payload.error?.message || `${response.status} ${response.statusText}`;
-    throw new Error(`Instagram Graph ${META_API_VERSION}: ${details}`);
+    throw new MetaApiError(`Instagram Graph ${META_API_VERSION}: ${details}`, {
+      status: response.status,
+      code: typeof payload.error?.code === "number" ? payload.error.code : null,
+      subcode: typeof payload.error?.error_subcode === "number" ? payload.error.error_subcode : null,
+    });
   }
 
   return payload as T;

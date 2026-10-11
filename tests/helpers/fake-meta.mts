@@ -35,6 +35,14 @@ export type FakeMeta = {
   telegram: { token: string; body: Record<string, unknown> }[];
   /** Falha do Telegram falso: "rede" (sem conexão) ou uma resposta de erro da API. */
   telegramFails: null | "rede" | { status: number; description: string };
+  /** Se definido, todo POST /messages responde este erro (ex.: limite de uso da Meta, código 4 ou HTTP 429). */
+  messagesError: null | { status: number; error: Record<string, unknown> };
+  /** Quantos dos próximos envios de mídia por DM (anexo image/audio/video) a Meta recusa (erro 400). */
+  mediaMessageFails: number;
+  /** Se definido, a criação de container responde este erro completo (com code/error_subcode). */
+  createMediaFailure: null | { status: number; error: Record<string, unknown> };
+  /** Caminhos em que a Meta "trava" (não responde até o UaiFlow desistir pelo prazo). */
+  hang: RegExp | null;
   reset: () => void;
   restore: () => void;
 };
@@ -61,6 +69,10 @@ export function installFakeMeta(): FakeMeta {
     rejectAiFlag: false,
     telegram: [],
     telegramFails: null,
+    messagesError: null,
+    mediaMessageFails: 0,
+    createMediaFailure: null,
+    hang: null,
     reset: () => {
       fake.calls.length = 0;
       fake.containerStatus.clear();
@@ -74,6 +86,10 @@ export function installFakeMeta(): FakeMeta {
       fake.rejectAiFlag = false;
       fake.telegram.length = 0;
       fake.telegramFails = null;
+      fake.messagesError = null;
+      fake.mediaMessageFails = 0;
+      fake.createMediaFailure = null;
+      fake.hang = null;
       containerCaption.clear();
     },
     restore: () => {
@@ -94,6 +110,16 @@ export function installFakeMeta(): FakeMeta {
     fake.calls.push({ method, host: url.hostname, path, search: url.searchParams, body });
     const id = path.split("/").filter(Boolean)[0] ?? "";
     const fields = url.searchParams.get("fields") || "";
+
+    if (fake.hang?.test(path)) {
+      // Não responde: só termina quando o UaiFlow desiste (o sinal do prazo aborta o pedido).
+      const signal = init.signal ?? request?.signal;
+      return new Promise<Response>((_, reject) => {
+        if (!signal) return;
+        if (signal.aborted) reject(signal.reason);
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }
 
     if (url.hostname.endsWith("r2.cloudflarestorage.com")) return new Response(null, { status: 204 });
 
@@ -136,6 +162,7 @@ export function installFakeMeta(): FakeMeta {
     }
 
     if (path.endsWith("/media") && method === "POST") {
+      if (fake.createMediaFailure) return json({ error: fake.createMediaFailure.error }, fake.createMediaFailure.status);
       if (fake.createMediaError) return json({ error: { message: fake.createMediaError } }, 400);
       if (fake.rejectAiFlag && "is_ai_generated" in body) return json({ error: { message: "(#100) Invalid parameter: is_ai_generated is not supported for this request" } }, 400);
       const containerId = `container-${++seq}`;
@@ -150,7 +177,15 @@ export function installFakeMeta(): FakeMeta {
     }
 
     // Mensagens diretas e respostas privadas (POST /{ig-user-id}/messages) e resposta pública a comentário (POST /{comment-id}/replies).
-    if (path.endsWith("/messages") && method === "POST") return json({ recipient_id: "destinatario", message_id: `mid-${++seq}` });
+    if (path.endsWith("/messages") && method === "POST") {
+      if (fake.messagesError) return json({ error: fake.messagesError.error }, fake.messagesError.status);
+      const attachment = (body.message as { attachment?: { type?: string } } | undefined)?.attachment;
+      if (fake.mediaMessageFails > 0 && attachment && ["image", "audio", "video"].includes(String(attachment.type))) {
+        fake.mediaMessageFails -= 1;
+        return json({ error: { message: "(#100) Falha simulada ao mandar a mídia", code: 100 } }, 400);
+      }
+      return json({ recipient_id: "destinatario", message_id: `mid-${++seq}` });
+    }
     if (path.endsWith("/replies") && method === "POST") return json({ id: `reply-${++seq}` });
 
     if (path.endsWith("/comments") && method === "POST") return json({ id: `comment-${++seq}` });
