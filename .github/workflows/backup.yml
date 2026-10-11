@@ -120,7 +120,7 @@ jobs:
 
       - name: Guardar a cópia criptografada (90 dias)
         if: steps.segredos.outputs.fazer == 'sim'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.copia.outputs.nome }}
           path: ${{ steps.copia.outputs.arquivo }}

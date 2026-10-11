@@ -140,6 +140,8 @@ describe("cópia semanal do banco (.github/workflows/backup.yml)", () => {
   test("guarda só o arquivo criptografado, por 90 dias, e só quando a cópia deu certo", () => {
     const upload = steps.find((candidate) => candidate.uses?.startsWith("actions/upload-artifact@"));
     assert.ok(upload);
+    assert.equal(upload.uses, "actions/upload-artifact@v7", "Fase 6: versão atual (a v4 gerava aviso do GitHub)");
+    assert.notEqual(upload.with?.archive, false, "a cópia continua indo como .zip com o nome do arquivo");
     assert.equal(upload.if, "steps.segredos.outputs.fazer == 'sim'");
     assert.equal(upload.with?.path, "${{ steps.copia.outputs.arquivo }}");
     assert.equal(upload.with?.["retention-days"], 90);
