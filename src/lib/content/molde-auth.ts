@@ -35,6 +35,8 @@ export function publicView(post: ContentPost) {
     publishedAt: post.published_at,
     permalink: post.permalink,
     lastError: post.last_error,
+    /** true = a mídia saiu do armazenamento (publicado há dias, ou rascunho/erro parado há 14 dias): para publicar, mande a mídia de novo. */
+    mediaDeleted: Boolean(post.media_deleted_at),
     keyword: post.keyword,
     aiGenerated: Boolean(post.ai_generated),
     automationId: post.automation_id,

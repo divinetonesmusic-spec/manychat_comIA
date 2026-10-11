@@ -6,6 +6,7 @@ import {
   findPostByExternalRef,
   getContentPost,
   hasAiGeneratedColumn,
+  MEDIA_REMOVED_NOTE,
   updatePlannedPost,
   type PostPackage,
 } from "@/lib/db/content-planner";
@@ -68,6 +69,13 @@ export async function editPost(id: string, input: Partial<PostPackage>, publishN
   if ((publishNow || input.scheduledAt) && current.account_id) {
     const config = await getConfig(current.account_id);
     if (!config.instagram_user_id || !config.instagram_access_token) throw new ContentError("Instagram não conectado para este perfil.");
+  }
+  // Mídia apagada do R2 (post parado há 14 dias): publicar ou tentar de novo só com mídia nova.
+  const sameUrls = (a: Array<{ url: string }>, b: Array<{ url: string }>) => a.length === b.length && a.every((item, index) => item.url === b[index]?.url);
+  const newMedia = (input.mediaUrl !== undefined && input.mediaUrl !== current.media_url)
+    || (input.mediaItems !== undefined && !sameUrls(input.mediaItems, current.media_items ?? []));
+  if (publishNow && current.media_deleted_at && !newMedia && current.status !== "published") {
+    throw new ContentError(MEDIA_REMOVED_NOTE, 409);
   }
   if (current.status !== "published" && current.status !== "publishing") {
     const alreadyPublished = await ensureNotPublishedYet(current);

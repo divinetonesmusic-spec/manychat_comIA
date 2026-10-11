@@ -15,6 +15,11 @@ type SignInput = {
   secretAccessKey: string;
   expiresSeconds: number;
   now?: Date;
+  /**
+   * Cabeçalhos que entram na assinatura além do host (ex.: content-length). Quem usar o link tem que mandar exatamente
+   * esses valores; senão o R2 recusa (403 SignatureDoesNotMatch).
+   */
+  headers?: Record<string, string>;
 };
 
 const encode = (value: string) =>
@@ -32,12 +37,16 @@ function amzDates(now: Date) {
 export function presignUrl(input: SignInput) {
   const { amzDate, shortDate } = amzDates(input.now ?? new Date());
   const scope = `${shortDate}/${input.region}/${input.service}/aws4_request`;
+  const headers: Record<string, string> = { host: input.host };
+  for (const [name, value] of Object.entries(input.headers ?? {})) headers[name.toLowerCase()] = String(value).trim();
+  const headerNames = Object.keys(headers).sort();
+  const signedHeaders = headerNames.join(";");
   const query: Record<string, string> = {
     "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
     "X-Amz-Credential": `${input.accessKeyId}/${scope}`,
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": String(input.expiresSeconds),
-    "X-Amz-SignedHeaders": "host",
+    "X-Amz-SignedHeaders": signedHeaders,
   };
   const canonicalQuery = Object.keys(query)
     .sort()
@@ -48,8 +57,8 @@ export function presignUrl(input: SignInput) {
     input.method,
     canonicalPath,
     canonicalQuery,
-    `host:${input.host}\n`,
-    "host",
+    headerNames.map((name) => `${name}:${headers[name]}\n`).join(""),
+    signedHeaders,
     "UNSIGNED-PAYLOAD",
   ].join("\n");
   const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256(canonicalRequest)].join("\n");
@@ -80,7 +89,7 @@ export function getR2Config(): R2Config | null {
   return { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl: publicBaseUrl.replace(/\/$/, "") };
 }
 
-function r2Request(config: R2Config, method: SignInput["method"], key: string, expiresSeconds: number) {
+function r2Request(config: R2Config, method: SignInput["method"], key: string, expiresSeconds: number, headers?: Record<string, string>) {
   return presignUrl({
     method,
     host: `${config.accountId}.r2.cloudflarestorage.com`,
@@ -90,6 +99,7 @@ function r2Request(config: R2Config, method: SignInput["method"], key: string, e
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
     expiresSeconds,
+    headers,
   });
 }
 
@@ -113,13 +123,19 @@ export function cleanFileName(name: string) {
     .slice(0, 60) || "arquivo";
 }
 
-/** Cria a chave do arquivo e os links: upload (PUT, 1 h) e o endereço público que a Meta vai ler. */
+/**
+ * Cria a chave do arquivo e os links: upload (PUT, 1 h) e o endereço público que a Meta vai ler.
+ * O tamanho (`size`, em bytes) é obrigatório e vai assinado no link (content-length): o R2 só aceita um arquivo
+ * exatamente desse tamanho. O navegador e o robô do Mac mandam o tamanho certo sozinhos ao enviar o arquivo.
+ */
 export function createUploadTarget(input: { fileName: string; contentType: string; size?: number; folder?: string }) {
   const config = getR2Config();
   if (!config) throw new Error("O armazenamento de mídia (Cloudflare R2) ainda não foi configurado.");
   const extension = ALLOWED_TYPES[input.contentType];
   if (!extension) throw new Error("Tipo de arquivo não aceito. Use MP4, MOV, JPG, PNG ou WEBP.");
-  if (input.size && input.size > MAX_UPLOAD_BYTES) throw new Error("Arquivo grande demais (máximo 1 GB).");
+  const size = input.size;
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) throw new Error("Falta o tamanho do arquivo (size, em bytes).");
+  if (size > MAX_UPLOAD_BYTES) throw new Error("Arquivo grande demais (máximo 1 GB).");
 
   const month = new Date().toISOString().slice(0, 7);
   const base = cleanFileName(input.fileName.replace(/\.[a-z0-9]+$/i, ""));
@@ -128,7 +144,8 @@ export function createUploadTarget(input: { fileName: string; contentType: strin
 
   return {
     key,
-    uploadUrl: r2Request(config, "PUT", key, 3600),
+    uploadUrl: r2Request(config, "PUT", key, 3600, { "content-length": String(size) }),
+    size,
     publicUrl: `${config.publicBaseUrl}/${key.split("/").map(encode).join("/")}`,
     contentType: input.contentType,
   };

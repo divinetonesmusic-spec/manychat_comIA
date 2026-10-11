@@ -122,7 +122,10 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
     ? (next.media_items as ContentMediaItem[])[0]?.url ?? ""
     : input.mediaUrl ?? current.media_url;
   const status = next.scheduled_at ? "scheduled" : "draft";
-  const newMedia = input.mediaUrl !== undefined || input.mediaItems !== undefined;
+  // Mídia nova = link diferente do que já estava (a tela manda o link de sempre a cada edição; o mesmo link apagado não vale).
+  const sameUrls = (a: Array<{ url: string }>, b: Array<{ url: string }>) => a.length === b.length && a.every((item, index) => item.url === b[index]?.url);
+  const newMedia = (input.mediaUrl !== undefined && input.mediaUrl !== current.media_url)
+    || (input.mediaItems !== undefined && !sameUrls(input.mediaItems, current.media_items ?? []));
   if (current.media_deleted_at && !newMedia) {
     throw new Error("A mídia deste post já foi apagada do armazenamento. Envie o arquivo de novo antes de reagendar.");
   }
@@ -420,22 +423,48 @@ export async function saveInsights(id: string, insights: Record<string, number>)
   await query("update public.content_posts set insights = $2, insights_at = now() where id = $1", [id, JSON.stringify(insights)]);
 }
 
-/** Vídeos no R2 podem ser apagados 3 dias depois de publicados (o original fica no Mac). */
-export async function listPostsForMediaCleanup(limit = 10): Promise<ContentPost[]> {
+/** Dias sem mudança até a mídia de um rascunho ou de um post com erro sair do R2 (o post continua, sem a mídia). */
+export const STALE_MEDIA_DAYS = 14;
+
+/** Nota do post (rascunho ou com erro) cuja mídia foi apagada do R2 por ficar parada. */
+export const MEDIA_REMOVED_NOTE = `A mídia foi apagada do armazenamento depois de ${STALE_MEDIA_DAYS} dias parada. Envie a mídia de novo para agendar ou publicar.`;
+
+/**
+ * Mídias no R2 que podem sair:
+ * - publicados há mais de 3 dias (o original fica no Mac);
+ * - cancelados sem mudança há mais de 14 dias;
+ * - rascunhos e posts com erro sem mudança há mais de 14 dias, desde que a mídia esteja no R2 (`r2Prefix` é o endereço
+ *   público do R2 com "/" no fim): um link de fora colado na mão não é apagado nem marcado.
+ */
+export async function listPostsForMediaCleanup(limit = 10, r2Prefix: string | null = null): Promise<ContentPost[]> {
   const { rows } = await query<ContentPost>(
     `select * from public.content_posts
      where media_deleted_at is null
        and ((status = 'published' and published_at < now() - interval '3 days')
-         or (status = 'canceled' and updated_at < now() - interval '14 days'))
+         or (status = 'canceled' and updated_at < now() - make_interval(days => $3))
+         or (status in ('draft', 'failed') and updated_at < now() - make_interval(days => $3)
+             and (cardinality(media_keys) > 0
+               or ($2::text <> '' and (position($2 in media_url) = 1 or position($2 in coalesce(cover_url, '')) = 1
+                                      or position($2 in media_items::text) > 0)))))
      order by coalesce(published_at, updated_at) asc
      limit $1`,
-    [limit],
+    [limit, r2Prefix ?? "", STALE_MEDIA_DAYS],
   );
   return rows;
 }
 
+/**
+ * Marca a mídia como apagada. Rascunho e post com erro ganham a nota "envie a mídia de novo" (a tela e o Molde mostram);
+ * editar o post com mídia nova limpa a marca e a nota.
+ */
 export async function markMediaDeleted(id: string) {
-  await query("update public.content_posts set media_deleted_at = now() where id = $1", [id]);
+  await query(
+    `update public.content_posts
+     set media_deleted_at = now(),
+         last_error = case when status in ('draft', 'failed') then $2 else last_error end
+     where id = $1`,
+    [id, MEDIA_REMOVED_NOTE],
+  );
 }
 
 export async function listContentPostsInRange(input: { accountId?: string | null; from: Date; to: Date }): Promise<ContentPost[]> {

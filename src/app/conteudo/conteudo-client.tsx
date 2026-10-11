@@ -365,6 +365,7 @@ export function PostList({ posts, onOpenPost }: { posts: ContentPost[]; onOpenPo
               <span className="status-pill">{dateTimeLabel(new Date(postTime(post)))}</span>
               {post.keyword ? <span className="status-pill"><Zap size={12} /> {post.keyword}</span> : null}
               {post.source === "molde" ? <span className="status-pill"><Sparkles size={12} /> Molde</span> : null}
+              {needsNewMedia(post) ? <span className="status-pill text-amber-600 dark:text-amber-300"><Upload size={12} /> Precisa de mídia nova</span> : null}
             </div>
             <p className="mt-2 truncate text-sm font-semibold">{post.title || post.caption || "Sem legenda"}</p>
             {post.last_error && post.status !== "published" ? <p className={`mt-1 truncate text-xs ${lastErrorClass(post.status)}`}>{post.last_error}</p> : null}
@@ -659,6 +660,7 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
           <span className="status-pill">{dateTimeLabel(new Date(postTime(post)))}</span>
           {post.keyword ? <span className="status-pill"><Zap size={12} /> {post.keyword} {post.automation_id ? "· automação ligada" : "· automação pendente"}</span> : null}
           {post.first_comment ? <span className="status-pill"><MessageCircle size={12} /> 1º comentário {post.first_comment_id ? "feito" : "pendente"}</span> : null}
+          {needsNewMedia(post) ? <span className="status-pill text-amber-600 dark:text-amber-300"><Upload size={12} /> Precisa de mídia nova</span> : null}
         </div>
         {notice ? <p className={noticeClass(notice.tone)}>{notice.text}</p> : null}
         {post.last_error ? <p className={`text-sm ${lastErrorClass(post.status)}`}>{post.last_error}</p> : null}
@@ -668,7 +670,7 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
           {post.permalink ? <a className="btn-secondary" href={post.permalink} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Ver no Instagram</a> : null}
           {post.status === "publishing" ? <span className="status-pill"><Loader2 className="animate-spin" size={14} /> O sistema confere a cada 2 minutos</span> : null}
           {post.status !== "publishing" ? <DeleteButton id={post.id} onRemoved={onRemoved} onError={setError} published={post.status === "published"} /> : null}
-          {post.status === "failed" ? <RetryButton id={post.id} onSaved={onSaved} onError={setError} /> : null}
+          {post.status === "failed" && !needsNewMedia(post) ? <RetryButton id={post.id} onSaved={onSaved} onError={setError} /> : null}
         </div>
       </div>
     </section>
@@ -819,16 +821,18 @@ export function emptyDraft(date?: string): Draft {
 
 export function draftFromPost(post: ContentPost): Draft {
   const at = post.scheduled_at ? new Date(post.scheduled_at) : new Date(Date.now() + 60 * 60_000);
-  const items: DraftItem[] = (post.media_items ?? []).map((item: ContentMediaItem) => ({ type: item.type, url: item.url, coverUrl: item.cover_url ?? "" }));
+  // Mídia apagada do armazenamento: os links antigos não servem mais; o formulário abre pedindo a mídia de novo.
+  const semMidia = needsNewMedia(post);
+  const items: DraftItem[] = semMidia ? [] : (post.media_items ?? []).map((item: ContentMediaItem) => ({ type: item.type, url: item.url, coverUrl: item.cover_url ?? "" }));
   return {
     id: post.id,
     publishType: post.publish_type,
     title: post.title ?? "",
     caption: post.caption ?? "",
     firstComment: post.first_comment ?? "",
-    mediaUrl: post.media_url ?? "",
-    coverUrl: post.cover_url ?? "",
-    mediaKeys: post.media_keys ?? [],
+    mediaUrl: semMidia ? "" : post.media_url ?? "",
+    coverUrl: semMidia ? "" : post.cover_url ?? "",
+    mediaKeys: semMidia ? [] : post.media_keys ?? [],
     items: items.length >= 2 ? items : [emptyItem(), emptyItem()],
     keyword: post.keyword ?? "",
     dmText: post.dm_text ?? "",
@@ -930,6 +934,11 @@ function chipTone(status: ContentPost["status"]) {
 }
 
 /** Cor da nota do post (lista e detalhe): neutra enquanto publica, depois de publicado (ex.: "Publicado; não consegui buscar o link") e quando está agendado esperando vaga (limite de 100 por dia); vermelha só para erro. */
+/** A mídia saiu do armazenamento e o post ainda não foi publicado: só sai com mídia nova. */
+export function needsNewMedia(post: Pick<ContentPost, "status" | "media_deleted_at">) {
+  return Boolean(post.media_deleted_at) && post.status !== "published";
+}
+
 export function lastErrorClass(status: ContentPost["status"]) {
   return status === "publishing" || status === "published" || status === "scheduled" ? "text-[var(--ms-muted)]" : "text-red-500";
 }

@@ -37,7 +37,7 @@ import {
   publishInstagramMediaContainer,
   type InstagramPublishType,
 } from "@/lib/instagram/client";
-import { deleteR2Object, keyFromPublicUrl } from "@/lib/content/r2";
+import { deleteR2Object, getR2Config, keyFromPublicUrl } from "@/lib/content/r2";
 import { findMatchingMedia, parseMetaTimestamp, type FeedMedia } from "@/lib/content/publish-check";
 import { notifyPostFailed, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
 import { formatSaoPauloTime } from "@/lib/time";
@@ -205,9 +205,10 @@ async function runCycleSteps(
     }
   }
 
-  // 5) Limpa a mídia do R2 depois de publicada (o original continua no Mac).
+  // 5) Limpa a mídia do R2 depois de publicada (o original continua no Mac) e a de rascunhos/erros parados há 14 dias.
   if (!options.light && timeLeft() > 1500) {
-    for (const post of await listPostsForMediaCleanup(10)) {
+    const r2 = getR2Config();
+    for (const post of await listPostsForMediaCleanup(10, r2 ? `${r2.publicBaseUrl}/` : null)) {
       if (timeLeft() < 1000) { out.stoppedEarly = true; break; }
       const keys = new Set<string>(post.media_keys ?? []);
       for (const url of [post.media_url, post.cover_url, ...(post.media_items ?? []).flatMap((item) => [item.url, item.cover_url])]) {
