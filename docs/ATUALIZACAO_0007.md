@@ -2,12 +2,29 @@
 
 Esta atualização acompanha a Fase 6. O arquivo `0007_fase6.sql` tem tudo junto: **você cola o arquivo inteiro uma vez só** e vale para tudo.
 
+## Passo 0 — antes de juntar na main (e de publicar o site novo)
+
+Faça isto **antes** de a versão nova ir ao ar. Sem isso você pode ficar sem conseguir entrar no UaiFlow.
+
+1. Entre em https://app.netlify.com, abra o site **uaiflow-divinetones** → **Site configuration** → **Environment variables** e confira estas três:
+   - **`ALLOWED_EMAILS`**: tem que ter **o seu e-mail**, o mesmo com que você entra no UaiFlow (mais de um: separe por vírgula). Na versão nova, quem não está nessa lista não entra com e-mail, link ou Google.
+   - **`ADMIN_PASSWORD`**: a senha de administrador, com **12 caracteres ou mais**. É a porta de emergência (o campo **Entrar com a senha de administrador** na página de entrada). Com menos de 12, ela não funciona.
+   - **`ADMIN_SESSION_SECRET`**: um segredo longo (32 caracteres ou mais). Sem ele, a entrada com a senha de administrador fica desligada.
+
+   Se mudar alguma, publique o site de novo (**Deploys** → **Trigger deploy** → **Deploy site**).
+2. Cole a migração 0007 (passo a passo abaixo). Pode ser antes de publicar.
+3. **Logo depois de publicar**, faça dois envios pequenos de verdade (o link de envio agora exige o tamanho exato do arquivo):
+   - Na tela **Conteúdo** (`/conteudo`, no grupo **Avançado** do menu): **Novo post** → **Enviar** uma foto pequena. Tem que chegar a 100% e a prévia aparecer. Depois apague o rascunho.
+   - Pelo **robô do Mac (Molde)**: mande um Reel curto como rascunho. Se der erro com "SignatureDoesNotMatch" ou "Falta o tamanho do arquivo", avise antes de agendar qualquer coisa: o robô precisa mandar o tamanho do arquivo.
+
 - **Senha de administrador mais segura:** o UaiFlow passa a contar as senhas erradas. Depois de 5 erros seguidos do mesmo endereço em 15 minutos, ele para de aceitar tentativas desse endereço até passar o prazo. A atualização cria uma tabela para isso. Ela guarda só um código embaralhado do endereço, nunca o endereço nem a senha digitada.
 - **Aviso de DM esperando no Telegram:** quando alguém manda uma mensagem direta que ninguém respondeu e ela fica esperando mais de 30 minutos, o UaiFlow manda um aviso no seu Telegram. A atualização cria uma coluna nova nas DMs sem resposta para lembrar que o aviso já foi.
 - **Limpeza do banco:** o UaiFlow passa a apagar sozinho, uma vez por hora, o histórico de eventos com mais de 90 dias e os envios já terminados há mais de 30 dias. A atualização cria os "atalhos de busca" (índices) para essa limpeza não pesar no banco.
 - **Token do Instagram num lugar só:** até agora o token da conta principal ficava guardado em dois lugares. A partir desta versão o UaiFlow usa só a tabela das contas (`instagram_accounts`). Se alguma conta tiver o token só no lugar antigo (a tabela `config`), a atualização copia esse token para a tabela das contas. A tabela antiga **não é apagada**.
 
-- Não apaga nada do que já existe: só cria uma tabela, uma coluna e alguns atalhos, e copia o token que faltar.
+- **Teto de espera dos posts:** se a Meta pedir para esperar (limite de uso) 6 vezes seguidas ao começar um post, ele vira "Com erro" (com aviso no Telegram) em vez de esperar para sempre. A atualização cria uma coluna nova no post para contar essas esperas.
+
+- Não apaga nada do que já existe: só cria uma tabela, duas colunas e alguns atalhos, e copia o token que faltar.
 - Pode ser colada mais de uma vez sem problema.
 - Cole a 0006 antes desta. Se a 0006 ainda não foi colada, a 0007 funciona do mesmo jeito, só pula a parte das DMs. Depois de colar a 0006, cole a 0007 de novo.
 - O site continua funcionando mesmo antes dela, **mas sem ela**:
@@ -40,6 +57,12 @@ Leva uns 3 minutos.
    select column_name from information_schema.columns where table_name = 'dm_pending' and column_name = 'notified_at';
    ```
 
+   Para conferir a coluna das esperas do post (deve aparecer **uma linha** com `meta_limit_waits`):
+
+   ```sql
+   select column_name from information_schema.columns where table_name = 'content_posts' and column_name = 'meta_limit_waits';
+   ```
+
    Para conferir os atalhos da limpeza (devem aparecer **3 linhas**):
 
    ```sql
@@ -64,18 +87,20 @@ Leva uns 3 minutos.
 
 ## O que fazer além de colar (uma vez só)
 
-1. **Netlify: confira `ALLOWED_EMAILS`.** No Netlify, abra o site **uaiflow-divinetones** → **Site configuration** → **Environment variables**. A variável `ALLOWED_EMAILS` tem que ter o seu e-mail (o mesmo que você usa para entrar), por exemplo `ALLOWED_EMAILS=seu-email@gmail.com`. Mais de um e-mail: separe por vírgula. **Sem essa variável, depois desta versão ninguém entra com e-mail, link ou Google**; só com a senha de administrador. Depois de mudar, publique o site de novo (**Deploys** → **Trigger deploy** → **Deploy site**).
+1. **Netlify: confira `ALLOWED_EMAILS`** (se ainda não fez no Passo 0). No Netlify, abra o site **uaiflow-divinetones** → **Site configuration** → **Environment variables**. A variável `ALLOWED_EMAILS` tem que ter o seu e-mail (o mesmo que você usa para entrar), por exemplo `ALLOWED_EMAILS=seu-email@gmail.com`. Mais de um e-mail: separe por vírgula. **Sem essa variável, depois desta versão ninguém entra com e-mail, link ou Google**; só com a senha de administrador. Depois de mudar, publique o site de novo (**Deploys** → **Trigger deploy** → **Deploy site**).
 2. **Supabase: desligue o cadastro de contas novas.** No Supabase, abra **Authentication** → **Sign In / Providers** e desmarque **Allow new users to sign up** (permitir cadastro de usuários novos). Clique em **Save**. Assim ninguém cria conta nova, nem pelo Google. Quem já tem conta continua entrando.
 3. **Entre de novo uma vez.** O jeito de lembrar a entrada com a senha de administrador mudou: quem entrou com essa senha vai precisar entrar de novo uma vez. Quem entra com e-mail ou Google não percebe nada.
 4. **Telegram (opcional):** o aviso de DM esperando usa o mesmo Telegram dos outros avisos (`TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`). Se você ainda não ligou, veja `docs/AVISOS_E_COPIA.md`.
 
 ## O que muda no dia a dia
 
+- **Sair.** O botão **Sair** agora desliga as duas entradas: a do e-mail/Google e a da senha de administrador.
+- **Saúde do relógio.** Se o relógio ficar travado esperando outro relógio terminar, o `/api/health` (e o monitor do GitHub) diz isso com todas as letras, em vez de "o relógio não roda".
 - **Entrar.** A página `/cadastro` saiu: quem abrir esse endereço vai para a entrada (`/login`). O link de entrada por e-mail só funciona para quem já tem conta. Na página de entrada há também **Entrar com a senha de administrador** (a porta de emergência). Errou a senha 5 vezes em 15 minutos: aparece "Muitas tentativas com a senha errada. Espere 15 minutos e tente de novo." A entrada com a senha de administrador vale por 30 dias.
 - **Menu.** O UaiFlow virou o painel de operação: no menu principal ficam **Início**, **Perfis**, **Contatos** e **Configurações**. **Conteúdo**, **Caixa de entrada**, **Automações** e **Fluxos** continuam funcionando, agora dentro do grupo **Avançado** (criar e aprovar posts e respostas é no Molde). O item "Assistente UaiFlow" saiu (ele não levava a lugar nenhum).
 - **Aviso de DM esperando.** Se uma mensagem direta que ninguém respondeu está esperando há mais de 30 minutos, chega no Telegram uma mensagem por perfil, mais ou menos assim: "UaiFlow: 3 mensagens no Direct de @perfil esperam resposta (de 2 pessoas). A mais urgente vence em 5 h 20 min (o Instagram só deixa responder até 24 h depois da última mensagem da pessoa). Responda pelo Molde." No máximo um aviso a cada 2 horas por perfil, e a mesma conversa não é avisada duas vezes (só se a pessoa mandar mensagem nova).
 - **Limpeza do banco.** Uma vez por hora o relógio apaga o histórico de eventos com mais de 90 dias e os envios terminados (enviados, que falharam ou foram pulados) há mais de 30 dias. Por isso a conversa mais antiga que 90 dias some da **Caixa de entrada**, e os números de "enviadas" mais antigos que 30 dias saem das contagens. Envios que ainda esperam para sair nunca são apagados.
-- **Instagram pedindo para esperar.** Quando a Meta pede para esperar (limite de uso), a mensagem não vira mais "falhou" depois de 15 minutos: ela espera 30 minutos, depois 1 hora, 2 horas, 4 horas, e tenta de novo sozinha. Com o post é igual: volta para agendado daqui a 30 minutos com a nota "A Meta pediu para esperar (limite de uso). Nova tentativa às HH:MM.". Se a Meta não responder em 8 segundos, o UaiFlow desiste daquela vez e tenta de novo depois.
+- **Instagram pedindo para esperar.** Quando a Meta pede para esperar (limite de uso), a mensagem não vira mais "falhou" depois de 15 minutos: ela espera 30 minutos, depois 1 hora, 2 horas, 4 horas, e tenta de novo sozinha. Com o post é igual: volta para agendado daqui a 30 minutos com a nota "A Meta pediu para esperar (limite de uso). Nova tentativa às HH:MM."; depois de 6 esperas seguidas ele vira "Com erro" com a frase "A Meta continuou pedindo para esperar (limite de uso) por muitas horas. Tente de novo mais tarde." e o aviso no Telegram. Se a Meta não responder em 8 segundos, o UaiFlow desiste daquela vez e tenta de novo depois.
 - **Mensagem com foto ou vídeo e texto.** Se o texto saiu e só a foto/vídeo falhou, a nova tentativa manda só a foto/vídeo (o texto não chega duas vezes).
 - **Mídia parada.** A mídia de um rascunho ou de um post com erro que ficou 14 dias sem mudança é apagada do armazenamento (R2). O post continua lá, com a nota "A mídia foi apagada do armazenamento depois de 14 dias parada. Envie a mídia de novo para agendar ou publicar." e o selo **Precisa de mídia nova**. Link colado de fora (que não está no R2) não é apagado. Isso não precisa da 0007.
 - **Envio de arquivo.** O link de envio para o armazenamento agora só aceita um arquivo do tamanho exato informado. Na tela isso é automático. O Molde já manda o tamanho; se um envio pelo Molde passar a falhar com "SignatureDoesNotMatch", avise (o robô precisa mandar o arquivo inteiro de uma vez, com o tamanho).
