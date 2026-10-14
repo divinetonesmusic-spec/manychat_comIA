@@ -33,6 +33,8 @@ export type FakeMeta = {
   rejectAiFlag: boolean;
   /** Avisos recebidos pelo Telegram falso (POST api.telegram.org/bot<token>/sendMessage). */
   telegram: { token: string; body: Record<string, unknown> }[];
+  /** Outras chamadas ao Telegram falso (editMessageText, answerCallbackQuery, setWebhook…), na ordem. */
+  telegramApi: { method: string; body: Record<string, unknown> }[];
   /** Falha do Telegram falso: "rede" (sem conexão) ou uma resposta de erro da API. */
   telegramFails: null | "rede" | { status: number; description: string };
   /** Se definido, todo POST /messages responde este erro (ex.: limite de uso da Meta, código 4 ou HTTP 429). */
@@ -68,6 +70,7 @@ export function installFakeMeta(): FakeMeta {
     createMediaError: null,
     rejectAiFlag: false,
     telegram: [],
+    telegramApi: [],
     telegramFails: null,
     messagesError: null,
     mediaMessageFails: 0,
@@ -85,6 +88,7 @@ export function installFakeMeta(): FakeMeta {
       fake.createMediaError = null;
       fake.rejectAiFlag = false;
       fake.telegram.length = 0;
+      fake.telegramApi.length = 0;
       fake.telegramFails = null;
       fake.messagesError = null;
       fake.mediaMessageFails = 0;
@@ -123,12 +127,17 @@ export function installFakeMeta(): FakeMeta {
 
     if (url.hostname.endsWith("r2.cloudflarestorage.com")) return new Response(null, { status: 204 });
 
-    // Telegram (avisos): /bot<token>/sendMessage
+    // Telegram (avisos): /bot<token>/sendMessage; as outras chamadas (editMessageText, answerCallbackQuery, setWebhook…) vão
+    // para telegramApi.
     if (url.hostname === "api.telegram.org") {
-      const match = path.match(/^\/bot([^/]+)\/sendMessage$/);
+      const match = path.match(/^\/bot([^/]+)\/([A-Za-z]+)$/);
       if (!match || method !== "POST") return json({ ok: false, error_code: 404, description: "Not Found" }, 404);
       if (fake.telegramFails === "rede") throw new TypeError("fetch failed (Telegram fora do ar, simulado)");
       if (fake.telegramFails) return json({ ok: false, error_code: fake.telegramFails.status, description: fake.telegramFails.description }, fake.telegramFails.status);
+      if (match[2] !== "sendMessage") {
+        fake.telegramApi.push({ method: match[2], body });
+        return json({ ok: true, result: true });
+      }
       fake.telegram.push({ token: match[1], body });
       return json({ ok: true, result: { message_id: fake.telegram.length } });
     }
