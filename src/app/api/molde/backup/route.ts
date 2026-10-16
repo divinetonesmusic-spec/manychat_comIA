@@ -32,8 +32,9 @@ export async function PUT(request: NextRequest) {
   try {
     const bytes = await readBytes(request);
     const { projeto, gz, removidos } = parseBody(bytes, request.nextUrl.searchParams.get("projeto"));
-    const { item, apagadas } = await saveBackup(projeto, gz);
-    return NextResponse.json({ data: item, apagadas, removidos }, { status: 201 });
+    const { item, apagadas, repetida } = await saveBackup(projeto, gz);
+    // 200 = a mesma cópia já tinha sido guardada (reenvio): nada foi duplicado.
+    return NextResponse.json({ data: item, apagadas, removidos, ...(repetida ? { repetida: true } : {}) }, { status: repetida ? 200 : 201 });
   } catch (error) {
     return backupFailure(error, "não consegui guardar a cópia");
   }

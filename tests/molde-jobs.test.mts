@@ -899,6 +899,81 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       meta.hang = null;
     });
 
+    test("Revisão F10 · I2 · o relógio faz a limpeza das cópias do Molde (no máximo a cada 15 min, com o orçamento dele)", async () => {
+      const backup = await import("@/lib/molde/backup");
+      const semear = (n: number) => {
+        for (let dia = 1; dia <= n; dia += 1) {
+          const quando = new Date(Date.now() - dia * 86_400_000);
+          meta.r2.set(backup.keyOf("birdie-lanier", backup.stampOf(quando), "0123456789abcdef0123"), { body: Buffer.from("x".repeat(100)), lastModified: quando, contentType: "" });
+        }
+      };
+      const copias = () => [...meta.r2.keys()].filter((k) => k.includes("/molde-backups/birdie-lanier/")).length;
+      semear(35);
+      const parteVelha = "uaiflow/molde-backups/_envios/birdie-lanier-velhovelhovelho1/00-de-02";
+      meta.r2.set(parteVelha, { body: Buffer.from("x"), lastModified: new Date(Date.now() - 2 * 86_400_000), contentType: "" });
+      // sem tempo (menos de 5 s de orçamento): não toca no R2
+      const curto = await relogio.runMoldeClock({ deadline: Date.now() + 3000, origin: "https://uaiflow.teste", now: new Date("2026-10-14T15:00:00Z") });
+      assert.equal(curto.copiasApagadas, undefined);
+      assert.equal(copias(), 35);
+      // com tempo: apaga o que sobra (35 cópias de dias diferentes: sobram as 30 mais novas + 1 por mês fora delas)
+      const um = await relogioAgora();
+      assert.ok((um.copiasApagadas ?? 0) >= 1, "apagou cópias antigas");
+      assert.ok(copias() < 35 && copias() >= 30);
+      assert.ok(!meta.r2.has(parteVelha), "e a parte de envio esquecida");
+      // dentro de 15 min: nem lista o R2
+      meta.calls.length = 0;
+      semear(36);
+      const dois = await relogioAgora();
+      assert.equal(dois.copiasApagadas, undefined);
+      assert.equal(meta.calls.filter((c) => c.search.get("list-type") === "2").length, 0);
+      // passados os 15 min, roda de novo
+      await db.sql("update public.app_status set atualizado_em = now() - interval '16 minutes' where chave = 'molde_poda'");
+      const tres = await relogioAgora();
+      assert.ok(tres.copiasApagadas !== undefined);
+    });
+
+    test("Revisão F10 · I2 · limpeza das cópias com o R2 travado não passa do prazo do relógio", async () => {
+      const backup = await import("@/lib/molde/backup");
+      for (let dia = 1; dia <= 35; dia += 1) {
+        const quando = new Date(Date.now() - dia * 86_400_000);
+        meta.r2.set(backup.keyOf("birdie-lanier", backup.stampOf(quando), "0123456789abcdef0123"), { body: Buffer.from("x"), lastModified: quando, contentType: "" });
+      }
+      meta.hang = /baldefalso/;
+      const comeco = Date.now();
+      const resultado = await relogio.runMoldeClock({ deadline: Date.now() + 6000, origin: "https://uaiflow.teste", now: new Date("2026-10-14T15:00:00Z") });
+      meta.hang = null;
+      assert.ok(Date.now() - comeco < 6500, `levou ${Date.now() - comeco} ms`);
+      assert.equal(resultado.copiasApagadas, 0);
+    });
+
+    test("Revisão F10 · prévia cujo DELETE falha não trava a fila: é pulada por 6 h e a próxima é limpa", async () => {
+      const base = process.env.R2_PUBLIC_BASE_URL;
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        const job = await novo();
+        ids.push(job.id);
+        await db.sql("update public.molde_jobs set estado = 'pronto', previa = $2::jsonb, atualizado_em = now() - make_interval(days => $3) where id = $1",
+          [job.id, JSON.stringify({ video: `${base}/uaiflow/molde-previas/2026-08/p${i}.mp4` }), 60 - i]);
+      }
+      // o R2 recusa o DELETE: os 3 mais antigos falham e são anotados; o 4º não é tocado nesta volta (limite de 3)
+      meta.r2Fails = 500;
+      const um = await relogioAgora();
+      assert.equal(um.previasApagadas, 0);
+      meta.r2Fails = null;
+      const anotados = (await db.sql<{ valor: Record<string, string> }>("select valor from public.app_status where chave = 'previas_tentativas'"))[0].valor;
+      assert.deepEqual(Object.keys(anotados).sort(), ids.slice(0, 3).sort());
+      // R2 voltou: os 3 anotados esperam; o 4º, que estaria preso atrás deles, é limpo
+      const dois = await relogioAgora();
+      assert.equal(dois.previasApagadas, 1);
+      assert.ok((await linha(ids[3])).previa_apagada_em);
+      for (const id of ids.slice(0, 3)) assert.equal((await linha(id)).previa_apagada_em, null);
+      // passadas as 6 h, tentam de novo e saem
+      await db.sql("update public.app_status set valor = (select jsonb_object_agg(k, to_jsonb((now() - interval '7 hours')::text)) from jsonb_object_keys(valor) k) where chave = 'previas_tentativas'");
+      const tres = await relogioAgora();
+      assert.equal(tres.previasApagadas, 3);
+      for (const id of ids) assert.ok((await linha(id)).previa_apagada_em);
+    });
+
     test("401 e 503 com codigo: token_invalido, fechado e sem_segredo", async () => {
       const r401 = await criar({ tipo: "reel_pipeline", ref: "x" }, { "x-molde-token": "errado" });
       assert.equal((await r401.json()).codigo, "token_invalido");

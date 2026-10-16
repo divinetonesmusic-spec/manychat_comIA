@@ -4,7 +4,8 @@ import { sendTelegram, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
 import { maybeSendWeeklyReport, type WeeklyReportResult } from "@/lib/relatorio-semanal";
 import { sendDmDraftApproval, sendJobApproval } from "@/lib/telegram/approvals";
 import { telegramBotConfig } from "@/lib/telegram/api";
-import { deleteR2Object, getR2Config, keyFromPublicUrl, R2_DELETE_TIMEOUT_MS } from "@/lib/content/r2";
+import { deleteR2Object, getR2BackupConfig, getR2Config, keyFromPublicUrl, R2_DELETE_TIMEOUT_MS } from "@/lib/content/r2";
+import { pruneBackups } from "@/lib/molde/backup";
 
 /**
  * A parte do Molde no relógio (a cada minuto, depois do planner e do aviso de DMs). Tudo curto e dentro do prazo:
@@ -16,6 +17,9 @@ import { deleteR2Object, getR2Config, keyFromPublicUrl, R2_DELETE_TIMEOUT_MS } f
  *    - mensagens de aprovação que não saíram na hora (trabalhos e respostas de DM), de novo a cada 10 min por 1 dia;
  *    - o relatório de domingo.
  * 3. Prévias de aprovação no R2 (pasta molde-previas) de trabalhos parados há mais de 30 dias são apagadas (até 3 por vez).
+ *    Um item cujo DELETE falha é pulado por 6 h (não trava os seguintes).
+ * 4. Cópias de segurança do Molde: a limpeza das antigas (e das partes de envio esquecidas) roda aqui, no máximo a cada
+ *    15 min, com o orçamento de tempo do relógio (as rotas de cópia só guardam).
  * Sem a 0008 só o relatório roda (sem a parte dos gastos). Nunca lança erro.
  */
 export const MAC_ASLEEP_MINUTES = 30;
@@ -32,6 +36,7 @@ export type MoldeClockResult = {
   aprovacoes: number;
   relatorio: WeeklyReportResult;
   previasApagadas?: number;
+  copiasApagadas?: number;
   motivo?: "sem_tempo" | "sem_migracao" | "erro";
 };
 
@@ -66,6 +71,14 @@ export async function runMoldeClock(options: { deadline: number; origin?: string
       console.error("[molde] não consegui apagar as prévias antigas:", error instanceof Error ? error.message : error);
       return 0;
     });
+  }
+
+  if (timeLeft() > 5000) {
+    const poda = await pruneBackupsIfDue(() => timeLeft()).catch((error) => {
+      console.error("[molde] não consegui limpar as cópias antigas:", error instanceof Error ? error.message : error);
+      return null;
+    });
+    if (poda) out.copiasApagadas = poda.apagadas;
   }
 
   const telegramTimeout = () => Math.min(TELEGRAM_TIMEOUT_MS, timeLeft() - 300);
@@ -193,34 +206,87 @@ export function previewKeys(previa: Record<string, unknown> | null, resultado: R
   return [...keys];
 }
 
-/** Apaga do R2 as prévias de aprovação de trabalhos parados há mais de 30 dias. Devolve quantos trabalhos limpou. */
+/** Um trabalho cuja prévia não deu para apagar (R2 recusou ou não respondeu) espera 6 h antes de tentarmos de novo. */
+export const PREVIEW_RETRY_PAUSE_HOURS = 6;
+const PREVIEW_ATTEMPTS_KEY = "previas_tentativas";
+
+async function previewAttempts(): Promise<Record<string, string>> {
+  try {
+    const { rows } = await query<{ valor: Record<string, string> }>("select valor from public.app_status where chave = $1", [PREVIEW_ATTEMPTS_KEY]);
+    const limit = Date.now() - PREVIEW_RETRY_PAUSE_HOURS * 3_600_000;
+    return Object.fromEntries(Object.entries(rows[0]?.valor ?? {}).filter(([, em]) => Date.parse(em) > limit));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Apaga do R2 as prévias de aprovação de trabalhos parados há mais de 30 dias. Devolve quantos trabalhos limpou.
+ * Se o DELETE de um item falha, ele é anotado (app_status 'previas_tentativas') e pulado por 6 h: os próximos da fila
+ * não ficam presos atrás dele.
+ */
 async function cleanupOldPreviews(timeLeft: () => number) {
   const r2 = getR2Config();
   if (!r2) return 0;
+  const tentativas = await previewAttempts();
   const { rows } = await query<{ id: string; previa: Record<string, unknown> | null; resultado: Record<string, unknown> | null }>(
     `select id, previa, resultado from public.molde_jobs
      where previa_apagada_em is null and estado <> 'rodando'
        and atualizado_em < now() - make_interval(days => $1)
        and (previa::text like $2 or resultado::text like $2)
+       and id <> all($3::uuid[])
      order by atualizado_em
      limit ${PREVIEW_CLEANUP_MAX}`,
-    [PREVIEW_KEEP_DAYS, `%${r2.publicBaseUrl}/${PREVIEW_PREFIX}%`],
+    [PREVIEW_KEEP_DAYS, `%${r2.publicBaseUrl}/${PREVIEW_PREFIX}%`, Object.keys(tentativas)],
   );
   let cleaned = 0;
+  let falhou = false;
   for (const row of rows) {
     if (timeLeft() < 2000) break;
     let ok = true;
+    let semTempo = false;
     for (const key of previewKeys(row.previa, row.resultado)) {
       // Cada DELETE espera no máximo o que sobra do orçamento (até 2 s); sem tempo, fica para a próxima volta.
       if (timeLeft() < 1500) {
         ok = false;
+        semTempo = true;
         break;
       }
       ok = (await deleteR2Object(key, Math.min(R2_DELETE_TIMEOUT_MS, timeLeft() - 1000)).catch(() => false)) && ok;
     }
-    if (!ok) continue;
+    if (!ok) {
+      if (!semTempo) {
+        tentativas[row.id] = new Date().toISOString();
+        falhou = true;
+      }
+      continue;
+    }
     await query("update public.molde_jobs set previa_apagada_em = now() where id = $1", [row.id]);
+    delete tentativas[row.id];
     cleaned += 1;
   }
+  if (falhou || cleaned) {
+    await query(
+      `insert into public.app_status (chave, valor, atualizado_em) values ($1, $2::jsonb, now())
+       on conflict (chave) do update set valor = excluded.valor, atualizado_em = excluded.atualizado_em`,
+      [PREVIEW_ATTEMPTS_KEY, JSON.stringify(tentativas)],
+    ).catch(() => undefined);
+  }
   return cleaned;
+}
+
+export const BACKUP_PRUNE_EVERY_MIN = 15;
+
+/** A limpeza das cópias roda no máximo a cada 15 min (a reserva fica em app_status 'molde_poda'); sem R2 ou sem a tabela, nada. */
+async function pruneBackupsIfDue(timeLeft: () => number) {
+  if (!getR2BackupConfig()) return null;
+  const claimed = await query(
+    `insert into public.app_status (chave, valor, atualizado_em) values ('molde_poda', '{}'::jsonb, now())
+     on conflict (chave) do update set atualizado_em = now()
+     where public.app_status.atualizado_em < now() - make_interval(mins => $1)
+     returning chave`,
+    [BACKUP_PRUNE_EVERY_MIN],
+  ).catch(() => null); // sem a tabela app_status: não limpa (nunca lança)
+  if (!claimed?.rowCount) return null;
+  return pruneBackups({ timeLeft });
 }

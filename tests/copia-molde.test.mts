@@ -122,11 +122,13 @@ describe("guardar, listar e devolver", () => {
     assert.equal(a.projeto, "lua-azul");
     assert.deepEqual(await lerInteira(a.id), COPIA);
 
-    const direto = await rota.PUT(bruto("/api/molde/backup?projeto=lua-azul", gz));
+    const outra = { ...COPIA, nome: "direto" }; // o mesmo conteúdo reenviado seria a mesma cópia (veja o teste de reenvio)
+    const gzDireto = gzipSync(Buffer.from(JSON.stringify(outra)));
+    const direto = await rota.PUT(bruto("/api/molde/backup?projeto=lua-azul", gzDireto));
     assert.equal(direto.status, 201);
     const b = (await direto.json()).data;
-    assert.equal(b.tamanho, gz.length, "o gzip enviado é guardado como veio");
-    assert.deepEqual(await lerInteira(b.id), COPIA);
+    assert.equal(b.tamanho, gzDireto.length, "o gzip enviado é guardado como veio");
+    assert.deepEqual(await lerInteira(b.id), outra);
 
     const tudo = await guardar(null, COPIA);
     assert.equal((await tudo.json()).data.projeto, "tudo", "sem projeto = «tudo»");
@@ -236,7 +238,7 @@ describe("quantas ficam: as 30 últimas + 1 por mês por 12 meses", () => {
     assert.equal(setembro.filter((item) => fica.has(item.id)).length, setembro.filter((item, i) => ordenados.indexOf(item) < 30 || i === 0).length);
   });
 
-  test("ao guardar, apaga do R2 as que sobram (só do mesmo projeto) e as partes de envio esquecidas", async () => {
+  test("a limpeza (pruneBackups, do relógio) apaga as que sobram, em todos os projetos, e as partes de envio esquecidas; guardar não apaga nada", async () => {
     const agora = Date.now();
     for (let dia = 1; dia <= 35; dia += 1) semear("birdie-lanier", new Date(agora - dia * 86_400_000));
     const hoje = new Date();
@@ -251,9 +253,17 @@ describe("quantas ficam: as 30 últimas + 1 por mês por 12 meses", () => {
     meta.r2.set(parteVelha, { body: Buffer.from("x"), lastModified: new Date(agora - 2 * 86_400_000), contentType: "" });
     meta.r2.set(parteNova, { body: Buffer.from("x"), lastModified: new Date(agora - 3_600_000), contentType: "" });
 
+    const antesDeGuardar = meta.r2.size;
     const res = await guardar("birdie-lanier", COPIA);
     assert.equal(res.status, 201);
-    const { apagadas } = await res.json();
+    assert.equal((await res.json()).apagadas, 0, "guardar não apaga nada (a poda é do relógio)");
+    assert.ok(antigas.every((k) => meta.r2.has(k)), "nenhuma cópia antiga foi apagada pela rota");
+    assert.ok(meta.r2.size > antesDeGuardar, "só acrescentou");
+    assert.ok(meta.r2.has(parteVelha), "a parte velha ainda está lá");
+
+    const poda = await lib.pruneBackups({ timeLeft: () => 20_000 });
+    const apagadas = poda.apagadas;
+    assert.equal(poda.orfaos, 1, "a parte esquecida há 2 dias");
 
     const ficaram = await (await rota.GET(request("/api/molde/backup?projeto=birdie-lanier", { headers: MOLDE }))).json();
     assert.equal(apagadas, 1 + 35 + 26 - ficaram.total);
@@ -303,7 +313,7 @@ describe("envio em partes (/api/molde/backup/partes)", () => {
     }
     assert.equal(final!.data.tamanho, gz.length);
     assert.equal(final!.data.partes, Math.ceil(gz.length / (2 * 1024 * 1024)));
-    assert.deepEqual([...meta.r2.keys()].filter((k) => k.includes("_envios")), []);
+    assert.deepEqual([...meta.r2.keys()].filter((k) => k.includes("_envios") && !k.endsWith(".pronto")), []);
     assert.deepEqual(await lerInteira(final!.data.id), JSON.parse(json.toString("utf8")));
   });
 
@@ -449,8 +459,8 @@ describe("Revisão F10 · I1 · campos de segredo não vão para a cópia", () =
     const gz = gzipSync(Buffer.from(JSON.stringify(COM_SEGREDOS)));
     for (const res of [
       await rota.PUT(bruto("/api/molde/backup?projeto=lua-azul", gz)),
-      await rota.POST(request("/api/molde/backup", { json: { projeto: "lua-azul", gz64: gz.toString("base64") }, headers: MOLDE })),
-      await partesRota.POST(request("/api/molde/backup/partes", { json: { projeto: "lua-azul", envio: "a1b2c3d4e5f6a7b8c9d0", parte: 0, total: 1, gz64: gz.toString("base64") }, headers: MOLDE })),
+      await rota.POST(request("/api/molde/backup", { json: { projeto: "lua-verde", gz64: gz.toString("base64") }, headers: MOLDE })),
+      await partesRota.POST(request("/api/molde/backup/partes", { json: { projeto: "lua-roxa", envio: "a1b2c3d4e5f6a7b8c9d0", parte: 0, total: 1, gz64: gz.toString("base64") }, headers: MOLDE })),
     ]) {
       assert.equal(res.status, 201);
       const corpo = await res.json();
@@ -582,5 +592,122 @@ describe("Revisão F10 · I3 · a poda nunca troca cópias boas por uma ruim", (
     assert.equal(res.status, 201);
     assert.equal((await res.json()).apagadas, 0);
     assert.ok(chaves.every((key) => meta.r2.has(key)), "todas as antigas continuam lá");
+  });
+});
+
+describe("Revisão F10 · I2 · orçamento de tempo e reenvio idempotente", () => {
+  const copias = () => [...meta.r2.keys()].filter((k) => /\/molde-backups\/[a-z0-9-]+\/\d{8}-/.test(k));
+
+  test("o mesmo conteúdo reenviado não duplica: 2º PUT devolve 200 repetida com o mesmo id; só há uma cópia", async () => {
+    const um = await guardar("birdie-lanier", COPIA);
+    assert.equal(um.status, 201);
+    const a = await um.json();
+    assert.equal(a.repetida, undefined);
+    const dois = await guardar("birdie-lanier", COPIA);
+    assert.equal(dois.status, 200);
+    const b = await dois.json();
+    assert.equal(b.repetida, true);
+    assert.equal(b.data.id, a.data.id);
+    assert.equal(copias().length, 1);
+    // pela ponte (gz64) e por gzip direto, é o mesmo conteúdo: 1 cópia por forma de envio, depois repete
+    const gz = gzipSync(Buffer.from(JSON.stringify({ ...COPIA, nome: "outro" })));
+    const p1 = await rota.POST(request("/api/molde/backup", { json: { projeto: "birdie-lanier", gz64: gz.toString("base64") }, headers: MOLDE }));
+    const p2 = await rota.POST(request("/api/molde/backup", { json: { projeto: "birdie-lanier", gz64: gz.toString("base64") }, headers: MOLDE }));
+    assert.deepEqual([p1.status, p2.status], [201, 200]);
+    assert.equal(copias().length, 2);
+  });
+
+  test("conteúdo diferente, outro projeto, marcador velho (> 1 h) ou cópia já apagada: cria outra normalmente", async () => {
+    const a = (await (await guardar("birdie-lanier", COPIA)).json()).data;
+    assert.equal((await guardar("lua-azul", COPIA)).status, 201, "outro projeto");
+    assert.equal((await guardar("birdie-lanier", { ...COPIA, nome: "mudou" })).status, 201, "conteúdo diferente");
+    // marcador com mais de 1 h
+    const marcador = [...meta.r2.keys()].find((k) => k.includes("_hashes/birdie-lanier-") && JSON.parse(meta.r2.get(k)!.body.toString()).id === a.id)!;
+    meta.r2.set(marcador, { ...meta.r2.get(marcador)!, body: Buffer.from(JSON.stringify({ id: a.id, em: Date.now() - 2 * 3_600_000 })) });
+    const velho = await guardar("birdie-lanier", COPIA);
+    assert.equal(velho.status, 201);
+    assert.notEqual((await velho.json()).data.id, a.id);
+    // cópia apagada (ex.: pela poda): o marcador não aponta para o nada
+    const b = (await (await guardar("birdie-lanier", COPIA)).json());
+    assert.equal(b.repetida, true);
+    meta.r2.delete(lib.keyFromId(b.data.id)!);
+    const c = await guardar("birdie-lanier", COPIA);
+    assert.equal(c.status, 201);
+    assert.notEqual((await c.json()).data.id, b.data.id);
+  });
+
+  test("em partes: reenviar a última parte depois de pronto devolve a mesma cópia (200); reenviar o envio inteiro com outro código também não duplica", async () => {
+    const json = Buffer.from(JSON.stringify({ formato: "molde-copia-1", colecoes: { biblioteca: [{ id: "b1", dados: { imagem: randomBytes(6_000_000).toString("base64") } }] } }));
+    const gz = gzipSync(json);
+    const lista = Array.from({ length: Math.ceil(gz.length / (2 * 1024 * 1024)) }, (_, i) => gz.subarray(i * 2 * 1024 * 1024, (i + 1) * 2 * 1024 * 1024));
+    const mandar = (envio: string, i: number) => partesRota.POST(request("/api/molde/backup/partes", { json: { projeto: "birdie-lanier", envio, parte: i, total: lista.length, gz64: lista[i].toString("base64") }, headers: MOLDE }));
+    const envio = "k3j9x0a8f7d6s5a4q2w1";
+    let primeira: { data: { id: string } } | null = null;
+    for (let i = 0; i < lista.length; i += 1) {
+      const res = await mandar(envio, i);
+      if (i === lista.length - 1) {
+        assert.equal(res.status, 201);
+        primeira = await res.json();
+      }
+    }
+    const denovo = await mandar(envio, lista.length - 1);
+    assert.equal(denovo.status, 200);
+    const corpo = await denovo.json();
+    assert.equal(corpo.repetida, true);
+    assert.equal(corpo.data.id, primeira!.data.id);
+    // outro código de envio com o mesmo conteúdo (a página recomeçou do zero)
+    let ultima: Response | null = null;
+    for (let i = 0; i < lista.length; i += 1) ultima = await mandar("zzzzzzzzzzzzzzzzzzzz", i);
+    assert.equal(ultima!.status, 200);
+    assert.equal((await ultima!.json()).data.id, primeira!.data.id);
+    assert.equal(copias().length, 1);
+    assert.deepEqual([...meta.r2.keys()].filter((k) => k.includes("_envios") && !k.endsWith(".pronto")), [], "as partes temporárias sumiram");
+  });
+
+  test("guardar não faz listagem de poda: R2 fora do ar na limpeza não atrapalha, e a rota não lista a pasta do projeto", async () => {
+    for (let dia = 1; dia <= 35; dia += 1) semear("birdie-lanier", new Date(Date.now() - dia * 86_400_000));
+    meta.calls.length = 0;
+    const res = await guardar("birdie-lanier", COPIA);
+    assert.equal(res.status, 201);
+    const listagens = meta.calls.filter((c) => c.search.get("list-type") === "2");
+    assert.equal(listagens.length, 0, "PUT de cópia nova não lista nada (sem poda, sem listagem)");
+  });
+
+  // AbortSignal.timeout não segura o processo vivo; num teste sem banco, nada mais segura: um intervalo faz isso.
+  const manterVivo = () => { const t = setInterval(() => undefined, 50); return () => clearInterval(t); };
+
+  test("R2 que não responde: o PUT desiste dentro do orçamento (502 r2_falhou) e sem tempo sobrando responde 503 sem_tempo", async () => {
+    const soltar = manterVivo();
+    meta.hang = /baldefalso/;
+    const inicio = Date.now();
+    await assert.rejects(lib.saveBackup("birdie-lanier", gzipSync(Buffer.from(JSON.stringify(COPIA))), new Date(), Date.now() + 1500), (erro: unknown) => (erro as { codigo?: string }).codigo === "r2_falhou");
+    assert.ok(Date.now() - inicio < 2500, `levou ${Date.now() - inicio} ms`);
+    await assert.rejects(lib.saveBackup("birdie-lanier", gzipSync(Buffer.from(JSON.stringify(COPIA))), new Date(), Date.now() + 200), (erro: unknown) => (erro as { codigo?: string; status?: number }).codigo === "sem_tempo" && (erro as { status: number }).status === 503);
+    await assert.rejects(lib.listBackups(null, Date.now() + 1500), (erro: unknown) => (erro as { codigo?: string }).codigo === "r2_falhou");
+    meta.hang = null;
+    soltar();
+  });
+
+  test("listagem tem teto (3000 itens) e a limpeza respeita o tempo: sem tempo, não toca no R2", async () => {
+    for (let n = 0; n < 3100; n += 1) meta.r2.set(lib.keyOf("muitas", lib.stampOf(new Date(Date.UTC(2026, 0, 1, 0, 0, 0, n))), "0123456789abcdef0123"), { body: Buffer.from("x"), lastModified: new Date(), contentType: "" });
+    const lista = await lib.listBackups("muitas");
+    assert.equal(lista.length, 3000);
+    meta.calls.length = 0;
+    const sem = await lib.pruneBackups({ timeLeft: () => 1000 });
+    assert.deepEqual(sem, { apagadas: 0, orfaos: 0, poupados: [] });
+    assert.equal(meta.calls.length, 0);
+  });
+
+  test("pruneBackups com R2 travado devolve dentro do prazo", async () => {
+    const soltar = manterVivo();
+    for (let dia = 1; dia <= 35; dia += 1) semear("birdie-lanier", new Date(Date.now() - dia * 86_400_000));
+    meta.hang = /baldefalso/;
+    const fim = Date.now() + 4000;
+    const inicio = Date.now();
+    const poda = await lib.pruneBackups({ timeLeft: () => fim - Date.now() });
+    assert.ok(Date.now() - inicio < 4500, `levou ${Date.now() - inicio} ms`);
+    assert.equal(poda.apagadas, 0);
+    meta.hang = null;
+    soltar();
   });
 });

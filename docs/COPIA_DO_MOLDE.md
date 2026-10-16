@@ -4,7 +4,7 @@ Os dados do Molde (coleções `moldes`, `partes`, `pedidos`, `fabrica`, `audio`,
 
 - **Não precisa de migração.** Usa o mesmo R2 das mídias (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`) e o mesmo `MOLDE_API_TOKEN`. **Recomendado:** a variável opcional `R2_BACKUP_BUCKET` guarda as cópias num balde **privado** (veja «Balde privado» abaixo). Sem R2 configurado, as rotas respondem `503` com `codigo: "sem_r2"`; o resto do UaiFlow segue normal.
 - Onde fica: `uaiflow/molde-backups/<projeto|tudo>/<AAAAMMDD-HHMMSS-mmm>-<20 letras aleatórias>.json.gz` (o JSON comprimido com gzip). Fica dentro de `uaiflow/`, como todas as outras chaves do UaiFlow no balde.
-- **Quantas ficam (por projeto):** as 30 mais novas + a mais nova **e a maior** de cada mês dos últimos 12 meses. A limpeza roda a cada cópia nova daquele projeto (outros projetos não são tocados) e **não apaga nada** se a cópia mais nova tiver menos de 10% do tamanho (comprimido) da anterior (provável cópia cortada). Partes de envios que nunca terminaram são apagadas depois de 1 dia.
+- **Quantas ficam (por projeto):** as 30 mais novas + a mais nova **e a maior** de cada mês dos últimos 12 meses. A limpeza **não roda ao guardar**: roda no relógio do UaiFlow (a cada minuto, no máximo uma vez a cada 15 min, com o tempo que ele tem), em todos os projetos, e **não apaga nada** se a cópia mais nova tiver menos de 10% do tamanho (comprimido) da anterior (provável cópia cortada). Partes de envios que nunca terminaram (e os marcadores de reenvio) são apagadas pelo relógio depois de 1 dia.
 - O sufixo aleatório (80 bits) torna o endereço impossível de adivinhar. **Sem `R2_BACKUP_BUCKET`**, as cópias ficam no balde das mídias, que tem endereço público (`R2_PUBLIC_BASE_URL`) para a Meta ler os posts: quem tiver o endereço completo de uma cópia consegue baixá-la. As rotas nunca devolvem esse endereço público (o `formato=link` é um link assinado do R2 que vence em 15 minutos). **Com `R2_BACKUP_BUCKET`** (balde privado, sem domínio público) esse risco some.
 
 ## Balde privado (passo opcional, recomendado)
@@ -36,6 +36,7 @@ O servidor tira da cópia, em qualquer nível, os campos cujo nome parece segred
   | 413 | `grande_demais` | pedido acima de 5,5 MB, parte acima de 3 MB, ou cópia aberta acima de 25 MB |
   | 502 | `r2_falhou` | o R2 não respondeu direito: tente de novo em alguns minutos |
   | 503 | `sem_r2` / `fechado` | falta configurar o R2 / o `MOLDE_API_TOKEN` no servidor |
+  | 503 | `sem_tempo` | o R2 estava lento e o tempo da chamada (24 s) acabou: tente de novo (reenviar a mesma cópia não duplica) |
 
 - `projeto`: letras minúsculas, números e hífen (`birdie-lanier`), até 60 letras. Vazio = `tudo` (uma cópia de todos os projetos juntos).
 - **Formato da cópia (conferido contra a página, `v107_copia.js` do Molde):** um **objeto JSON** assim:
@@ -60,13 +61,17 @@ O servidor tira da cópia, em qualquer nível, os campos cujo nome parece segred
 
 O `?projeto=` da rota vale mais que o `projeto` do corpo. Até **5,5 MB por pedido** (o Netlify recusa acima de 6 MB); maior que isso, use as partes.
 
+**Reenvio não duplica:** se o mesmo conteúdo (para o mesmo projeto) já foi guardado na última hora, o PUT/POST responde `200` (em vez de `201`) com o `data` da cópia que já existe e `"repetida": true`. Assim, uma nova tentativa depois de um erro de rede não cria outra cópia. No envio em partes, repetir a última parte depois de o envio terminar também devolve `200 repetida`.
+
+Cada ida ao R2 tem prazo: a chamada inteira cabe em 24 s (`sem_tempo` se acabar) e a listagem devolve no máximo 3000 itens.
+
 Resposta `201`:
 
 ```json
-{ "data": { "id": "birdie-lanier--20261016-130500-123-0a1b2c3d4e5f60718293", "projeto": "birdie-lanier", "criadoEm": "2026-10-16T13:05:00.123Z", "tamanho": 183422, "partes": 1 }, "apagadas": 0 }
+{ "data": { "id": "birdie-lanier--20261016-130500-123-0a1b2c3d4e5f60718293", "projeto": "birdie-lanier", "criadoEm": "2026-10-16T13:05:00.123Z", "tamanho": 183422, "partes": 1 }, "apagadas": 0, "removidos": 0 }
 ```
 
-`tamanho` = bytes comprimidos; `partes` = quantos pedaços de 2 MB a leitura tem; `apagadas` = quantas cópias antigas a limpeza tirou.
+`tamanho` = bytes comprimidos; `partes` = quantos pedaços de 2 MB a leitura tem; `apagadas` = sempre `0` (a limpeza das antigas é do relógio; o campo ficou só para não quebrar quem já lê); `removidos` = quantos campos de segredo saíram da cópia.
 
 ### Guardar em partes — `POST /api/molde/backup/partes`
 

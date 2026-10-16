@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { deleteR2Object, getR2BackupConfig, getR2Object, listR2Objects, putR2Object, r2DownloadUrl, R2Error, type R2Config } from "@/lib/content/r2";
 
@@ -33,7 +33,17 @@ export const MIN_FRACAO = 0.1;
 export const KEEP_LATEST = 30;
 export const KEEP_MONTHS = 12;
 const MAX_DELETES = 100;
-const PRUNE_BUDGET_MS = 8000;
+/** Tempo que uma rota de cópia pode gastar no R2 (a rota tem 30 s; o resto é folga para o Netlify). */
+export const BUDGET_MS = 24_000;
+/** Teto de cada ida ao R2 (ainda menor quando o orçamento da rota está acabando). */
+const R2_STEP_MS = 20_000;
+/** Teto de arquivos numa listagem de cópias. */
+export const MAX_LISTAGEM = 3000;
+/** Um reenvio igual dentro deste prazo devolve a cópia que já existe (não duplica). */
+const DEDUPE_MS = 3_600_000;
+/** Marcadores de reenvio e partes de envios esquecidas são apagados depois disto. */
+const ORFAO_MS = 86_400_000;
+const HASHES_PREFIX = `${BACKUP_PREFIX}_hashes/`;
 
 export const PROJETO = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ENVIO = /^[a-z0-9]{16,40}$/;
@@ -224,18 +234,58 @@ export function parseBody(bytes: Buffer, projetoQuery: string | null): { projeto
   return { projeto: cleanProjeto(projetoQuery), ...inspect(bytes) };
 }
 
-/** Guarda uma cópia e aplica a regra de quantas ficar. */
-export async function saveBackup(projeto: string, gz: Buffer, now = new Date()): Promise<{ item: BackupItem; apagadas: number }> {
+/** Quanto uma ida ao R2 pode esperar agora: o menor entre o teto e o que sobra do orçamento da rota. Sem tempo, para com uma frase. */
+function stepMs(deadline: number, max = R2_STEP_MS) {
+  const left = deadline - Date.now() - 500;
+  if (left < 800) throw new BackupError("Acabou o tempo desta chamada antes de terminar. Tente de novo: o que já foi guardado não se repete.", 503, "sem_tempo");
+  return Math.min(max, left);
+}
+
+const hashOf = (gz: Buffer) => createHash("sha256").update(gz).digest("hex");
+/** Marcador «esta cópia já foi guardada» (um reenvio igual, dentro de 1 h, devolve a mesma cópia). */
+const hashKey = (projeto: string, hash: string) => `${HASHES_PREFIX}${projeto}-${hash.slice(0, 40)}`;
+/** Marcador «este envio em partes já terminou». */
+const doneKey = (projeto: string, envio: string) => `${UPLOADS_PREFIX}${projeto}-${envio}.pronto`;
+
+/** Lê um marcador {id, em}; devolve o item se a cópia ainda existe (e, com `fresco`, se o marcador é recente). */
+async function itemOfMarker(key: string, config: R2Config, deadline: number, fresco: boolean): Promise<BackupItem | null> {
+  const body = await r2(() => getR2Object(key, { config, timeoutMs: stepMs(deadline, 8000) }));
+  if (!body) return null;
+  let marker: { id?: unknown; em?: unknown } = {};
+  try {
+    marker = JSON.parse(body.toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof marker.id !== "string") return null;
+  if (fresco && !(typeof marker.em === "number" && Date.now() - marker.em < DEDUPE_MS)) return null;
+  const copyKey = keyFromId(marker.id);
+  if (!copyKey) return null;
+  const found = (await r2(() => listR2Objects(copyKey, 1, { config, timeoutMs: stepMs(deadline, 8000) }))).find((entry) => entry.key === copyKey);
+  return found ? itemFromKey(copyKey, found.size) : null;
+}
+
+/**
+ * Guarda uma cópia. NÃO apaga cópias antigas: a limpeza roda no relógio (`pruneBackups`), que tem orçamento de tempo.
+ * Idempotente: o mesmo conteúdo reenviado dentro de 1 h (retentativa da página/robô depois de um erro de rede) devolve a
+ * cópia que já foi guardada (`repetida: true`) em vez de criar outra.
+ */
+export async function saveBackup(
+  projeto: string,
+  gz: Buffer,
+  now = new Date(),
+  deadline = Date.now() + BUDGET_MS,
+): Promise<{ item: BackupItem; apagadas: 0; repetida: boolean }> {
   const config = needR2();
-  const stamp = stampOf(now);
-  const rand = randomBytes(10).toString("hex");
-  const key = keyOf(projeto, stamp, rand);
-  await r2(() => putR2Object(key, gz, "application/gzip", { config }));
-  const apagadas = await r2(() => prune(projeto, now, config)).catch((error) => {
-    console.error("[molde-backup] não consegui apagar as cópias antigas:", error instanceof Error ? error.message : error);
-    return 0;
-  });
-  return { item: itemFromKey(key, gz.length)!, apagadas };
+  const marker = hashKey(projeto, hashOf(gz));
+  const jaTem = await itemOfMarker(marker, config, deadline, true);
+  if (jaTem) return { item: jaTem, apagadas: 0, repetida: true };
+  const key = keyOf(projeto, stampOf(now), randomBytes(10).toString("hex"));
+  await r2(() => putR2Object(key, gz, "application/gzip", { config, timeoutMs: stepMs(deadline) }));
+  // O marcador é só para o reenvio não duplicar: se não for gravado, o pior caso é uma cópia repetida.
+  const id = itemFromKey(key, gz.length)!.id;
+  await putR2Object(marker, Buffer.from(JSON.stringify({ id, em: Date.now() })), "application/json", { config, timeoutMs: Math.max(500, Math.min(3000, deadline - Date.now() - 300)) }).catch(() => undefined);
+  return { item: itemFromKey(key, gz.length)!, apagadas: 0, repetida: false };
 }
 
 /** Quais cópias de um projeto ficam: as 30 mais novas + a mais nova de cada um dos últimos 12 meses. */
@@ -275,32 +325,57 @@ export function planPrune(items: BackupItem[], now = new Date()): { apagar: Back
   return { apagar: sorted.filter((item) => !keep.has(item.id)) };
 }
 
-async function prune(projeto: string, now: Date, config: R2Config) {
-  const items = (await listR2Objects(`${BACKUP_PREFIX}${projeto}/`, 5000, { config }))
-    .map((obj) => itemFromKey(obj.key, obj.size))
-    .filter((item): item is BackupItem => Boolean(item));
-  const plan = planPrune(items, now);
-  if (plan.motivo) console.warn(`[molde-backup] ${projeto}: a cópia mais nova tem menos de 10% da anterior; não apaguei nenhuma cópia antiga.`);
-  let apagadas = 0;
-  const ate = Date.now() + PRUNE_BUDGET_MS; // o resto fica para a próxima cópia (a rota tem 30 s)
-  for (const item of plan.apagar) {
-    if (apagadas >= MAX_DELETES || Date.now() > ate) break;
-    if (await deleteR2Object(keyFromId(item.id)!, undefined, config).catch(() => false)) apagadas += 1;
+export type PruneResult = { apagadas: number; orfaos: number; poupados: string[] };
+
+/**
+ * Limpeza das cópias antigas, chamada pelo relógio (que sabe quanto tempo ainda tem: `timeLeft`). Para cada projeto aplica
+ * `planPrune`; apaga também marcadores de reenvio e partes de envios esquecidas com mais de 24 h. Tudo com prazo: o que não
+ * der tempo fica para a próxima volta. Nunca lança erro; sem R2 configurado não faz nada.
+ */
+export async function pruneBackups(options: { timeLeft: () => number; now?: Date }): Promise<PruneResult> {
+  const out: PruneResult = { apagadas: 0, orfaos: 0, poupados: [] };
+  const config = getR2BackupConfig();
+  const now = options.now ?? new Date();
+  if (!config || options.timeLeft() < 3000) return out;
+  try {
+    const objects = await listR2Objects(BACKUP_PREFIX, MAX_LISTAGEM, { config, deadline: Date.now() + Math.min(8000, options.timeLeft() - 1500) });
+    const porProjeto = new Map<string, BackupItem[]>();
+    for (const obj of objects) {
+      const item = itemFromKey(obj.key, obj.size);
+      if (item) porProjeto.set(item.projeto, [...(porProjeto.get(item.projeto) ?? []), item]);
+    }
+    const apagar = (key: string) => {
+      const ms = Math.min(2000, options.timeLeft() - 1000);
+      return ms < 300 ? Promise.resolve(false) : deleteR2Object(key, ms, config).catch(() => false);
+    };
+    for (const [projeto, items] of porProjeto) {
+      const plan = planPrune(items, now);
+      if (plan.motivo) {
+        out.poupados.push(projeto);
+        console.warn(`[molde-backup] ${projeto}: a cópia mais nova tem menos de 10% da anterior; não apaguei nenhuma cópia antiga.`);
+      }
+      for (const item of plan.apagar) {
+        if (out.apagadas >= MAX_DELETES || options.timeLeft() < 1500) break;
+        if (await apagar(keyFromId(item.id)!)) out.apagadas += 1;
+      }
+    }
+    // Partes de envios que nunca terminaram e marcadores de reenvio já vencidos (mais de 24 h).
+    const velhos = objects.filter((obj) => (obj.key.startsWith(UPLOADS_PREFIX) || obj.key.startsWith(HASHES_PREFIX)) && now.getTime() - new Date(obj.lastModified).getTime() > ORFAO_MS);
+    for (const obj of velhos.slice(0, 50)) {
+      if (options.timeLeft() < 1500) break;
+      if (await apagar(obj.key)) out.orfaos += 1;
+    }
+  } catch (error) {
+    console.error("[molde-backup] não consegui limpar as cópias antigas:", error instanceof Error ? error.message : error);
   }
-  // Partes de envios que nunca terminaram (mais de 1 dia).
-  const old = (await listR2Objects(UPLOADS_PREFIX, 500, { config })).filter((obj) => now.getTime() - new Date(obj.lastModified).getTime() > 86_400_000);
-  for (const obj of old.slice(0, 50)) {
-    if (Date.now() > ate) break;
-    await deleteR2Object(obj.key, undefined, config).catch(() => false);
-  }
-  return apagadas;
+  return out;
 }
 
 /** Lista as cópias (mais novas primeiro), de um projeto ou de todos. */
-export async function listBackups(projeto: string | null): Promise<BackupItem[]> {
+export async function listBackups(projeto: string | null, deadline = Date.now() + BUDGET_MS): Promise<BackupItem[]> {
   const config = needR2();
   const prefix = projeto ? `${BACKUP_PREFIX}${projeto}/` : BACKUP_PREFIX;
-  const objects = await r2(() => listR2Objects(prefix, 5000, { config }));
+  const objects = await r2(() => listR2Objects(prefix, MAX_LISTAGEM, { config, deadline: deadline - 500 }));
   return objects
     .map((obj) => itemFromKey(obj.key, obj.size))
     .filter((item): item is BackupItem => Boolean(item))
@@ -314,9 +389,9 @@ async function findBackup(id: string) {
 }
 
 /** Um pedaço da cópia (gzip em base64), para a ponte do robô, que só leva JSON. */
-export async function readBackupPart(id: string, parte: number) {
+export async function readBackupPart(id: string, parte: number, deadline = Date.now() + BUDGET_MS) {
   const { key, config } = await findBackup(id);
-  const gz = await r2(() => getR2Object(key, { config }));
+  const gz = await r2(() => getR2Object(key, { config, timeoutMs: stepMs(deadline) }));
   if (!gz) throw new BackupError("Cópia não encontrada (já foi apagada?).", 404, "nao_encontrada");
   const item = itemFromKey(key, gz.length)!;
   if (!Number.isInteger(parte) || parte < 0 || parte >= item.partes) {
@@ -327,9 +402,9 @@ export async function readBackupPart(id: string, parte: number) {
 }
 
 /** Link de 15 minutos para baixar o .json.gz inteiro (ex.: no navegador do computador). */
-export async function backupLink(id: string) {
+export async function backupLink(id: string, deadline = Date.now() + BUDGET_MS) {
   const { key, config } = await findBackup(id);
-  const found = await r2(() => listR2Objects(key, 1, { config }));
+  const found = await r2(() => listR2Objects(key, 1, { config, timeoutMs: stepMs(deadline) }));
   const obj = found.find((entry) => entry.key === key);
   if (!obj) throw new BackupError("Cópia não encontrada (já foi apagada?).", 404, "nao_encontrada");
   return { ...itemFromKey(key, obj.size)!, link: r2DownloadUrl(key, 900, config), expiraEm: new Date(Date.now() + 900_000).toISOString() };
@@ -339,7 +414,7 @@ export async function backupLink(id: string) {
  * Envio em partes (cópia comprimida maior que um pedido): cada parte (≤ 3 MB comprimidos) fica numa pasta temporária;
  * na última, o servidor junta, confere e guarda como uma cópia normal.
  */
-export async function savePart(input: { projeto: unknown; envio: unknown; parte: unknown; total: unknown; gz64: unknown }, now = new Date()) {
+export async function savePart(input: { projeto: unknown; envio: unknown; parte: unknown; total: unknown; gz64: unknown }, now = new Date(), deadline = Date.now() + BUDGET_MS) {
   const projeto = cleanProjeto(input.projeto);
   const envio = typeof input.envio === "string" ? input.envio : "";
   if (!ENVIO.test(envio)) throw new BackupError("envio precisa ser um código aleatório de 16 a 40 letras minúsculas e números.", 400, "invalido");
@@ -351,22 +426,31 @@ export async function savePart(input: { projeto: unknown; envio: unknown; parte:
   const config = needR2();
   const folder = `${UPLOADS_PREFIX}${projeto}-${envio}/`;
   const partKey = (n: number) => `${folder}${String(n).padStart(2, "0")}-de-${String(total).padStart(2, "0")}`;
-  await r2(() => putR2Object(partKey(parte), bytes, "application/octet-stream", { config }));
-  if (parte < total - 1) return { pronto: false as const, envio, parte, total };
+  const ultima = parte === total - 1;
+  // Retentativa da última parte depois de o envio já ter terminado (a resposta se perdeu): devolve a cópia que já existe.
+  if (ultima) {
+    const feito = await itemOfMarker(doneKey(projeto, envio), config, deadline, false);
+    if (feito) return { pronto: true as const, item: feito, apagadas: 0 as const, repetida: true, removidos: 0 };
+  }
+  await r2(() => putR2Object(partKey(parte), bytes, "application/octet-stream", { config, timeoutMs: stepMs(deadline) }));
+  if (!ultima) return { pronto: false as const, envio, parte, total };
 
-  const present = new Set((await r2(() => listR2Objects(folder, 100, { config }))).map((obj) => obj.key));
+  const present = new Set((await r2(() => listR2Objects(folder, 100, { config, timeoutMs: stepMs(deadline, 8000) }))).map((obj) => obj.key));
   const faltam = Array.from({ length: total }, (_, n) => n).filter((n) => !present.has(partKey(n)));
   if (faltam.length) throw new BackupError(`Faltam partes deste envio: ${faltam.join(", ")}. Mande as que faltam e a última de novo.`, 409, "faltam_partes", { faltam });
-  const parts: Buffer[] = [];
-  for (let n = 0; n < total; n += 1) {
-    const part = await r2(() => getR2Object(partKey(n), { config }));
-    if (!part) throw new BackupError(`Faltam partes deste envio: ${n}.`, 409, "faltam_partes", { faltam: [n] });
-    parts.push(part);
-  }
-  const gz = Buffer.concat(parts);
+  const parts = await Promise.all(Array.from({ length: total }, (_, n) => r2(() => getR2Object(partKey(n), { config, timeoutMs: stepMs(deadline) }))));
+  const sumida = parts.findIndex((part) => !part);
+  if (sumida >= 0) throw new BackupError(`Faltam partes deste envio: ${sumida}.`, 409, "faltam_partes", { faltam: [sumida] });
+  const gz = Buffer.concat(parts as Buffer[]);
   if (!isGzip(gz)) throw new BackupError("As partes juntas não formam um gzip (mande os pedaços do arquivo .json.gz, na ordem).", 400, "invalido");
   const checked = checkGzip(gz);
-  const saved = await saveBackup(projeto, checked.gz, now);
-  for (const key of present) await deleteR2Object(key, undefined, config).catch(() => false);
+  const saved = await saveBackup(projeto, checked.gz, now, deadline);
+  const marcador = Buffer.from(JSON.stringify({ id: saved.item.id, em: Date.now() }));
+  await putR2Object(doneKey(projeto, envio), marcador, "application/json", { config, timeoutMs: Math.max(500, Math.min(3000, deadline - Date.now() - 300)) }).catch(() => undefined);
+  // As partes temporárias saem agora; se o tempo acabar, o relógio apaga depois (mais de 24 h).
+  for (const key of present) {
+    if (deadline - Date.now() < 800) break;
+    await deleteR2Object(key, Math.min(2000, deadline - Date.now() - 300), config).catch(() => false);
+  }
   return { pronto: true as const, ...saved, removidos: checked.removidos };
 }
