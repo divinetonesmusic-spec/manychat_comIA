@@ -72,6 +72,7 @@ export type JobRow = {
   aprovacao: JobApproval | null;
   aprovacoes: JobApproval[];
   telegram_msg_id: string | number | null;
+  previa_apagada_em?: Date | null;
   iniciado_em: Date | null;
   concluido_em: Date | null;
   criado_em: Date;
@@ -79,6 +80,20 @@ export type JobRow = {
 };
 
 const iso = (value: Date | null | undefined) => (value ? new Date(value).toISOString() : null);
+
+/**
+ * Por onde o robô retoma um trabalho que acabou de pegar (ou que está esperando ser pego):
+ * "comecar" (do zero, com o payload), "continuar" (a dona tocou em «Aprovar» na prévia atual: siga sem refazer)
+ * ou "refazer" (tocou em «Refazer»: faça de novo, levando em conta `aprovacao.nota`).
+ */
+export type JobResume = "comecar" | "continuar" | "refazer";
+export function jobResume(row: Pick<JobRow, "estado" | "retomar_estado" | "aprovacao" | "rodada">): JobResume {
+  const origem = row.estado === "rodando" ? row.retomar_estado : row.estado;
+  const decisaoAtual = row.aprovacao && Number(row.aprovacao.rodada) === row.rodada ? row.aprovacao.decisao : null;
+  if (origem === "aprovado" && decisaoAtual === "aprovar") return "continuar";
+  if (origem === "recusado" && decisaoAtual === "refazer") return "refazer";
+  return "comecar";
+}
 
 /** O que a página e o robô veem de cada trabalho. */
 export function jobView(row: JobRow) {
@@ -97,6 +112,8 @@ export function jobView(row: JobRow) {
     payload: row.payload ?? {},
     resultado: row.resultado,
     previa: row.previa,
+    /** true = o relógio já apagou do R2 a prévia (30 dias depois): os links de `previa` não abrem mais. */
+    previaApagada: Boolean(row.previa_apagada_em),
     erro: row.erro,
     tentativas: row.tentativas,
     worker: row.worker,
@@ -106,6 +123,10 @@ export function jobView(row: JobRow) {
     rodada: row.rodada,
     aprovacao: row.aprovacao,
     aprovacoes: row.aprovacoes ?? [],
+    /** De onde o trabalho saiu ao ser pego (na_fila, aprovado ou recusado); null antes do primeiro claim. */
+    retomarEstado: row.retomar_estado,
+    /** "comecar" | "continuar" | "refazer": o que o robô faz com este trabalho (veja docs/API_MOLDE_JOBS.md). */
+    retomada: jobResume(row),
     iniciadoEm: iso(row.iniciado_em),
     concluidoEm: iso(row.concluido_em),
     criadoEm: iso(row.criado_em),

@@ -61,6 +61,10 @@ create table if not exists public.molde_jobs (
   atualizado_em timestamptz not null default now()
 );
 
+-- Quando o relógio apagou do R2 a prévia de aprovação (pasta molde-previas, 30 dias depois). Em "add column" à parte
+-- para valer também onde uma versão anterior desta migração já foi colada.
+alter table public.molde_jobs add column if not exists previa_apagada_em timestamptz;
+
 -- Um trabalho por (projeto, tipo, ref): pedir de novo devolve o mesmo.
 create unique index if not exists molde_jobs_ref_unique
   on public.molde_jobs (projeto, tipo, ref);

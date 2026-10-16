@@ -72,7 +72,9 @@ describe("Fase 9 sem a migração 0008", { skip: semBanco }, () => {
     ]);
     for (const response of respostas) {
       assert.equal(response.status, 503);
-      assert.equal((await response.json()).error, FRASE);
+      const body = await response.json();
+      assert.equal(body.error, FRASE);
+      assert.equal(body.codigo, "falta_0008");
     }
   });
 

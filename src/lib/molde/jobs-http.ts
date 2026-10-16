@@ -17,7 +17,7 @@ export function answer(error: string, status: number, extra: Record<string, unkn
 
 /** Erro inesperado (ou a 0008 faltando) nas rotas: frase em português, sem detalhe interno. */
 export function failure(error: unknown, contexto: string) {
-  if (isMissing0008(error)) return answer(MISSING_0008, 503);
+  if (isMissing0008(error)) return answer(MISSING_0008, 503, { codigo: "falta_0008" });
   console.error(`[molde-jobs] ${contexto}:`, error instanceof Error ? error.message : error);
   return answer("Não consegui fazer isso agora. Tente de novo em instantes.", 500);
 }

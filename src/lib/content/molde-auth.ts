@@ -10,14 +10,14 @@ export function checkMoldeToken(request: NextRequest): NextResponse | null {
   const expected = process.env.MOLDE_API_TOKEN;
   if (!expected || expected.length < 24) {
     return NextResponse.json(
-      { error: "A porta do Molde esta fechada: defina MOLDE_API_TOKEN (24+ caracteres) nas variaveis do servidor." },
+      { error: "A porta do Molde esta fechada: defina MOLDE_API_TOKEN (24+ caracteres) nas variaveis do servidor.", codigo: "fechado" },
       { status: 503 },
     );
   }
   const provided = request.headers.get("x-molde-token") || request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
   const a = createHash("sha256").update(provided).digest();
   const b = createHash("sha256").update(expected).digest();
-  if (!provided || !timingSafeEqual(a, b)) return NextResponse.json({ error: "Token do Molde invalido." }, { status: 401 });
+  if (!provided || !timingSafeEqual(a, b)) return NextResponse.json({ error: "Token do Molde invalido.", codigo: "token_invalido" }, { status: 401 });
   return null;
 }
 

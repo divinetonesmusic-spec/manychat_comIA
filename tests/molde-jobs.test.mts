@@ -37,6 +37,7 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
   let relogio: typeof import("@/lib/molde/relogio");
   let relatorio: typeof import("@/lib/relatorio-semanal");
   let callbackData: typeof import("@/lib/telegram/callback-data");
+  let uploadRoute: typeof import("@/app/api/molde/upload/route");
   let conta: string;
   let toque = 0;
 
@@ -52,6 +53,7 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
     relogio = await import("@/lib/molde/relogio");
     relatorio = await import("@/lib/relatorio-semanal");
     callbackData = await import("@/lib/telegram/callback-data");
+    uploadRoute = await import("@/app/api/molde/upload/route");
   });
 
   beforeEach(async () => {
@@ -593,6 +595,89 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       const resultado = await relogio.runMoldeClock({ deadline: Date.now() + 8000, origin: "https://uaiflow.teste", now: DOMINGO_9H });
       assert.equal(resultado.relatorio.sent, true);
       assert.match(String(meta.telegram.at(-1)?.body.text), /resumo da semana/);
+    });
+  });
+
+  // ---------- robô 0.10.0: tipos, retomada, prévias no R2 e códigos de erro ----------
+
+  describe("integração com o robô 0.10.0", () => {
+    test("narrar_tratar tem rótulo em português no Telegram", async () => {
+      const job = await novo({ tipo: "narrar_tratar", titulo: "Narração da Birdie" });
+      await pegar("Mac", ["narrar_tratar"]);
+      await acao(job.id, "aprovacao", { worker: "Mac", previa: { texto: "ok" } });
+      assert.match(String(meta.telegram.at(-1)?.body.text), /o áudio da narração «Narração da Birdie» ficou pronto/);
+    });
+
+    test("retomada: comecar no 1º claim, continuar depois do «Aprovar», refazer depois do «Refazer»", async () => {
+      const job = await novo();
+      assert.equal((job as Job & { retomada: string }).retomada, "comecar");
+      const primeiro = (await pegar()).data as Job & { retomada: string; retomarEstado: string };
+      assert.deepEqual([primeiro.retomada, primeiro.retomarEstado], ["comecar", "na_fila"]);
+      await acao(job.id, "aprovacao", { worker: "Mac do Nicolas", previa: { texto: "v1" } });
+      await acao(job.id, "decidir", { decisao: "refazer", nota: "Mais curto" });
+      const refazer = (await pegar()).data as Job & { retomada: string; retomarEstado: string };
+      assert.deepEqual([refazer.retomada, refazer.retomarEstado], ["refazer", "recusado"]);
+      await acao(job.id, "aprovacao", { worker: "Mac do Nicolas", previa: { texto: "v2" } });
+      await acao(job.id, "decidir", { decisao: "aprovar" });
+      const continuar = (await pegar()).data as Job & { retomada: string; aprovacao: { rodada: number } };
+      assert.equal(continuar.retomada, "continuar");
+      assert.equal(continuar.aprovacao.rodada, 2);
+    });
+
+    test("upload com folder molde-previas fica em uaiflow/molde-previas/ (sem molde- a mais); o link serve de prévia", async () => {
+      const pedir = async (folder?: string) => {
+        const r = await uploadRoute.POST(request("/api/molde/upload", { method: "POST", json: { fileName: "previa.mp4", contentType: "video/mp4", size: 1000, ...(folder ? { folder } : {}) }, headers: MOLDE }));
+        return (await r.json()).data as { key: string; publicUrl: string };
+      };
+      assert.match((await pedir("molde-previas")).key, /^uaiflow\/molde-previas\//);
+      assert.match((await pedir("previas")).key, /^uaiflow\/molde-previas\//);
+      assert.match((await pedir("molde")).key, /^uaiflow\/molde\//);
+      assert.match((await pedir()).key, /^uaiflow\/molde\//);
+      const alvo = await pedir("molde-previas");
+      const job = await novo();
+      await pegar();
+      const r = await acao(job.id, "aprovacao", { worker: "Mac do Nicolas", previa: { texto: "Prévia", video: alvo.publicUrl } });
+      assert.equal(r.status, 200);
+      assert.equal((await r.json()).data.previa.video, alvo.publicUrl);
+    });
+
+    test("prévias no R2 de trabalhos parados há mais de 30 dias são apagadas 1 vez (o vídeo final não)", async () => {
+      const base = process.env.R2_PUBLIC_BASE_URL;
+      const job = await novo();
+      await pegar();
+      await acao(job.id, "aprovacao", {
+        worker: "Mac do Nicolas",
+        previa: { video: `${base}/uaiflow/molde-previas/2026-09/abc-previa.mp4` },
+        resultado: { links: { previa: `${base}/uaiflow/molde-previas/2026-09/abc-previa.mp4` }, final: `${base}/uaiflow/molde/2026-09/final.mp4` },
+      });
+      const recente = await novo();
+      await db.sql("update public.molde_jobs set previa = $2::jsonb where id = $1", [recente.id, JSON.stringify({ video: `${base}/uaiflow/molde-previas/2026-10/nova.mp4` })]);
+      await db.sql("update public.molde_jobs set atualizado_em = now() - interval '31 days' where id = $1", [job.id]);
+      const resultado = await relogioAgora();
+      assert.equal(resultado.previasApagadas, 1);
+      const apagados = meta.calls.filter((c) => c.method === "DELETE").map((c) => c.path);
+      assert.equal(apagados.length, 1);
+      assert.match(apagados[0], /molde-previas\/2026-09\/abc-previa\.mp4/);
+      assert.ok((await linha(job.id)).previa_apagada_em);
+      assert.equal(((await (await jobRoute.GET(request(`/api/molde/jobs/${job.id}`, { headers: MOLDE }), routeParams({ id: job.id }))).json()).data.previaApagada), true);
+      assert.equal((await relogioAgora()).previasApagadas, 0);
+    });
+
+    test("401 e 503 com codigo: token_invalido, fechado e sem_segredo", async () => {
+      const r401 = await criar({ tipo: "reel_pipeline", ref: "x" }, { "x-molde-token": "errado" });
+      assert.equal((await r401.json()).codigo, "token_invalido");
+      const token = process.env.MOLDE_API_TOKEN;
+      delete process.env.MOLDE_API_TOKEN;
+      try {
+        const fechado = await criar({ tipo: "reel_pipeline", ref: "x" }, {});
+        assert.equal(fechado.status, 503);
+        assert.equal((await fechado.json()).codigo, "fechado");
+      } finally {
+        process.env.MOLDE_API_TOKEN = token;
+      }
+      delete process.env.TELEGRAM_WEBHOOK_SECRET;
+      const semSegredo = await tocar("x");
+      assert.equal((await semSegredo.json()).codigo, "sem_segredo");
     });
   });
 });

@@ -13,8 +13,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MISSING_0006 = "Falta colar a atualização 0006 no Supabase (veja docs/ATUALIZACAO_0006.md).";
 const MAX_REPLY_LENGTH = 1000;
 
-function answer(error: string, status: number) {
-  return NextResponse.json({ error }, { status });
+function answer(error: string, status: number, codigo?: string) {
+  return NextResponse.json(codigo ? { error, codigo } : { error }, { status });
 }
 
 /**
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const [item] = await listPending({ id });
     return NextResponse.json({ data: item });
   } catch (error) {
-    if (isMissingTables(error)) return answer(MISSING_0006, 503);
+    if (isMissingTables(error)) return answer(MISSING_0006, 503, "falta_0006");
     console.error("[dms] não consegui atender o pedido:", error instanceof Error ? error.message : error);
     return answer("Não consegui fazer isso agora. Tente de novo em instantes.", 500);
   }
@@ -69,8 +69,8 @@ async function prepare(id: string, texto: string) {
     const [item] = await listPending({ id });
     return NextResponse.json({ data: item, telegram });
   } catch (error) {
-    if (isMissingTables(error)) return answer(MISSING_0006, 503);
-    if (isMissing0008(error)) return answer(MISSING_0008, 503);
+    if (isMissingTables(error)) return answer(MISSING_0006, 503, "falta_0006");
+    if (isMissing0008(error)) return answer(MISSING_0008, 503, "falta_0008");
     console.error("[dms] não consegui guardar o rascunho:", error instanceof Error ? error.message : error);
     return answer("Não consegui fazer isso agora. Tente de novo em instantes.", 500);
   }

@@ -18,7 +18,7 @@ export const maxDuration = 30;
 export async function POST(request: NextRequest) {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
   if (!expected || expected.length < 24) {
-    return NextResponse.json({ error: "Defina TELEGRAM_WEBHOOK_SECRET (24+ caracteres) nas variáveis do servidor." }, { status: 503 });
+    return NextResponse.json({ error: "Defina TELEGRAM_WEBHOOK_SECRET (24+ caracteres) nas variáveis do servidor.", codigo: "sem_segredo" }, { status: 503 });
   }
   if (!safeEqualSecret(request.headers.get("x-telegram-bot-api-secret-token"), expected)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });

@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     await refreshPending({ accountId });
     return NextResponse.json({ data: await listPending({ accountId }) });
   } catch (error) {
-    if (isMissingTables(error)) return NextResponse.json({ error: MISSING_0006 }, { status: 503 });
+    if (isMissingTables(error)) return NextResponse.json({ error: MISSING_0006, codigo: "falta_0006" }, { status: 503 });
     console.error("[dms] não consegui ler as mensagens sem resposta:", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "Não consegui ler as mensagens agora. Tente de novo em instantes." }, { status: 500 });
   }

@@ -16,6 +16,7 @@ const TIPOS: Record<string, { nome: string; pronto: string }> = {
   reel_pipeline: { nome: "o vídeo", pronto: "ficou pronto" },
   montar: { nome: "a montagem", pronto: "ficou pronta" },
   narrar: { nome: "a narração", pronto: "ficou pronta" },
+  narrar_tratar: { nome: "o áudio da narração", pronto: "ficou pronto" },
   versoes: { nome: "as versões", pronto: "ficaram prontas" },
 };
 

@@ -10,7 +10,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MISSING_0006 = "Falta colar a atualização 0006 no Supabase (veja docs/ATUALIZACAO_0006.md).";
 
 function missingMigration() {
-  return NextResponse.json({ error: MISSING_0006 }, { status: 503 });
+  return NextResponse.json({ error: MISSING_0006, codigo: "falta_0006" }, { status: 503 });
 }
 
 function linkUrl(request: NextRequest, slug: string) {

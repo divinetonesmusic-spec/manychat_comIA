@@ -4,6 +4,7 @@ import { sendTelegram, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
 import { maybeSendWeeklyReport, type WeeklyReportResult } from "@/lib/relatorio-semanal";
 import { sendDmDraftApproval, sendJobApproval } from "@/lib/telegram/approvals";
 import { telegramBotConfig } from "@/lib/telegram/api";
+import { deleteR2Object, getR2Config, keyFromPublicUrl } from "@/lib/content/r2";
 
 /**
  * A parte do Molde no relógio (a cada minuto, depois do planner e do aviso de DMs). Tudo curto e dentro do prazo:
@@ -14,6 +15,7 @@ import { telegramBotConfig } from "@/lib/telegram/api";
  *      (1 aviso por vez que o Mac some; repete depois de 12 h se continuar assim);
  *    - mensagens de aprovação que não saíram na hora (trabalhos e respostas de DM), de novo a cada 10 min por 1 dia;
  *    - o relatório de domingo.
+ * 3. Prévias de aprovação no R2 (pasta molde-previas) de trabalhos parados há mais de 30 dias são apagadas (até 3 por vez).
  * Sem a 0008 só o relatório roda (sem a parte dos gastos). Nunca lança erro.
  */
 export const MAC_ASLEEP_MINUTES = 30;
@@ -29,6 +31,7 @@ export type MoldeClockResult = {
   avisos: number;
   aprovacoes: number;
   relatorio: WeeklyReportResult;
+  previasApagadas?: number;
   motivo?: "sem_tempo" | "sem_migracao" | "erro";
 };
 
@@ -56,6 +59,13 @@ export async function runMoldeClock(options: { deadline: number; origin?: string
       out.motivo = "erro";
       has0008 = false;
     }
+  }
+
+  if (has0008 && timeLeft() > 3000) {
+    out.previasApagadas = await cleanupOldPreviews(() => timeLeft()).catch((error) => {
+      console.error("[molde] não consegui apagar as prévias antigas:", error instanceof Error ? error.message : error);
+      return 0;
+    });
   }
 
   const telegramTimeout = () => Math.min(TELEGRAM_TIMEOUT_MS, timeLeft() - 300);
@@ -165,4 +175,45 @@ async function resendApprovals(timeoutMs: number): Promise<Array<() => Promise<b
     if (!isMissing0008(error)) throw error; // sem a 0006 a tabela não existe: só os trabalhos
   }
   return out;
+}
+
+export const PREVIEW_KEEP_DAYS = 30;
+const PREVIEW_PREFIX = "uaiflow/molde-previas/";
+const PREVIEW_CLEANUP_MAX = 3;
+
+/** As chaves do R2 das prévias de um trabalho (só as da pasta molde-previas: o vídeo final do post não é tocado). */
+export function previewKeys(previa: Record<string, unknown> | null, resultado: Record<string, unknown> | null) {
+  const links = (resultado?.links ?? null) as Record<string, unknown> | null;
+  const urls = [previa?.video, previa?.imagem, previa?.audio, previa?.link, links?.previa];
+  const keys = new Set<string>();
+  for (const url of urls) {
+    const key = typeof url === "string" ? keyFromPublicUrl(url) : null;
+    if (key?.startsWith(PREVIEW_PREFIX)) keys.add(key);
+  }
+  return [...keys];
+}
+
+/** Apaga do R2 as prévias de aprovação de trabalhos parados há mais de 30 dias. Devolve quantos trabalhos limpou. */
+async function cleanupOldPreviews(timeLeft: () => number) {
+  const r2 = getR2Config();
+  if (!r2) return 0;
+  const { rows } = await query<{ id: string; previa: Record<string, unknown> | null; resultado: Record<string, unknown> | null }>(
+    `select id, previa, resultado from public.molde_jobs
+     where previa_apagada_em is null and estado <> 'rodando'
+       and atualizado_em < now() - make_interval(days => $1)
+       and (previa::text like $2 or resultado::text like $2)
+     order by atualizado_em
+     limit ${PREVIEW_CLEANUP_MAX}`,
+    [PREVIEW_KEEP_DAYS, `%${r2.publicBaseUrl}/${PREVIEW_PREFIX}%`],
+  );
+  let cleaned = 0;
+  for (const row of rows) {
+    if (timeLeft() < 2000) break;
+    let ok = true;
+    for (const key of previewKeys(row.previa, row.resultado)) ok = (await deleteR2Object(key).catch(() => false)) && ok;
+    if (!ok) continue;
+    await query("update public.molde_jobs set previa_apagada_em = now() where id = $1", [row.id]);
+    cleaned += 1;
+  }
+  return cleaned;
 }
