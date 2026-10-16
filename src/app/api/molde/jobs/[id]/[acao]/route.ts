@@ -8,6 +8,7 @@ import {
   forceCost,
   heartbeatJob,
   jobView,
+  POSSE_INVALIDA,
   requestApproval,
   retryJob,
   type JobRow,
@@ -25,7 +26,7 @@ const NOT_FOUND = "Trabalho não encontrado.";
 
 /**
  * POST /api/molde/jobs/<id>/<acao>
- * Do robô (precisam de `worker`, o mesmo nome que pegou o trabalho, e de `posse`, o código que veio no claim):
+ * Do robô (precisam de `worker`, o mesmo nome que pegou o trabalho, e mandam `posse`, o código que veio no claim; sem `posse` vale, a não ser com MOLDE_EXIGIR_POSSE=1):
  *   batimento { worker, posse, etapa?, progresso? }   renova o prazo de 10 min e grava o andamento
  *   concluir  { worker, posse, resultado? }           "pronto"
  *   erro      { worker, posse, erro, tentarDeNovo? }  "erro" (ou de volta à fila, se tentarDeNovo e ainda há tentativas)
@@ -43,8 +44,11 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { id, acao } = await params;
   const body = await readBody(request);
   if (!UUID.test(id)) return answer(NOT_FOUND, 404);
-  // Código de posse do claim (as 4 ações do robô precisam dele); fora do formato conta como "não mandou".
-  const posse = typeof body.posse === "string" && UUID.test(body.posse) ? body.posse.toLowerCase() : null;
+  // Código de posse do claim: ausente = null (robô antigo; vale, a não ser com MOLDE_EXIGIR_POSSE=1); mandado com formato
+  // errado conta como "mandou e não bate" (409 sem_posse).
+  const posse = body.posse === undefined || body.posse === null || body.posse === ""
+    ? null
+    : typeof body.posse === "string" && UUID.test(body.posse) ? body.posse.toLowerCase() : POSSE_INVALIDA;
 
   try {
     switch (acao) {
@@ -137,7 +141,7 @@ function workerAnswer(outcome: WorkerOutcome) {
   if (outcome.motivo === "not-found") return answer(NOT_FOUND, 404);
   if (outcome.motivo === "no-posse") {
     return answer(
-      "O código de posse não bate: este trabalho foi pego de novo depois (ou o robô não mandou `posse`). Pare o que estiver fazendo nele.",
+      "O código de posse não bate (ou falta, com a exigência ligada): este trabalho foi pego de novo depois. Pare o que estiver fazendo nele.",
       409,
       { codigo: "sem_posse", estado: outcome.job.estado, data: jobView(outcome.job) },
     );

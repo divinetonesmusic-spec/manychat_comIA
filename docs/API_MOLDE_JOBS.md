@@ -16,7 +16,7 @@ A ideia: a página põe trabalhos na fila; o robô pede o próximo sozinho (mesm
   | 503 | `fechado` | o servidor está sem `MOLDE_API_TOKEN` | esperar (recuo longo) |
   | 503 | `falta_0008` | a migração 0008 não foi colada | esperar (recuo longo) |
   | 503 | `falta_0006` | (só `/api/molde/dms` e `/api/molde/links`) a 0006 não foi colada | esperar |
-  | 409 | `sem_posse` | (batimento, aprovacao, concluir, erro) o `posse` não é o do último claim deste trabalho | parar o que estiver fazendo nesse trabalho (outro claim pegou) |
+  | 409 | `sem_posse` | (batimento, aprovacao, concluir, erro) o robô MANDOU um `posse` que não é o do último claim deste trabalho (ou, com `MOLDE_EXIGIR_POSSE=1`, não mandou) | parar o que estiver fazendo nesse trabalho (outro claim pegou) |
 
   Os campos são novos e só acrescentam: a frase (`error`) continua a mesma de antes.
   - `400` pedido errado (a frase diz o quê); `404` trabalho não encontrado; `409` o trabalho não está no estado certo para isso (veja abaixo); `500` falha passageira (tente de novo).
@@ -124,7 +124,9 @@ qualquer estado não terminado ──cancelar──> cancelado ──repetir─�
 
 O robô se identifica com `worker` (o nome do Mac, 1–80 letras, sempre o mesmo). As ações sobre um trabalho só valem para o Mac que o pegou e enquanto ele está `rodando`; senão vem `409` com `estado` e a frase — **o robô deve parar o que estiver fazendo nesse trabalho** (foi cancelado, o prazo venceu e voltou para a fila, ou está com outro Mac).
 
-**Código de posse (`posse`):** cada claim gera um código novo (uuid) e o devolve no trabalho entregue (`data.posse`; ele só aparece na resposta do claim). As 4 ações do robô (`batimento`, `aprovacao`, `concluir`, `erro`) precisam mandar `"posse": "<o código>"` no corpo. Sem ele, ou com um código de um claim antigo, vem `409 {"codigo": "sem_posse", "estado": "rodando", …}`: isso acontece quando o prazo venceu e o trabalho foi pego de novo (até pelo mesmo Mac, depois de dormir) — o processo antigo para e deixa o novo trabalhar. Precisa da 0008 com a coluna `posse` (a 0008 foi atualizada; colar de novo não estraga nada).
+**Código de posse (`posse`):** cada claim gera um código novo (uuid) e o devolve no trabalho entregue (`data.posse`; ele só aparece na resposta do claim). As 4 ações do robô (`batimento`, `aprovacao`, `concluir`, `erro`) mandam `"posse": "<o código>"` no corpo. Se mandarem um código que não é o do último claim (ou com formato errado), vem `409 {"codigo": "sem_posse", "estado": "rodando", …}`: isso acontece quando o prazo venceu e o trabalho foi pego de novo (até pelo mesmo Mac, depois de dormir) — o processo antigo para e deixa o novo trabalhar. Precisa da 0008 com a coluna `posse` (a 0008 foi atualizada; colar de novo não estraga nada).
+
+**Transição (robô antigo):** por padrão, **sem `posse` no corpo a ação vale** (o robô 0.10.0, anterior à `posse`, continua concluindo trabalhos), e uma linha `rodando` de antes da coluna (posse nula) também vale. Só o `posse` MANDADO e diferente é recusado. A variável opcional **`MOLDE_EXIGIR_POSSE=1`** (no Netlify) liga a exigência estrita: sem `posse`, ou em linha antiga sem posse, vem `409 sem_posse`. Ordem recomendada: colar a 0008 → publicar o servidor → atualizar o robô → só então ligar `MOLDE_EXIGIR_POSSE=1`.
 
 ### Pegar o próximo — `POST /api/molde/jobs/claim`
 

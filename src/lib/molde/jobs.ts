@@ -239,7 +239,10 @@ export type ClaimResult = {
 export async function claimNextJob(input: { worker: string; tipos: string[] }): Promise<ClaimResult> {
   const teto = capUsd();
   const posse = randomUUID();
-  return transaction(async (client) => {
+  // "O Mac pediu trabalho agora" é gravado ANTES e fora da transação do claim: se o claim falhar (ex.: a 0008 antiga,
+  // sem a coluna `posse`) o Mac continua marcado como acordado e o relógio não manda um aviso falso de "Mac desligado".
+  await markMacAwake(input.worker);
+  const result = await transaction(async (client) => {
     await client.query("select pg_advisory_xact_lock($1)", [CLAIM_LOCK_KEY]);
     const gasto = await monthSpendUsd(client);
     const { rows } = await client.query<{ id: string }>(
@@ -261,11 +264,6 @@ export async function claimNextJob(input: { worker: string; tipos: string[] }): 
        returning j.id`,
       [CLAIMABLE_STATES, input.tipos, gasto, teto, input.worker, LEASE_MINUTES, posse],
     );
-    await client.query(
-      `insert into public.app_status (chave, valor, atualizado_em) values ('molde_mac', $1::jsonb, now())
-       on conflict (chave) do update set valor = excluded.valor, atualizado_em = excluded.atualizado_em`,
-      [JSON.stringify({ worker: input.worker, pegou: rows[0]?.id ?? null })],
-    );
     if (rows[0]) {
       const job = await getJob(rows[0].id, client);
       return { job, barradoPeloTeto: 0, gastoUsd: gasto, tetoUsd: teto };
@@ -279,6 +277,21 @@ export async function claimNextJob(input: { worker: string; tipos: string[] }): 
     );
     return { job: null, barradoPeloTeto: blocked[0]?.n ?? 0, gastoUsd: gasto, tetoUsd: teto };
   });
+  if (result.job) await markMacAwake(input.worker, result.job.id);
+  return result;
+}
+
+/** Grava "o Mac pediu trabalho agora" (app_status 'molde_mac'). Nunca lança: é só o sinal de Mac acordado. */
+async function markMacAwake(worker: string, pegou: string | null = null) {
+  try {
+    await query(
+      `insert into public.app_status (chave, valor, atualizado_em) values ('molde_mac', $1::jsonb, now())
+       on conflict (chave) do update set valor = excluded.valor, atualizado_em = excluded.atualizado_em`,
+      [JSON.stringify({ worker, pegou })],
+    );
+  } catch (error) {
+    console.error("[molde-jobs] não consegui gravar que o Mac está acordado:", error instanceof Error ? error.message : error);
+  }
 }
 
 /** Resultado das ações do robô sobre um trabalho que ele pegou. */
@@ -289,23 +302,41 @@ export type WorkerOutcome =
   /** Está rodando com este Mac, mas o código de posse não bate (um claim mais novo pegou o trabalho, ou o robô não mandou). */
   | { ok: false; motivo: "no-posse"; job: JobRow };
 
+/** Código que nunca é de um claim: o robô mandou uma `posse` com formato errado, que conta como "mandou e não bate". */
+export const POSSE_INVALIDA = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * MOLDE_EXIGIR_POSSE=1 liga a exigência estrita: sem `posse` (ou em trabalho antigo sem posse gravada) a ação do robô é
+ * recusada com 409 sem_posse. Desligada (o padrão), robô antigo (0.10.0, sem `posse`) e linhas "rodando" de antes da
+ * coluna (posse nula) continuam funcionando; só uma `posse` MANDADA que não bate é recusada.
+ * Ordem recomendada: colar a 0008 → publicar o servidor → atualizar o robô → só então exigir (docs/ATUALIZACAO_0008.md).
+ */
+export function posseEstrita() {
+  return /^(1|true|sim)$/i.test(process.env.MOLDE_EXIGIR_POSSE?.trim() ?? "");
+}
+
 /** Explica por que a ação do robô não pegou (trabalho sumiu, foi cancelado, voltou para a fila ou está com outro Mac). */
-async function explainWorkerMiss(id: string, worker: string): Promise<WorkerOutcome> {
+async function explainWorkerMiss(id: string, worker: string, posse: string | null): Promise<WorkerOutcome> {
   const job = await getJob(id);
   if (!job) return { ok: false, motivo: "not-found" };
-  if (job.estado === "rodando" && job.worker === worker) return { ok: false, motivo: "no-posse", job };
+  // Sem exigência estrita, a falta de `posse` nunca é o motivo da recusa: só uma `posse` mandada que não bate.
+  if (job.estado === "rodando" && job.worker === worker && (posse !== null || posseEstrita())) return { ok: false, motivo: "no-posse", job };
   return { ok: false, motivo: "not-yours", job };
 }
 
-/** Ação do robô: só vale para o trabalho "rodando" com este Mac E com o código de posse do último claim. */
+/**
+ * Ação do robô: só vale para o trabalho "rodando" com este Mac. Sobre a `posse` (código do último claim):
+ * ausente (null) ou linha antiga sem posse gravada → vale (a não ser com MOLDE_EXIGIR_POSSE=1); mandada e diferente → recusa.
+ */
 async function workerUpdate(id: string, worker: string, posse: string | null, setSql: string, params: unknown[]): Promise<WorkerOutcome> {
+  const posseSql = posseEstrita() ? "posse = $3::uuid" : "($3::uuid is null or posse is null or posse = $3::uuid)";
   const { rows } = await query<{ id: string }>(
     `update public.molde_jobs set ${setSql}, atualizado_em = now()
-     where id = $1 and estado = 'rodando' and worker = $2 and posse = $3::uuid
+     where id = $1 and estado = 'rodando' and worker = $2 and ${posseSql}
      returning id`,
     [id, worker, posse, ...params],
   );
-  if (!rows[0]) return explainWorkerMiss(id, worker);
+  if (!rows[0]) return explainWorkerMiss(id, worker, posse);
   return { ok: true, job: (await getJob(id)) as JobRow };
 }
 

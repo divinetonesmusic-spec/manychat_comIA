@@ -703,12 +703,12 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       assert.equal(((await pegar()).data as Job & { retomada: string }).retomada, "comecar");
     });
 
-    test("Revisão F9 · posse: o claim devolve um código novo a cada vez; sem ele ou com o antigo, 409 sem_posse", async () => {
+    test("Revisão F9 · posse: o claim devolve um código novo a cada vez; com o antigo ou um código errado, 409 sem_posse", async () => {
       const job = await novo();
       const primeiro = (await pegar()).data as Job & { posse: string };
       assert.match(primeiro.posse, /^[0-9a-f-]{36}$/);
       assert.equal((await acao(job.id, "batimento", { worker: "Mac do Nicolas" })).status, 200, "com a posse certa");
-      for (const posse of [undefined, "nao-e-uuid", "00000000-0000-0000-0000-000000000000"]) {
+      for (const posse of ["nao-e-uuid", "00000000-0000-0000-0000-000000000000", "0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a"]) {
         const r = await acao(job.id, "batimento", { worker: "Mac do Nicolas", posse });
         assert.equal(r.status, 409, String(posse));
         const corpo = await r.json();
@@ -730,6 +730,84 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       assert.equal((await acao(job.id, "concluir", { worker: "Mac do Nicolas", posse: segundo.posse })).status, 200);
       const lista = await (await jobsRoute.GET(request("/api/molde/jobs", { headers: MOLDE }))).json();
       assert.ok(lista.data.every((item: Record<string, unknown>) => !("posse" in item)), "a posse só sai no claim");
+    });
+
+    test("Revisão F10 · B1 · robô antigo (sem posse) conclui um job; posse mandada e errada continua 409 sem_posse", async () => {
+      const job = await novo();
+      await pegar();
+      assert.equal((await acao(job.id, "batimento", { worker: "Mac do Nicolas", posse: undefined, etapa: "Voz" })).status, 200, "batimento sem posse");
+      for (const posse of [null, ""]) assert.equal((await acao(job.id, "batimento", { worker: "Mac do Nicolas", posse })).status, 200, `posse ${JSON.stringify(posse)} = não mandou`);
+      const errada = await acao(job.id, "concluir", { worker: "Mac do Nicolas", posse: "0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a" });
+      assert.equal(errada.status, 409);
+      assert.equal((await errada.json()).codigo, "sem_posse");
+      assert.equal((await linha(job.id)).estado, "rodando");
+      const semPosse = await acao(job.id, "concluir", { worker: "Mac do Nicolas", posse: undefined, resultado: { video: "https://x.invalid/v.mp4" } });
+      assert.equal(semPosse.status, 200);
+      assert.equal(((await semPosse.json()).data as Job).estado, "pronto");
+    });
+
+    test("Revisão F10 · B1 · sem posse mas com OUTRO Mac: 409 de outro Mac (não sem_posse)", async () => {
+      const job = await novo();
+      await pegar();
+      const r = await acao(job.id, "batimento", { worker: "Outro Mac", posse: undefined });
+      assert.equal(r.status, 409);
+      assert.equal((await r.json()).codigo, undefined);
+    });
+
+    test("Revisão F10 · B1 · linha «rodando» legada com posse NULL: vale sem posse e com qualquer posse; erro e aprovação também", async () => {
+      const job = await novo();
+      await pegar();
+      await db.sql("update public.molde_jobs set posse = null where id = $1", [job.id]);
+      assert.equal((await acao(job.id, "batimento", { worker: "Mac do Nicolas", posse: undefined })).status, 200);
+      assert.equal((await acao(job.id, "batimento", { worker: "Mac do Nicolas", posse: "0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a" })).status, 200);
+      const ap = await acao(job.id, "aprovacao", { worker: "Mac do Nicolas", posse: undefined, previa: { texto: "oi" } });
+      assert.equal(ap.status, 200);
+      assert.equal((await linha(job.id)).estado, "esperando_aprovacao");
+      await acao(job.id, "decidir", { decisao: "aprovar" });
+      await pegar();
+      await db.sql("update public.molde_jobs set posse = null where id = $1", [job.id]);
+      assert.equal((await acao(job.id, "erro", { worker: "Mac do Nicolas", posse: undefined, erro: "deu ruim" })).status, 200);
+      assert.equal((await linha(job.id)).estado, "erro");
+    });
+
+    test("Revisão F10 · B1 · MOLDE_EXIGIR_POSSE=1: sem posse e linha legada NULL viram 409 sem_posse; com a posse certa vale", async () => {
+      process.env.MOLDE_EXIGIR_POSSE = "1";
+      try {
+        const job = await novo();
+        const dado = (await pegar()).data as Job & { posse: string };
+        for (const nome of ["batimento", "concluir", "erro", "aprovacao"]) {
+          const r = await acao(job.id, nome, { worker: "Mac do Nicolas", posse: undefined, erro: "x", previa: { texto: "x" } });
+          assert.equal(r.status, 409, nome);
+          assert.equal((await r.json()).codigo, "sem_posse", nome);
+        }
+        await db.sql("update public.molde_jobs set posse = null where id = $1", [job.id]);
+        const legado = await acao(job.id, "batimento", { worker: "Mac do Nicolas", posse: dado.posse });
+        assert.equal(legado.status, 409, "linha legada NULL não serve no modo estrito");
+        assert.equal((await legado.json()).codigo, "sem_posse");
+        await db.sql("update public.molde_jobs set posse = $2::uuid where id = $1", [job.id, dado.posse]);
+        assert.equal((await acao(job.id, "concluir", { worker: "Mac do Nicolas", posse: dado.posse })).status, 200);
+      } finally {
+        delete process.env.MOLDE_EXIGIR_POSSE;
+      }
+    });
+
+    test("Revisão F10 · claim sem a coluna posse (0008 antiga): 503 falta_0008 e o Mac continua marcado como acordado", async () => {
+      await novo();
+      await db.sql("alter table public.molde_jobs rename column posse to posse_tmp");
+      try {
+        const r = await claim();
+        assert.equal(r.status, 503);
+        assert.equal((await r.json()).codigo, "falta_0008");
+        const mac = await db.sql<{ valor: { worker?: string } }>("select valor from public.app_status where chave = 'molde_mac'");
+        assert.equal(mac.length, 1, "o sinal de Mac acordado foi gravado mesmo com o claim falhando");
+        assert.equal(mac[0].valor.worker, "Mac do Nicolas");
+        // o relógio, vendo o Mac acordado, não manda o aviso falso de «Mac desligado»
+        await db.sql("update public.molde_jobs set atualizado_em = now() - interval '2 hours'");
+        await relogioAgora();
+        assert.ok(!meta.telegram.some((m) => String((m.body as { text?: string }).text).includes("Mac parece desligado")));
+      } finally {
+        await db.sql("alter table public.molde_jobs rename column posse_tmp to posse");
+      }
     });
 
     test("upload com folder molde-previas fica em uaiflow/molde-previas/ (sem molde- a mais); o link serve de prévia", async () => {

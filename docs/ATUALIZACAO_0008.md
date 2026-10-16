@@ -1,6 +1,6 @@
 # Atualização do banco: migração 0008 (Fase 9: o Molde trabalha sozinho)
 
-Esta atualização acompanha a Fase 9. O arquivo `0008_fase9.sql` tem tudo junto: **você cola o arquivo inteiro uma vez só**.
+Esta atualização acompanha a Fase 9. O arquivo `0008_fase9.sql` tem tudo junto: **você cola o arquivo inteiro** (e pode colar de novo quando uma versão nova dele sair: não apaga nada).
 
 O que muda com ela:
 
@@ -37,6 +37,14 @@ Leva uns 10 minutos (3 para colar, 5 para as variáveis, 2 para ligar os botões
 
    Deve aparecer **uma linha com o número 0**. Se aparecer `relation "public.molde_jobs" does not exist`, repita o passo 4.
 
+   Para conferir a coluna `posse` (a versão da Fase 10 da 0008 cria; se aparecer `column "posse" does not exist`, cole o arquivo de novo):
+
+   ```sql
+   select posse from public.molde_jobs limit 0;
+   ```
+
+   Deve rodar sem erro (**Success. No rows returned**).
+
    Para conferir a parte das DMs (deve aparecer **uma linha** com `draft_text`; se não aparecer nada, cole a 0006 e depois a 0008 de novo):
 
    ```sql
@@ -54,7 +62,8 @@ Entre em https://app.netlify.com, abra o site **uaiflow-divinetones** → **Site
 2. **`MOLDE_TETO_USD`** — o teto de gastos estimados da fila do Molde por mês, em dólares.
    - Valor: um número, por exemplo `50` (o padrão, se você não criar a variável, é 50).
    - Quando a soma do mês passa do teto, o Mac para de pegar trabalhos **que custam** (os de custo zero continuam) e chega 1 aviso no Telegram. Os gastos zeram no dia 1º. Para liberar um trabalho específico mesmo assim, use a opção de liberar na página do Molde (ela pede a sua confirmação).
-3. (Opcional) **`RELATORIO_SEMANAL`** = `desligado`, se não quiser o relatório de domingo.
+3. (Opcional, depois que o robô novo estiver instalado) **`MOLDE_EXIGIR_POSSE`** = `1` — liga a exigência estrita do código de posse. **Ordem recomendada: 1) colar a 0008 (Passo 1); 2) publicar o servidor; 3) atualizar o robô do Mac; 4) só então criar esta variável.** Sem ela (o padrão), o robô antigo, que ainda não manda `posse`, continua funcionando, e trabalhos que estavam rodando antes da coluna existir também. Com ela ligada e o robô antigo, as ações do robô respondem `409 sem_posse` e o trabalho para.
+4. (Opcional) **`RELATORIO_SEMANAL`** = `desligado`, se não quiser o relatório de domingo.
 
 Depois de criar as variáveis, publique o site de novo: **Deploys** → **Trigger deploy** → **Deploy site**.
 
