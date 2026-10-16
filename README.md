@@ -57,7 +57,8 @@ npm run release:check # verifica o pacote antes de publicar
 - [Transferencia](docs/TRANSFER.md)
 - [Checklist de release](docs/RELEASE_CHECKLIST.md)
 - [Avisos no Telegram, monitor e cópia do banco](docs/AVISOS_E_COPIA.md)
-- Atualizações do banco: [0003 e 0004](docs/ATUALIZACAO_0003_0004.md), [0005](docs/ATUALIZACAO_0005.md), [0006](docs/ATUALIZACAO_0006.md), [0007](docs/ATUALIZACAO_0007.md)
+- Atualizações do banco: [0003 e 0004](docs/ATUALIZACAO_0003_0004.md), [0005](docs/ATUALIZACAO_0005.md), [0006](docs/ATUALIZACAO_0006.md), [0007](docs/ATUALIZACAO_0007.md), [0008](docs/ATUALIZACAO_0008.md)
+- API da fila de trabalho do Molde (para o robô do Mac e a página): [docs/API_MOLDE_JOBS.md](docs/API_MOLDE_JOBS.md)
 
 ## Segredos
 
