@@ -63,6 +63,8 @@ function httpsUrl(value: unknown) {
 }
 
 /** Prévia para aprovar: texto (até 2000 letras) e links https (imagem, vídeo, áudio, link). Pelo menos um. */
+const isAudioUrl = (url: string) => /\.(m4a|mp3)$/i.test(new URL(url).pathname);
+
 export function parsePreview(value: unknown): JobPreview | { error: string } {
   if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "Mande a prévia (previa) com texto ou um link." };
   const raw = value as Record<string, unknown>;
@@ -77,6 +79,14 @@ export function parsePreview(value: unknown): JobPreview | { error: string } {
     const url = httpsUrl(raw[key]);
     if (!url) return { error: `O link da prévia (${key}) precisa começar com https://.` };
     previa[key] = url;
+  }
+  // Áudio (.m4a/.mp3) mandado como video ou link vira previa.audio (o Telegram mostra como áudio).
+  for (const key of ["video", "link"] as const) {
+    const url = previa[key];
+    if (url && !previa.audio && isAudioUrl(url)) {
+      previa.audio = url;
+      delete previa[key];
+    }
   }
   if (!Object.keys(previa).length) return { error: "Mande a prévia (previa) com texto ou um link." };
   return previa;

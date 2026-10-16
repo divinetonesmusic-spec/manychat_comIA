@@ -28,6 +28,7 @@ export const PARTE_LEITURA = 2 * 1024 * 1024;
 export const KEEP_LATEST = 30;
 export const KEEP_MONTHS = 12;
 const MAX_DELETES = 100;
+const PRUNE_BUDGET_MS = 8000;
 
 export const PROJETO = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ENVIO = /^[a-z0-9]{16,40}$/;
@@ -199,14 +200,18 @@ async function prune(projeto: string, now: Date) {
     .filter((item): item is BackupItem => Boolean(item));
   const keep = toKeep(items, now);
   let apagadas = 0;
+  const ate = Date.now() + PRUNE_BUDGET_MS; // o resto fica para a próxima cópia (a rota tem 30 s)
   for (const item of items) {
-    if (apagadas >= MAX_DELETES) break;
+    if (apagadas >= MAX_DELETES || Date.now() > ate) break;
     if (keep.has(item.id)) continue;
     if (await deleteR2Object(keyFromId(item.id)!).catch(() => false)) apagadas += 1;
   }
   // Partes de envios que nunca terminaram (mais de 1 dia).
   const old = (await listR2Objects(UPLOADS_PREFIX, 500)).filter((obj) => now.getTime() - new Date(obj.lastModified).getTime() > 86_400_000);
-  for (const obj of old.slice(0, 50)) await deleteR2Object(obj.key).catch(() => false);
+  for (const obj of old.slice(0, 50)) {
+    if (Date.now() > ate) break;
+    await deleteR2Object(obj.key).catch(() => false);
+  }
   return apagadas;
 }
 

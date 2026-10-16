@@ -724,6 +724,56 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       assert.equal((await relogioAgora()).previasApagadas, 0);
     });
 
+    test("Revisão F9 · áudio (M4A/MP3) só na pasta molde-previas; vira previa.audio e o Telegram mostra o link do áudio", async () => {
+      const pedir = (contentType: string, folder?: string) =>
+        uploadRoute.POST(request("/api/molde/upload", { method: "POST", json: { fileName: "narracao.m4a", contentType, size: 1000, ...(folder ? { folder } : {}) }, headers: MOLDE }));
+      const m4a = await pedir("audio/mp4", "molde-previas");
+      assert.equal(m4a.status, 200);
+      const alvo = (await m4a.json()).data as { key: string; publicUrl: string };
+      assert.match(alvo.key, /^uaiflow\/molde-previas\/.*\.m4a$/);
+      assert.match((await (await pedir("audio/mpeg", "previas")).json()).data.key, /\.mp3$/);
+      for (const folder of [undefined, "molde"]) {
+        const r = await pedir("audio/mp4", folder);
+        assert.equal(r.status, 400, String(folder));
+        assert.match((await r.json()).error, /MP4, MOV, JPG, PNG ou WEBP/);
+      }
+      assert.equal((await pedir("audio/wav", "molde-previas")).status, 400);
+
+      const job = await novo({ tipo: "narrar_tratar", titulo: "Narração" });
+      await pegar("Mac", ["narrar_tratar"]);
+      const r = await acao(job.id, "aprovacao", { worker: "Mac", previa: { texto: "Ouça", link: alvo.publicUrl } });
+      assert.equal(r.status, 200);
+      const previa = (await r.json()).data.previa;
+      assert.deepEqual(previa, { texto: "Ouça", audio: alvo.publicUrl }, "o .m4a mandado em link vira audio");
+      const { jobApprovalText } = await import("@/lib/telegram/approvals");
+      const comVideo = jobApprovalText({ ...(await linha(job.id)), previa: { video: "https://midia.teste.invalid/v.mp4", audio: alvo.publicUrl } } as never);
+      assert.match(comVideo, /Prévia: https:\/\/midia\.teste\.invalid\/v\.mp4/);
+      assert.ok(comVideo.includes(`Áudio: ${alvo.publicUrl}`));
+      const soAudio = jobApprovalText({ ...(await linha(job.id)), previa: { audio: alvo.publicUrl } } as never);
+      assert.ok(soAudio.includes(`Prévia: ${alvo.publicUrl}`));
+      assert.ok(!soAudio.includes("Áudio:"), "sem repetir o mesmo link");
+    });
+
+    test("Revisão F9 · R2 que não responde: o DELETE desiste no prazo e o relógio respeita o orçamento", async () => {
+      const r2 = await import("@/lib/content/r2");
+      meta.hang = /molde-previas/;
+      const inicio = Date.now();
+      await assert.rejects(r2.deleteR2Object("uaiflow/molde-previas/2026-09/x.mp4", 200));
+      assert.ok(Date.now() - inicio < 1500);
+
+      const base = process.env.R2_PUBLIC_BASE_URL;
+      for (let i = 0; i < 3; i += 1) {
+        const job = await novo();
+        await db.sql("update public.molde_jobs set estado = 'pronto', previa = $2::jsonb, atualizado_em = now() - interval '40 days' where id = $1",
+          [job.id, JSON.stringify({ video: `${base}/uaiflow/molde-previas/2026-08/p${i}.mp4` })]);
+      }
+      const comeco = Date.now();
+      const resultado = await relogio.runMoldeClock({ deadline: Date.now() + 5000, origin: "https://uaiflow.teste", now: new Date("2026-10-14T15:00:00Z") });
+      assert.ok(Date.now() - comeco < 5500, `levou ${Date.now() - comeco} ms`);
+      assert.equal(resultado.previasApagadas, 0, "nada marcado como apagado");
+      meta.hang = null;
+    });
+
     test("401 e 503 com codigo: token_invalido, fechado e sem_segredo", async () => {
       const r401 = await criar({ tipo: "reel_pipeline", ref: "x" }, { "x-molde-token": "errado" });
       assert.equal((await r401.json()).codigo, "token_invalido");

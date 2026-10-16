@@ -115,6 +115,13 @@ const ALLOWED_TYPES: Record<string, string> = {
   "image/webp": "webp",
 };
 
+/** Áudio só serve de prévia de aprovação (pasta molde-previas): nunca vai para um post. */
+const PREVIEW_AUDIO_TYPES: Record<string, string> = {
+  "audio/mp4": "m4a",
+  "audio/mpeg": "mp3",
+};
+export const PREVIEW_FOLDER = "molde-previas";
+
 export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GB (limite de Reel na API é bem menor; isto só evita abuso)
 
 export function cleanFileName(name: string) {
@@ -135,15 +142,19 @@ export function cleanFileName(name: string) {
 export function createUploadTarget(input: { fileName: string; contentType: string; size?: number; folder?: string }) {
   const config = getR2Config();
   if (!config) throw new Error("O armazenamento de mídia (Cloudflare R2) ainda não foi configurado.");
-  const extension = ALLOWED_TYPES[input.contentType];
-  if (!extension) throw new Error("Tipo de arquivo não aceito. Use MP4, MOV, JPG, PNG ou WEBP.");
+  const folder = cleanFileName(input.folder || "geral");
+  const extension = ALLOWED_TYPES[input.contentType] ?? (folder === PREVIEW_FOLDER ? PREVIEW_AUDIO_TYPES[input.contentType] : undefined);
+  if (!extension) {
+    throw new Error(folder === PREVIEW_FOLDER
+      ? "Tipo de arquivo não aceito. Use MP4, MOV, JPG, PNG, WEBP, M4A ou MP3."
+      : "Tipo de arquivo não aceito. Use MP4, MOV, JPG, PNG ou WEBP.");
+  }
   const size = input.size;
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) throw new Error("Falta o tamanho do arquivo (size, em bytes).");
   if (size > MAX_UPLOAD_BYTES) throw new Error("Arquivo grande demais (máximo 1 GB).");
 
   const month = new Date().toISOString().slice(0, 7);
   const base = cleanFileName(input.fileName.replace(/\.[a-z0-9]+$/i, ""));
-  const folder = cleanFileName(input.folder || "geral");
   const key = `uaiflow/${folder}/${month}/${randomUUID().slice(0, 8)}-${base}.${extension}`;
 
   return {
@@ -155,11 +166,14 @@ export function createUploadTarget(input: { fileName: string; contentType: strin
   };
 }
 
-/** Apaga um arquivo do R2 (usado depois que o post já foi publicado). */
-export async function deleteR2Object(key: string) {
+/** Quanto um DELETE no R2 pode esperar (o relógio e as rotas têm orçamento curto). */
+export const R2_DELETE_TIMEOUT_MS = 2000;
+
+/** Apaga um arquivo do R2 (usado depois que o post já foi publicado). Desiste em 2 s (erro de prazo: quem chama trata). */
+export async function deleteR2Object(key: string, timeoutMs = R2_DELETE_TIMEOUT_MS) {
   const config = getR2Config();
   if (!config) return false;
-  const response = await fetch(r2Request(config, "DELETE", key, 300), { method: "DELETE" });
+  const response = await fetch(r2Request(config, "DELETE", key, 300), { method: "DELETE", signal: AbortSignal.timeout(Math.max(100, timeoutMs)) });
   return response.ok || response.status === 404;
 }
 

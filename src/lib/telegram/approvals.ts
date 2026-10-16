@@ -45,6 +45,7 @@ export function jobApprovalText(job: JobRow, options: { decided?: boolean } = {}
     `UaiFlow: ${nome} «${titulo}»${conta} ${pronto}.${versao}`,
     job.previa?.texto ? `\n${shorten(job.previa.texto, 700)}` : null,
     link ? `\nPrévia: ${link}` : null,
+    job.previa?.audio && job.previa.audio !== link ? `Áudio: ${job.previa.audio}` : null,
   ];
   if (!options.decided) {
     lines.push(callbacksEnabled()

@@ -4,7 +4,7 @@ import { sendTelegram, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
 import { maybeSendWeeklyReport, type WeeklyReportResult } from "@/lib/relatorio-semanal";
 import { sendDmDraftApproval, sendJobApproval } from "@/lib/telegram/approvals";
 import { telegramBotConfig } from "@/lib/telegram/api";
-import { deleteR2Object, getR2Config, keyFromPublicUrl } from "@/lib/content/r2";
+import { deleteR2Object, getR2Config, keyFromPublicUrl, R2_DELETE_TIMEOUT_MS } from "@/lib/content/r2";
 
 /**
  * A parte do Molde no relógio (a cada minuto, depois do planner e do aviso de DMs). Tudo curto e dentro do prazo:
@@ -210,7 +210,14 @@ async function cleanupOldPreviews(timeLeft: () => number) {
   for (const row of rows) {
     if (timeLeft() < 2000) break;
     let ok = true;
-    for (const key of previewKeys(row.previa, row.resultado)) ok = (await deleteR2Object(key).catch(() => false)) && ok;
+    for (const key of previewKeys(row.previa, row.resultado)) {
+      // Cada DELETE espera no máximo o que sobra do orçamento (até 2 s); sem tempo, fica para a próxima volta.
+      if (timeLeft() < 1500) {
+        ok = false;
+        break;
+      }
+      ok = (await deleteR2Object(key, Math.min(R2_DELETE_TIMEOUT_MS, timeLeft() - 1000)).catch(() => false)) && ok;
+    }
     if (!ok) continue;
     await query("update public.molde_jobs set previa_apagada_em = now() where id = $1", [row.id]);
     cleaned += 1;
