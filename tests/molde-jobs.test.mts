@@ -499,6 +499,24 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       assert.equal((await linha(outro.id)).estado, "aprovado", "vazia: como antes");
     });
 
+    test("Revisão F10 · TELEGRAM_ALLOWED_USER_IDS com texto mas sem nenhum id válido bloqueia todos (não abre para qualquer um)", async (t) => {
+      t.after(() => { delete process.env.TELEGRAM_ALLOWED_USER_IDS; });
+      const job = await esperando();
+      const [aprovar] = botoes();
+      for (const lixo of ["@nicolas", "abc, def", "42a; um", "—"]) {
+        process.env.TELEGRAM_ALLOWED_USER_IDS = lixo;
+        const r = await tocar(aprovar.callback_data, { de: 7 });
+        assert.equal((await r.json()).ignorado, true, lixo);
+        assert.match(String(chamadas("answerCallbackQuery").at(-1)?.body.text), /Você não pode decidir/);
+        assert.equal((await linha(job.id)).estado, "esperando_aprovacao", lixo);
+      }
+      // uma mistura de ids válidos e lixo vale pelos válidos
+      process.env.TELEGRAM_ALLOWED_USER_IDS = "@nicolas, 7";
+      assert.equal((await (await tocar(aprovar.callback_data, { de: 7 })).json()).ignorado, undefined);
+      assert.equal((await linha(job.id)).estado, "aprovado");
+      await acao(job.id, "cancelar");
+    });
+
     test("o webhook compara o segredo em tempo constante (safeEqualSecret) e a assinatura com timingSafeEqual", () => {
       const rota = readFileSync("src/app/api/telegram/webhook/route.ts", "utf8");
       assert.match(rota, /safeEqualSecret\(request\.headers\.get\("x-telegram-bot-api-secret-token"\)/);

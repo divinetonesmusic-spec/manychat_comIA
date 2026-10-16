@@ -35,9 +35,10 @@ export async function POST(request: NextRequest) {
   }
 
   // Num grupo, qualquer membro vê os botões: com TELEGRAM_ALLOWED_USER_IDS (ids separados por vírgula), só essas
-  // pessoas decidem. Vazia: vale qualquer toque da conversa (como antes).
+  // pessoas decidem. Vazia (ou ausente): vale qualquer toque da conversa (como antes). Com texto, mas sem nenhum id
+  // numérico válido (ex.: «@nicolas», erro de digitação): ninguém decide, em vez de abrir para todos sem querer.
   const allowed = allowedUserIds();
-  if (allowed.size && !allowed.has(String(callback.from?.id ?? ""))) {
+  if (allowed && !allowed.has(String(callback.from?.id ?? ""))) {
     await answerCallback(callback.id, "Você não pode decidir isto no UaiFlow.");
     return NextResponse.json({ ok: true, ignorado: true });
   }
@@ -46,8 +47,13 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true, ...result });
 }
 
-function allowedUserIds() {
-  return new Set((process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").split(/[\s,;]+/).map((id) => id.trim()).filter((id) => /^-?\d+$/.test(id)));
+/** null = a variável não está em uso (vazia); senão, o conjunto de ids válidos (pode ser vazio: bloqueia todos). */
+function allowedUserIds(): Set<string> | null {
+  const raw = (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").trim();
+  if (!raw) return null;
+  const ids = new Set(raw.split(/[\s,;]+/).map((id) => id.trim()).filter((id) => /^-?\d+$/.test(id)));
+  if (!ids.size) console.warn("[telegram] TELEGRAM_ALLOWED_USER_IDS tem texto mas nenhum id numérico válido: nenhum toque nos botões será aceito até corrigir.");
+  return ids;
 }
 
 export async function GET() {
