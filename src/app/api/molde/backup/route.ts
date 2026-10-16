@@ -31,9 +31,9 @@ export async function PUT(request: NextRequest) {
   if (denied) return denied;
   try {
     const bytes = await readBytes(request);
-    const { projeto, gz } = parseBody(bytes, request.nextUrl.searchParams.get("projeto"));
+    const { projeto, gz, removidos } = parseBody(bytes, request.nextUrl.searchParams.get("projeto"));
     const { item, apagadas } = await saveBackup(projeto, gz);
-    return NextResponse.json({ data: item, apagadas }, { status: 201 });
+    return NextResponse.json({ data: item, apagadas, removidos }, { status: 201 });
   } catch (error) {
     return backupFailure(error, "não consegui guardar a cópia");
   }

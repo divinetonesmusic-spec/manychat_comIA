@@ -2,10 +2,26 @@
 
 Os dados do Molde (coleções `moldes`, `partes`, `pedidos`, `fabrica`, `audio`, `biblioteca`, `versoes`…) moram só no banco do artifact do Claude. Se o artifact sumir, perde tudo. Estas rotas guardam uma cópia no **R2 do UaiFlow**, fora do Claude.
 
-- **Não precisa de migração** nem de variável nova: usa o mesmo R2 das mídias (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`) e o mesmo `MOLDE_API_TOKEN`. Sem R2 configurado, as rotas respondem `503` com `codigo: "sem_r2"`; o resto do UaiFlow segue normal.
+- **Não precisa de migração.** Usa o mesmo R2 das mídias (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`) e o mesmo `MOLDE_API_TOKEN`. **Recomendado:** a variável opcional `R2_BACKUP_BUCKET` guarda as cópias num balde **privado** (veja «Balde privado» abaixo). Sem R2 configurado, as rotas respondem `503` com `codigo: "sem_r2"`; o resto do UaiFlow segue normal.
 - Onde fica: `uaiflow/molde-backups/<projeto|tudo>/<AAAAMMDD-HHMMSS-mmm>-<20 letras aleatórias>.json.gz` (o JSON comprimido com gzip). Fica dentro de `uaiflow/`, como todas as outras chaves do UaiFlow no balde.
 - **Quantas ficam (por projeto):** as 30 mais novas + a mais nova de cada mês dos últimos 12 meses. A limpeza roda a cada cópia nova daquele projeto (outros projetos não são tocados). Partes de envios que nunca terminaram são apagadas depois de 1 dia.
-- O sufixo aleatório (80 bits) torna o endereço impossível de adivinhar. Isso importa porque o balde tem endereço público (`R2_PUBLIC_BASE_URL`) para a Meta ler as mídias dos posts: **quem tiver o endereço completo de uma cópia consegue baixá-la**. As rotas nunca devolvem esse endereço público (o `formato=link` é um link assinado do R2 que vence em 15 minutos).
+- O sufixo aleatório (80 bits) torna o endereço impossível de adivinhar. **Sem `R2_BACKUP_BUCKET`**, as cópias ficam no balde das mídias, que tem endereço público (`R2_PUBLIC_BASE_URL`) para a Meta ler os posts: quem tiver o endereço completo de uma cópia consegue baixá-la. As rotas nunca devolvem esse endereço público (o `formato=link` é um link assinado do R2 que vence em 15 minutos). **Com `R2_BACKUP_BUCKET`** (balde privado, sem domínio público) esse risco some.
+
+## Balde privado (passo opcional, recomendado)
+
+As cópias têm o texto de todos os projetos. O balde das mídias é público (a Meta precisa ler os vídeos); o ideal é um segundo balde **sem** acesso público só para as cópias. Leva uns 5 minutos:
+
+1. Entre em https://dash.cloudflare.com → **R2 Object Storage** → **Create bucket**. Nome sugerido: `uaiflow-copias`. Deixe a localização automática.
+2. **Não** ligue o acesso público: no balde novo, **Settings** → confirme que **Public access** (Public Development URL) está **Disabled** e que não há **Custom Domains**.
+3. A **mesma chave de API** do R2 que o UaiFlow já usa precisa enxergar o balde novo: **R2 Object Storage** → **Manage API Tokens** → abra a chave usada pelo UaiFlow (permissão **Object Read & Write**) e, em **Specify bucket(s)**, inclua `uaiflow-copias` (ou deixe **Apply to all buckets**). Se criar uma chave nova, atualize também `R2_ACCESS_KEY_ID` e `R2_SECRET_ACCESS_KEY` no Netlify.
+4. No Netlify (site **uaiflow-divinetones** → **Site configuration** → **Environment variables** → **Add a variable**), crie **`R2_BACKUP_BUCKET`** = `uaiflow-copias` e publique o site de novo (**Deploys** → **Trigger deploy**). As credenciais e o `R2_ACCOUNT_ID` são os mesmos de antes; `R2_PUBLIC_BASE_URL` não é usado por este balde.
+5. Guarde uma cópia nova pela página do Molde. Confira no Cloudflare que `uaiflow/molde-backups/…` apareceu no balde novo.
+
+As cópias que já estão no balde das mídias **não são movidas** (a lista passa a mostrar só as do balde novo). Se quiser, apague a pasta `uaiflow/molde-backups/` do balde das mídias depois de conferir. Sem a variável, tudo continua como antes.
+
+## O que NÃO vai na cópia
+
+O servidor tira da cópia, em qualquer nível, os campos cujo nome parece segredo: `token`, `secret`/`segredo`, `apiKey`/`api_key`, `password`/`senha`, `authorization`, `credential` (maiúsculas e minúsculas não importam), quando o valor é texto ou objeto. Números, `true/false` e `null` com esse nome (ex.: `tokens: 1234`) ficam. A resposta do PUT traz `removidos` (quantos campos saíram). O Molde não guarda chaves no banco (as chaves ficam nas extensões do Mac), mas a trava é a segunda linha de defesa.
 
 ## Regras gerais
 
@@ -86,7 +102,7 @@ Para quando o gzip passa de ~2 MB (cada chamada pela ponte do robô deve ficar p
 
 ## Riscos e limites
 
-- **Endereço público do balde:** quem tiver o endereço completo de uma cópia (com as 20 letras aleatórias) consegue baixá-la. As rotas nunca mostram esse endereço; não o copie para lugar nenhum. Cópia não é criptografada no R2.
+- **Endereço público do balde** (só sem `R2_BACKUP_BUCKET`): quem tiver o endereço completo de uma cópia (com as 20 letras aleatórias) consegue baixá-la. As rotas nunca mostram esse endereço; não o copie para lugar nenhum. Cópia não é criptografada no R2. Use o balde privado.
 - Quem tem o `MOLDE_API_TOKEN` lê e grava todas as cópias (é o mesmo token de toda a porta do Molde).
 - A cópia aberta vai até 25 MB; o envio em partes vai até 24 MB comprimidos. Fotos em base64 dentro das coleções comprimem pouco: prefira guardar o link (R2) da imagem, não a imagem.
 - Restaurar é coisa da página: o UaiFlow só guarda e devolve.

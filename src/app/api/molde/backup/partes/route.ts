@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
     const result = await savePart({ projeto: body.projeto, envio: body.envio, parte: body.parte, total: body.total, gz64: body.gz64 });
     if (!result.pronto) return NextResponse.json({ data: { envio: result.envio, parte: result.parte, total: result.total, pronto: false } }, { status: 202 });
-    return NextResponse.json({ data: result.item, apagadas: result.apagadas }, { status: 201 });
+    return NextResponse.json({ data: result.item, apagadas: result.apagadas, removidos: result.removidos }, { status: 201 });
   } catch (error) {
     return backupFailure(error, "não consegui guardar a parte da cópia");
   }

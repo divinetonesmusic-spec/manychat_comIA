@@ -352,3 +352,125 @@ describe("a ponte do robô (uaiflow {op:'chamar'}) alcança as rotas", () => {
     ]) assert.ok(ROTA_MOLDE.test(r), r);
   });
 });
+
+describe("Revisão F10 · I1 · balde privado para as cópias (R2_BACKUP_BUCKET)", () => {
+  const credenciais = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] as const;
+  function com(env: Record<string, string | undefined>) {
+    const salvo = Object.fromEntries(Object.keys(env).map((nome) => [nome, process.env[nome]]));
+    for (const [nome, valor] of Object.entries(env)) {
+      if (valor === undefined) delete process.env[nome];
+      else process.env[nome] = valor;
+    }
+    return () => {
+      for (const [nome, valor] of Object.entries(salvo)) {
+        if (valor === undefined) delete process.env[nome];
+        else process.env[nome] = valor;
+      }
+    };
+  }
+
+  test("sem R2_BACKUP_BUCKET: usa o balde das mídias, como antes", async () => {
+    const volta = com({ R2_BACKUP_BUCKET: undefined });
+    try {
+      const res = await guardar("birdie-lanier", COPIA);
+      assert.equal(res.status, 201);
+      assert.deepEqual([...meta.r2Buckets], ["baldefalso"]);
+    } finally {
+      volta();
+    }
+  });
+
+  test("com R2_BACKUP_BUCKET: guardar, listar, ler, link e apagar vão só para o balde privado, mesmo sem R2_PUBLIC_BASE_URL", async () => {
+    const volta = com({ R2_BACKUP_BUCKET: "baldeprivado", R2_PUBLIC_BASE_URL: undefined });
+    try {
+      const res = await guardar("birdie-lanier", COPIA);
+      assert.equal(res.status, 201);
+      const { data } = await res.json();
+      const lista = await (await rota.GET(request("/api/molde/backup?projeto=birdie-lanier", { headers: MOLDE }))).json();
+      assert.equal(lista.total, 1);
+      assert.deepEqual(await lerInteira(data.id), COPIA);
+      const link = (await (await umaRota.GET(request(`/api/molde/backup/${data.id}?formato=link`, { headers: MOLDE }), routeParams({ id: data.id }))).json()).data.link;
+      assert.ok(new URL(link).pathname.startsWith("/baldeprivado/"), "o link assinado é do balde privado");
+      assert.deepEqual([...meta.r2Buckets], ["baldeprivado"], "nada tocou o balde das mídias");
+    } finally {
+      volta();
+    }
+  });
+
+  test("com R2_BACKUP_BUCKET mas sem as credenciais: 503 sem_r2", async () => {
+    for (const nome of credenciais) {
+      const volta = com({ R2_BACKUP_BUCKET: "baldeprivado", [nome]: undefined });
+      try {
+        const res = await guardar("birdie-lanier", COPIA);
+        assert.equal(res.status, 503, nome);
+        assert.equal((await res.json()).codigo, "sem_r2");
+      } finally {
+        volta();
+      }
+    }
+  });
+
+  test("balde das mídias continua sem tocar nas cópias de outro balde (as mídias não usam R2_BACKUP_BUCKET)", async () => {
+    const volta = com({ R2_BACKUP_BUCKET: "baldeprivado" });
+    try {
+      const alvo = await import("@/lib/content/r2");
+      assert.equal(alvo.getR2Config()!.bucket, "baldefalso");
+      assert.equal(alvo.getR2BackupConfig()!.bucket, "baldeprivado");
+    } finally {
+      volta();
+    }
+  });
+});
+
+describe("Revisão F10 · I1 · campos de segredo não vão para a cópia", () => {
+  const COM_SEGREDOS = {
+    versao: 1,
+    token: "tok-raiz",
+    colecoes: {
+      moldes: [{ id: "m1", dados: { nome: "Birdie", apiKey: "AIza-falsa", configuracao: { senha: "123", Password: "x", segredo: { a: 1 }, client_secret: "s", ok: "fica" } } }],
+      audio: [{ id: "a1", dados: { tokens: 1234, usouToken: true, authorization: "Bearer abc", token_extra: null, texto: "oi", lista: [{ accessToken: "t", n: 2 }] } }],
+    },
+  };
+
+  test("remove token, apiKey, password, senha, secret, authorization em qualquer nível; guarda números, booleanos e null com esse nome", async () => {
+    const res = await guardar("birdie-lanier", COM_SEGREDOS);
+    assert.equal(res.status, 201);
+    const corpo = await res.json();
+    assert.equal(corpo.removidos, 8);
+    const guardada = await lerInteira(corpo.data.id);
+    assert.equal(guardada.token, undefined);
+    assert.equal(guardada.colecoes.moldes[0].dados.apiKey, undefined);
+    assert.deepEqual(guardada.colecoes.moldes[0].dados.configuracao, { ok: "fica" });
+    assert.deepEqual(guardada.colecoes.audio[0].dados, { tokens: 1234, usouToken: true, token_extra: null, texto: "oi", lista: [{ n: 2 }] });
+    assert.equal(JSON.stringify(guardada).includes("AIza-falsa"), false);
+  });
+
+  test("vale também para gzip direto, gz64 e partes", async () => {
+    const gz = gzipSync(Buffer.from(JSON.stringify(COM_SEGREDOS)));
+    for (const res of [
+      await rota.PUT(bruto("/api/molde/backup?projeto=lua-azul", gz)),
+      await rota.POST(request("/api/molde/backup", { json: { projeto: "lua-azul", gz64: gz.toString("base64") }, headers: MOLDE })),
+      await partesRota.POST(request("/api/molde/backup/partes", { json: { projeto: "lua-azul", envio: "a1b2c3d4e5f6a7b8c9d0", parte: 0, total: 1, gz64: gz.toString("base64") }, headers: MOLDE })),
+    ]) {
+      assert.equal(res.status, 201);
+      const corpo = await res.json();
+      assert.equal(corpo.removidos, 8);
+      assert.equal(JSON.stringify(await lerInteira(corpo.data.id)).includes("tok-raiz"), false);
+    }
+  });
+
+  test("sem nada de segredo: guarda o gzip como veio e removidos = 0", async () => {
+    const gz = gzipSync(Buffer.from(JSON.stringify(COPIA)));
+    const res = await rota.PUT(bruto("/api/molde/backup?projeto=lua-azul", gz));
+    const corpo = await res.json();
+    assert.equal(corpo.removidos, 0);
+    assert.equal(corpo.data.tamanho, gz.length);
+  });
+
+  test("objetos aninhados demais: 400 invalido (sem estourar a pilha)", async () => {
+    const fundo = `${'{"a":'.repeat(5000)}1${"}".repeat(5000)}`;
+    const res = await rota.PUT(bruto("/api/molde/backup", Buffer.from(fundo), "PUT", { ...MOLDE, "content-type": "application/json" }));
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).codigo, "invalido");
+  });
+});

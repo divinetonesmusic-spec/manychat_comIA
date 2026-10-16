@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { deleteR2Object, getR2Config, getR2Object, listR2Objects, putR2Object, r2DownloadUrl, R2Error } from "@/lib/content/r2";
+import { deleteR2Object, getR2BackupConfig, getR2Object, listR2Objects, putR2Object, r2DownloadUrl, R2Error, type R2Config } from "@/lib/content/r2";
 
 /**
  * Cópias de segurança do Molde no R2 (fora do Claude). O banco do artifact do Molde é a única casa dos dados; se ele
@@ -84,8 +84,11 @@ export function keyFromId(id: string) {
   return match ? keyOf(match[1], match[2], match[3]) : null;
 }
 
-function needR2() {
-  if (!getR2Config()) throw new BackupError("O armazenamento (Cloudflare R2) ainda não foi configurado no UaiFlow: sem ele não dá para guardar cópias.", 503, "sem_r2");
+/** O R2 das cópias: o balde privado (R2_BACKUP_BUCKET) se existir; senão o das mídias (R2_BUCKET). */
+function needR2(): R2Config {
+  const config = getR2BackupConfig();
+  if (!config) throw new BackupError("O armazenamento (Cloudflare R2) ainda não foi configurado no UaiFlow: sem ele não dá para guardar cópias.", 503, "sem_r2");
+  return config;
 }
 
 /** Falha do R2 vira 502 com frase; os outros erros seguem. */
@@ -104,7 +107,7 @@ async function r2<T>(work: () => Promise<T>): Promise<T> {
 const isGzip = (bytes: Buffer) => bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 
 /** Abre o gzip (com teto contra "bomba") e confere que é um JSON de objeto. Devolve o gzip a guardar. */
-function checkGzip(gz: Buffer): Buffer {
+function checkGzip(gz: Buffer): Inspected {
   let raw: Buffer;
   try {
     raw = gunzipSync(gz, { maxOutputLength: MAX_DADOS });
@@ -114,11 +117,42 @@ function checkGzip(gz: Buffer): Buffer {
     }
     throw new BackupError("O arquivo comprimido veio estragado (gzip inválido).", 400, "invalido");
   }
-  checkJson(raw);
-  return gz;
+  return inspect(raw, gz);
 }
 
-function checkJson(raw: Buffer) {
+/** Nomes de campo que nunca devem ir para uma cópia: tokens, chaves de API, senhas e segredos. */
+const SECRET_NAME = /token|secret|segredo|api[-_ ]?key|apikey|passw(?:or)?d|senha|authorization|credential/i;
+const MAX_DEPTH = 100;
+
+/**
+ * Tira da cópia (em qualquer nível) os campos com nome de segredo e valor de texto ou objeto. Números, true/false e null
+ * ficam (ex.: «tokens» como contagem). Devolve quantos campos saíram.
+ */
+export function stripSecrets(value: unknown, depth = 0): number {
+  if (depth > MAX_DEPTH) throw new BackupError("A cópia tem objetos aninhados demais.", 400, "invalido");
+  if (!value || typeof value !== "object") return 0;
+  let removed = 0;
+  if (Array.isArray(value)) {
+    for (const item of value) removed += stripSecrets(item, depth + 1);
+    return removed;
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    const item = record[key];
+    if (SECRET_NAME.test(key) && item !== null && typeof item !== "number" && typeof item !== "boolean") {
+      delete record[key];
+      removed += 1;
+    } else {
+      removed += stripSecrets(item, depth + 1);
+    }
+  }
+  return removed;
+}
+
+export type Inspected = { gz: Buffer; removidos: number };
+
+/** Confere que o JSON é um objeto, tira os campos de segredo e devolve o gzip a guardar (o original, se nada saiu). */
+function inspect(raw: Buffer, original?: Buffer): Inspected {
   let value: unknown;
   try {
     value = JSON.parse(raw.toString("utf8"));
@@ -126,6 +160,9 @@ function checkJson(raw: Buffer) {
     throw new BackupError("A cópia não é um JSON válido.", 400, "invalido");
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new BackupError("A cópia precisa ser um objeto JSON ({ … }).", 400, "invalido");
+  const removidos = stripSecrets(value);
+  if (!removidos) return { gz: original ?? gzipSync(raw), removidos: 0 };
+  return { gz: gzipSync(Buffer.from(JSON.stringify(value), "utf8")), removidos };
 }
 
 function decode64(value: unknown, max: number): Buffer {
@@ -141,10 +178,10 @@ function decode64(value: unknown, max: number): Buffer {
  * 2. JSON com "gz64" (texto) → o gzip em base64 (o jeito da ponte do robô, que só leva JSON); "projeto" pode vir junto;
  * 3. qualquer outro objeto JSON → é a própria cópia (o servidor comprime).
  */
-export function parseBody(bytes: Buffer, projetoQuery: string | null): { projeto: string; gz: Buffer } {
+export function parseBody(bytes: Buffer, projetoQuery: string | null): { projeto: string; gz: Buffer; removidos: number } {
   if (!bytes.length) throw new BackupError("Corpo vazio: mande a cópia (JSON, gzip ou { gz64 }).", 400, "invalido");
   if (bytes.length > MAX_PEDIDO) throw new BackupError("Pedido grande demais (máximo 5,5 MB): mande em partes por /api/molde/backup/partes.", 413, "grande_demais");
-  if (isGzip(bytes)) return { projeto: cleanProjeto(projetoQuery), gz: checkGzip(bytes) };
+  if (isGzip(bytes)) return { projeto: cleanProjeto(projetoQuery), ...checkGzip(bytes) };
   if (bytes.length > MAX_DADOS) throw new BackupError("A cópia aberta passa de 25 MB. Guarde por projeto.", 413, "grande_demais");
   let body: unknown;
   try {
@@ -155,18 +192,19 @@ export function parseBody(bytes: Buffer, projetoQuery: string | null): { projeto
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new BackupError("A cópia precisa ser um objeto JSON ({ … }).", 400, "invalido");
   const record = body as Record<string, unknown>;
   const projeto = cleanProjeto(projetoQuery ?? record.projeto);
-  if ("gz64" in record) return { projeto, gz: checkGzip(decode64(record.gz64, MAX_PEDIDO)) };
-  return { projeto, gz: gzipSync(bytes) };
+  if ("gz64" in record) return { projeto, ...checkGzip(decode64(record.gz64, MAX_PEDIDO)) };
+  const copia = inspect(bytes);
+  return { projeto, ...copia };
 }
 
 /** Guarda uma cópia e aplica a regra de quantas ficar. */
 export async function saveBackup(projeto: string, gz: Buffer, now = new Date()): Promise<{ item: BackupItem; apagadas: number }> {
-  needR2();
+  const config = needR2();
   const stamp = stampOf(now);
   const rand = randomBytes(10).toString("hex");
   const key = keyOf(projeto, stamp, rand);
-  await r2(() => putR2Object(key, gz, "application/gzip"));
-  const apagadas = await r2(() => prune(projeto, now)).catch((error) => {
+  await r2(() => putR2Object(key, gz, "application/gzip", { config }));
+  const apagadas = await r2(() => prune(projeto, now, config)).catch((error) => {
     console.error("[molde-backup] não consegui apagar as cópias antigas:", error instanceof Error ? error.message : error);
     return 0;
   });
@@ -194,8 +232,8 @@ export function toKeep(items: BackupItem[], now = new Date()) {
   return keep;
 }
 
-async function prune(projeto: string, now: Date) {
-  const items = (await listR2Objects(`${BACKUP_PREFIX}${projeto}/`))
+async function prune(projeto: string, now: Date, config: R2Config) {
+  const items = (await listR2Objects(`${BACKUP_PREFIX}${projeto}/`, 5000, { config }))
     .map((obj) => itemFromKey(obj.key, obj.size))
     .filter((item): item is BackupItem => Boolean(item));
   const keep = toKeep(items, now);
@@ -204,22 +242,22 @@ async function prune(projeto: string, now: Date) {
   for (const item of items) {
     if (apagadas >= MAX_DELETES || Date.now() > ate) break;
     if (keep.has(item.id)) continue;
-    if (await deleteR2Object(keyFromId(item.id)!).catch(() => false)) apagadas += 1;
+    if (await deleteR2Object(keyFromId(item.id)!, undefined, config).catch(() => false)) apagadas += 1;
   }
   // Partes de envios que nunca terminaram (mais de 1 dia).
-  const old = (await listR2Objects(UPLOADS_PREFIX, 500)).filter((obj) => now.getTime() - new Date(obj.lastModified).getTime() > 86_400_000);
+  const old = (await listR2Objects(UPLOADS_PREFIX, 500, { config })).filter((obj) => now.getTime() - new Date(obj.lastModified).getTime() > 86_400_000);
   for (const obj of old.slice(0, 50)) {
     if (Date.now() > ate) break;
-    await deleteR2Object(obj.key).catch(() => false);
+    await deleteR2Object(obj.key, undefined, config).catch(() => false);
   }
   return apagadas;
 }
 
 /** Lista as cópias (mais novas primeiro), de um projeto ou de todos. */
 export async function listBackups(projeto: string | null): Promise<BackupItem[]> {
-  needR2();
+  const config = needR2();
   const prefix = projeto ? `${BACKUP_PREFIX}${projeto}/` : BACKUP_PREFIX;
-  const objects = await r2(() => listR2Objects(prefix));
+  const objects = await r2(() => listR2Objects(prefix, 5000, { config }));
   return objects
     .map((obj) => itemFromKey(obj.key, obj.size))
     .filter((item): item is BackupItem => Boolean(item))
@@ -229,14 +267,13 @@ export async function listBackups(projeto: string | null): Promise<BackupItem[]>
 async function findBackup(id: string) {
   const key = keyFromId(id);
   if (!key) throw new BackupError("Cópia não encontrada (id inválido).", 404, "nao_encontrada");
-  needR2();
-  return { key };
+  return { key, config: needR2() };
 }
 
 /** Um pedaço da cópia (gzip em base64), para a ponte do robô, que só leva JSON. */
 export async function readBackupPart(id: string, parte: number) {
-  const { key } = await findBackup(id);
-  const gz = await r2(() => getR2Object(key));
+  const { key, config } = await findBackup(id);
+  const gz = await r2(() => getR2Object(key, { config }));
   if (!gz) throw new BackupError("Cópia não encontrada (já foi apagada?).", 404, "nao_encontrada");
   const item = itemFromKey(key, gz.length)!;
   if (!Number.isInteger(parte) || parte < 0 || parte >= item.partes) {
@@ -248,11 +285,11 @@ export async function readBackupPart(id: string, parte: number) {
 
 /** Link de 15 minutos para baixar o .json.gz inteiro (ex.: no navegador do computador). */
 export async function backupLink(id: string) {
-  const { key } = await findBackup(id);
-  const found = await r2(() => listR2Objects(key, 1));
+  const { key, config } = await findBackup(id);
+  const found = await r2(() => listR2Objects(key, 1, { config }));
   const obj = found.find((entry) => entry.key === key);
   if (!obj) throw new BackupError("Cópia não encontrada (já foi apagada?).", 404, "nao_encontrada");
-  return { ...itemFromKey(key, obj.size)!, link: r2DownloadUrl(key, 900), expiraEm: new Date(Date.now() + 900_000).toISOString() };
+  return { ...itemFromKey(key, obj.size)!, link: r2DownloadUrl(key, 900, config), expiraEm: new Date(Date.now() + 900_000).toISOString() };
 }
 
 /**
@@ -268,24 +305,25 @@ export async function savePart(input: { projeto: unknown; envio: unknown; parte:
   if (!Number.isInteger(total) || total < 1 || total > MAX_PARTES) throw new BackupError(`total precisa ser de 1 a ${MAX_PARTES}.`, 400, "invalido");
   if (!Number.isInteger(parte) || parte < 0 || parte >= total) throw new BackupError(`parte precisa ser de 0 a ${total - 1}.`, 400, "invalido");
   const bytes = decode64(input.gz64, MAX_PARTE);
-  needR2();
+  const config = needR2();
   const folder = `${UPLOADS_PREFIX}${projeto}-${envio}/`;
   const partKey = (n: number) => `${folder}${String(n).padStart(2, "0")}-de-${String(total).padStart(2, "0")}`;
-  await r2(() => putR2Object(partKey(parte), bytes, "application/octet-stream"));
+  await r2(() => putR2Object(partKey(parte), bytes, "application/octet-stream", { config }));
   if (parte < total - 1) return { pronto: false as const, envio, parte, total };
 
-  const present = new Set((await r2(() => listR2Objects(folder, 100))).map((obj) => obj.key));
+  const present = new Set((await r2(() => listR2Objects(folder, 100, { config }))).map((obj) => obj.key));
   const faltam = Array.from({ length: total }, (_, n) => n).filter((n) => !present.has(partKey(n)));
   if (faltam.length) throw new BackupError(`Faltam partes deste envio: ${faltam.join(", ")}. Mande as que faltam e a última de novo.`, 409, "faltam_partes", { faltam });
   const parts: Buffer[] = [];
   for (let n = 0; n < total; n += 1) {
-    const part = await r2(() => getR2Object(partKey(n)));
+    const part = await r2(() => getR2Object(partKey(n), { config }));
     if (!part) throw new BackupError(`Faltam partes deste envio: ${n}.`, 409, "faltam_partes", { faltam: [n] });
     parts.push(part);
   }
   const gz = Buffer.concat(parts);
   if (!isGzip(gz)) throw new BackupError("As partes juntas não formam um gzip (mande os pedaços do arquivo .json.gz, na ordem).", 400, "invalido");
-  const saved = await saveBackup(projeto, checkGzip(gz), now);
-  for (const key of present) await deleteR2Object(key).catch(() => false);
-  return { pronto: true as const, ...saved };
+  const checked = checkGzip(gz);
+  const saved = await saveBackup(projeto, checked.gz, now);
+  for (const key of present) await deleteR2Object(key, undefined, config).catch(() => false);
+  return { pronto: true as const, ...saved, removidos: checked.removidos };
 }

@@ -69,6 +69,10 @@ Depois de criar as variáveis, publique o site de novo: **Deploys** → **Trigge
 
 O Telegram em si (`TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID`) você já configurou na Fase 5 (veja `docs/AVISOS_E_COPIA.md`). Sem ele, nada desta fase chega no celular.
 
+### Passo 2b (opcional, recomendado) — balde privado para as cópias do Molde
+
+As cópias de segurança do Molde (`docs/COPIA_DO_MOLDE.md`) ficam, por padrão, no mesmo balde das mídias dos posts, que tem endereço público. Para guardá-las num balde **privado**: crie um balde novo no Cloudflare R2 (ex.: `uaiflow-copias`, sem acesso público), dê acesso a ele à mesma chave de API do R2 e crie no Netlify a variável **`R2_BACKUP_BUCKET`** com o nome do balde (depois, **Trigger deploy**). Passo a passo completo: `docs/COPIA_DO_MOLDE.md`, seção «Balde privado». Sem a variável, tudo continua funcionando como antes.
+
 ## Passo 3 — ligar os botões do Telegram (registrar o webhook)
 
 O Telegram precisa saber para onde mandar o seu toque nos botões. Faça isto **uma vez**, depois que o site novo estiver no ar com as variáveis do Passo 2:

@@ -49,6 +49,8 @@ export type FakeMeta = {
   r2: Map<string, { body: Buffer; lastModified: Date; contentType: string }>;
   /** Se definido, toda chamada ao R2 responde este código (ex.: 500). */
   r2Fails: number | null;
+  /** Baldes do R2 que receberam alguma chamada (o primeiro pedaço do caminho). */
+  r2Buckets: Set<string>;
   reset: () => void;
   restore: () => void;
 };
@@ -82,6 +84,7 @@ export function installFakeMeta(): FakeMeta {
     hang: null,
     r2: new Map(),
     r2Fails: null,
+    r2Buckets: new Set(),
     reset: () => {
       fake.calls.length = 0;
       fake.containerStatus.clear();
@@ -102,6 +105,7 @@ export function installFakeMeta(): FakeMeta {
       fake.hang = null;
       fake.r2.clear();
       fake.r2Fails = null;
+      fake.r2Buckets.clear();
       containerCaption.clear();
     },
     restore: () => {
@@ -234,7 +238,8 @@ function json(body: unknown, status = 200) {
 /** R2 falso com estado: /<balde>/<chave>. Só o essencial do S3 que o UaiFlow usa. */
 async function fakeR2(fake: FakeMeta, method: string, url: URL, init: RequestInit) {
   if (fake.r2Fails) return new Response("<Error><Code>InternalError</Code></Error>", { status: fake.r2Fails });
-  const [, , ...rest] = url.pathname.split("/");
+  const [, bucket, ...rest] = url.pathname.split("/");
+  fake.r2Buckets.add(bucket);
   const key = rest.map((part) => decodeURIComponent(part)).join("/");
   if (method === "GET" && !key && url.searchParams.get("list-type") === "2") {
     const prefix = url.searchParams.get("prefix") ?? "";

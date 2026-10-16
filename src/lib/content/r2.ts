@@ -92,6 +92,21 @@ export function getR2Config(): R2Config | null {
   return { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl: publicBaseUrl.replace(/\/$/, "") };
 }
 
+/**
+ * Configuração do R2 para as cópias de segurança do Molde. Com `R2_BACKUP_BUCKET` (as mesmas credenciais, outro balde),
+ * as cópias ficam num balde PRIVADO, sem domínio público; sem ela, caem no balde das mídias (R2_BUCKET), como antes.
+ * O balde privado não precisa de `R2_PUBLIC_BASE_URL`.
+ */
+export function getR2BackupConfig(): R2Config | null {
+  const bucket = process.env.R2_BACKUP_BUCKET?.trim();
+  if (!bucket) return getR2Config();
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  if (!accountId || !accessKeyId || !secretAccessKey) return null;
+  return { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl: "" };
+}
+
 function r2Request(config: R2Config, method: SignInput["method"], key: string, expiresSeconds: number, headers?: Record<string, string>, query?: Record<string, string>) {
   return presignUrl({
     method,
@@ -170,8 +185,8 @@ export function createUploadTarget(input: { fileName: string; contentType: strin
 export const R2_DELETE_TIMEOUT_MS = 2000;
 
 /** Apaga um arquivo do R2 (usado depois que o post já foi publicado). Desiste em 2 s (erro de prazo: quem chama trata). */
-export async function deleteR2Object(key: string, timeoutMs = R2_DELETE_TIMEOUT_MS) {
-  const config = getR2Config();
+export async function deleteR2Object(key: string, timeoutMs = R2_DELETE_TIMEOUT_MS, onConfig?: R2Config) {
+  const config = onConfig ?? getR2Config();
   if (!config) return false;
   const response = await fetch(r2Request(config, "DELETE", key, 300), { method: "DELETE", signal: AbortSignal.timeout(Math.max(100, timeoutMs)) });
   return response.ok || response.status === 404;
@@ -188,36 +203,39 @@ export function keyFromPublicUrl(url: string) {
 
 export class R2Error extends Error {}
 
-function needConfig() {
-  const config = getR2Config();
-  if (!config) throw new R2Error("O armazenamento (Cloudflare R2) ainda não foi configurado.");
-  return config;
+function needConfig(config?: R2Config) {
+  const found = config ?? getR2Config();
+  if (!found) throw new R2Error("O armazenamento (Cloudflare R2) ainda não foi configurado.");
+  return found;
 }
 
+/** Opções comuns das operações abaixo: outro balde (cópias do Molde) e o prazo desta chamada. */
+export type R2Options = { config?: R2Config; timeoutMs?: number };
+
 /** Guarda um arquivo no R2 (o servidor envia direto, sem link para ninguém). */
-export async function putR2Object(key: string, body: Buffer, contentType: string) {
-  const config = needConfig();
+export async function putR2Object(key: string, body: Buffer, contentType: string, options: R2Options = {}) {
+  const config = needConfig(options.config);
   const response = await fetch(r2Request(config, "PUT", key, 300), {
     method: "PUT",
     headers: { "content-type": contentType, "content-length": String(body.length) },
     body: new Uint8Array(body),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(Math.max(100, options.timeoutMs ?? 20_000)),
   });
   if (!response.ok) throw new R2Error(`O R2 recusou guardar o arquivo (${response.status}).`);
 }
 
 /** Lê um arquivo do R2. null = não existe. */
-export async function getR2Object(key: string): Promise<Buffer | null> {
-  const config = needConfig();
-  const response = await fetch(r2Request(config, "GET", key, 300), { method: "GET", signal: AbortSignal.timeout(20_000) });
+export async function getR2Object(key: string, options: R2Options = {}): Promise<Buffer | null> {
+  const config = needConfig(options.config);
+  const response = await fetch(r2Request(config, "GET", key, 300), { method: "GET", signal: AbortSignal.timeout(Math.max(100, options.timeoutMs ?? 20_000)) });
   if (response.status === 404) return null;
   if (!response.ok) throw new R2Error(`O R2 não entregou o arquivo (${response.status}).`);
   return Buffer.from(await response.arrayBuffer());
 }
 
 /** Link de leitura com prazo (para baixar no computador). */
-export function r2DownloadUrl(key: string, expiresSeconds: number) {
-  return r2Request(needConfig(), "GET", key, expiresSeconds);
+export function r2DownloadUrl(key: string, expiresSeconds: number, config?: R2Config) {
+  return r2Request(needConfig(config), "GET", key, expiresSeconds);
 }
 
 export type R2Listed = { key: string; size: number; lastModified: string };
@@ -225,15 +243,20 @@ export type R2Listed = { key: string; size: number; lastModified: string };
 const xmlText = (value: string) =>
   value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
 
-/** Lista os arquivos de uma pasta (ListObjectsV2), até `max` arquivos. */
-export async function listR2Objects(prefix: string, max = 5000): Promise<R2Listed[]> {
-  const config = needConfig();
+/**
+ * Lista os arquivos de uma pasta (ListObjectsV2), até `max` arquivos. `timeoutMs` vale para cada página (padrão 15 s);
+ * `deadline` (Date.now() em ms) é o prazo da listagem inteira: passou dele, a listagem para com o que já tem.
+ */
+export async function listR2Objects(prefix: string, max = 5000, options: R2Options & { deadline?: number } = {}): Promise<R2Listed[]> {
+  const config = needConfig(options.config);
   const items: R2Listed[] = [];
   let token: string | null = null;
   for (let page = 0; page < 20 && items.length < max; page += 1) {
+    const perPage = Math.min(options.timeoutMs ?? 15_000, options.deadline ? options.deadline - Date.now() : Infinity);
+    if (perPage < 200) throw new R2Error("Sem tempo para listar a pasta do R2.");
     const query: Record<string, string> = { "list-type": "2", prefix, "max-keys": "1000" };
     if (token) query["continuation-token"] = token;
-    const response = await fetch(r2Request(config, "GET", "", 300, undefined, query), { method: "GET", signal: AbortSignal.timeout(15_000) });
+    const response = await fetch(r2Request(config, "GET", "", 300, undefined, query), { method: "GET", signal: AbortSignal.timeout(perPage) });
     if (!response.ok) throw new R2Error(`O R2 não listou a pasta (${response.status}).`);
     const xml = await response.text();
     for (const block of xml.match(/<Contents>[\s\S]*?<\/Contents>/g) ?? []) {
