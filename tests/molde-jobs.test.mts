@@ -575,6 +575,33 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       assert.equal(meta.telegram.length, 2);
     });
 
+    test("Revisão F9 · falta de tempo depois da reserva não gasta tentativa; Telegram falhando desfaz a reserva; enviado fica gravado antes", async (t) => {
+      const estado = async () => (await db.sql<{ valor: Record<string, unknown> }>("select valor from public.app_status where chave = 'relatorio_semanal'"))[0]?.valor;
+      // Relógio sem tempo depois de reservar: Date.now anda 1 s entre a primeira conferência e a hora de mandar.
+      const T = Date.now();
+      let chamadas = 0;
+      const agora = t.mock.method(Date, "now", () => (chamadas++ === 0 ? T : T + 1000));
+      const semTempo = await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: T + 1600 });
+      agora.mock.restore();
+      assert.equal(semTempo.motivo, "sem_tempo");
+      assert.equal(meta.telegram.length, 0);
+      assert.deepEqual([(await estado())?.enviado, (await estado())?.tentativas], [false, 0]);
+      // Telegram fora do ar: desfaz (enviado false, 1 tentativa gasta) e espera os 10 min
+      meta.telegramFails = { status: 500, description: "Internal" };
+      assert.equal((await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 })).motivo, "erro");
+      assert.deepEqual([(await estado())?.enviado, (await estado())?.tentativas], [false, 1]);
+      meta.telegramFails = null;
+      assert.equal((await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 })).motivo, "ja_enviado", "espera 10 min");
+      await db.sql("update public.app_status set atualizado_em = now() - interval '11 minutes' where chave = 'relatorio_semanal'");
+      assert.deepEqual(await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 }), { sent: true });
+      assert.equal((await estado())?.enviado, true);
+      assert.ok((await estado())?.enviadoEm);
+      // Mesmo que a reserva fique "parada" (ex.: o banco caiu depois de mandar), ela já diz enviado: não manda de novo.
+      await db.sql("update public.app_status set valor = valor - 'enviadoEm', atualizado_em = now() - interval '1 hour' where chave = 'relatorio_semanal'");
+      assert.equal((await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 })).motivo, "ja_enviado");
+      assert.equal(meta.telegram.length, 1);
+    });
+
     test("o texto: posts da semana, o mais visto, posts com erro e os gastos do Molde contra o teto", async () => {
       process.env.MOLDE_TETO_USD = "20";
       const columns = "account_id, publish_type, caption, media_url, status, published_at, insights, title";

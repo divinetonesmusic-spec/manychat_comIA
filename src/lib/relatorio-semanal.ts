@@ -196,6 +196,21 @@ export function weeklyReportText(data: Awaited<ReturnType<typeof collectWeeklySt
   return lines.join("\n");
 }
 
+/**
+ * Desfaz a reserva do envio desta semana (o relatório não saiu). `semGastar`: devolve a tentativa e libera na hora
+ * (faltou tempo antes de mandar); senão a próxima tentativa espera os 10 min de sempre.
+ */
+async function releaseReservation(semana: string, semGastar: boolean) {
+  await query(
+    `update public.app_status
+     set valor = valor || jsonb_build_object('enviado', false, 'tentativas',
+                   case when $2 then greatest(coalesce((valor ->> 'tentativas')::int, 1) - 1, 0) else coalesce((valor ->> 'tentativas')::int, 1) end),
+         atualizado_em = case when $2 then now() - interval '1 hour' else now() end
+     where chave = 'relatorio_semanal' and valor ->> 'semana' = $1`,
+    [semana, semGastar],
+  ).catch((error) => console.error("[relatorio] não consegui desfazer a reserva:", error instanceof Error ? error.message : error));
+}
+
 export type WeeklyReportResult = { sent: boolean; motivo?: "desligado" | "sem_telegram" | "fora_da_hora" | "ja_enviado" | "sem_tempo" | "sem_migracao" | "erro" };
 
 /**
@@ -212,12 +227,14 @@ export async function maybeSendWeeklyReport(options: { now?: Date; deadline?: nu
   const semana = saoPauloParts(now).dateKey;
 
   try {
-    // Reserva o envio desta semana (só um relógio manda). Se o Telegram falhar, tenta de novo em 10 min (até 5 vezes).
+    // Reserva o envio desta semana (só um relógio manda) já como "enviado": se o Telegram aceitar e o banco cair logo
+    // depois, o relatório não sai duas vezes. Se o Telegram falhar, a reserva é desfeita e o próximo relógio tenta de
+    // novo em 10 min (até 5 vezes); se faltar tempo antes de mandar, desfaz sem gastar tentativa.
     const claimed = await query(
       `insert into public.app_status (chave, valor, atualizado_em)
-       values ('relatorio_semanal', jsonb_build_object('semana', $1::text, 'enviado', false, 'tentativas', 1), now())
+       values ('relatorio_semanal', jsonb_build_object('semana', $1::text, 'enviado', true, 'tentativas', 1), now())
        on conflict (chave) do update set
-         valor = jsonb_build_object('semana', $1::text, 'enviado', false, 'tentativas',
+         valor = jsonb_build_object('semana', $1::text, 'enviado', true, 'tentativas',
                    case when public.app_status.valor ->> 'semana' = $1 then coalesce((public.app_status.valor ->> 'tentativas')::int, 0) + 1 else 1 end),
          atualizado_em = now()
        where public.app_status.valor ->> 'semana' is distinct from $1
@@ -229,14 +246,26 @@ export async function maybeSendWeeklyReport(options: { now?: Date; deadline?: nu
     );
     if (!claimed.rowCount) return { sent: false, motivo: "ja_enviado" };
 
-    const text = weeklyReportText(await collectWeeklyStats(), now, options.origin);
+    let text: string;
+    try {
+      text = weeklyReportText(await collectWeeklyStats(), now, options.origin);
+    } catch (error) {
+      await releaseReservation(semana, false);
+      throw error;
+    }
     const timeoutMs = Math.min(TELEGRAM_TIMEOUT_MS, deadline - Date.now() - 300);
-    if (timeoutMs < 500) return { sent: false, motivo: "sem_tempo" };
+    if (timeoutMs < 500) {
+      await releaseReservation(semana, true);
+      return { sent: false, motivo: "sem_tempo" };
+    }
     const result = await sendTelegram(text, { timeoutMs });
-    if (!result.ok) return { sent: false, motivo: "erro" };
+    if (!result.ok) {
+      await releaseReservation(semana, false);
+      return { sent: false, motivo: "erro" };
+    }
     await query(
-      "update public.app_status set valor = valor || jsonb_build_object('enviado', true, 'enviadoEm', now()) where chave = 'relatorio_semanal'",
-    );
+      "update public.app_status set valor = valor || jsonb_build_object('enviadoEm', now()) where chave = 'relatorio_semanal'",
+    ).catch(() => undefined); // só o horário: o "enviado" já foi gravado na reserva
     return { sent: true };
   } catch (error) {
     if (isMissing(error)) return { sent: false, motivo: "sem_migracao" };
