@@ -86,7 +86,7 @@ describe("saúde do relógio (com a migração 0004)", { skip: semBanco }, () =>
     assert.equal(body.relogio.minutos, 0);
     assert.ok(Math.abs(new Date(body.relogio.ultimaVez).getTime() - Date.now()) < 60_000);
     assert.ok([19, 20].includes(body.tokens.menorPrazoDias), `menorPrazoDias = ${body.tokens.menorPrazoDias}`);
-    assert.deepEqual(Object.keys(body).sort(), ["ok", "relogio", "tokens"]);
+    assert.deepEqual(Object.keys(body).sort(), ["mac", "ok", "relogio", "tokens"]);
     assert.doesNotMatch(text, /ruthie|payoff|IGAA|1001|1002/);
   });
 

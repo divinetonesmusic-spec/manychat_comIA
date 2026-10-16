@@ -21,7 +21,7 @@ const HORA = 3600_000;
 type Item = {
   id: string; accountId: string; username: string | null; instagramUserId: string;
   mensagens: { texto: string; em: string }[]; ultimaEm: string; prazoAte: string | null; status: string;
-  resposta: string | null; nota: string | null; conversa: { de: string; texto: string; em: string }[];
+  resposta: string | null; nota: string | null; rascunho: string | null; conversa: { de: string; texto: string; em: string }[];
 };
 
 describe("DMs sem resposta para o Molde", { skip: semBanco }, () => {
@@ -445,7 +445,7 @@ describe("DMs sem resposta para o Molde", { skip: semBanco }, () => {
       const lista = await itens();
       assert.equal(lista.length, 1);
       const [primeiro] = lista;
-      assert.deepEqual(Object.keys(primeiro).sort(), ["accountId", "conversa", "id", "instagramUserId", "mensagens", "nota", "prazoAte", "resposta", "status", "ultimaEm", "username"]);
+      assert.deepEqual(Object.keys(primeiro).sort(), ["accountId", "conversa", "id", "instagramUserId", "mensagens", "nota", "prazoAte", "rascunho", "resposta", "status", "ultimaEm", "username"]);
       assert.equal(primeiro.accountId, contaA);
       assert.equal(primeiro.username, "user_pessoa1");
       assert.equal(primeiro.instagramUserId, "pessoa1");
