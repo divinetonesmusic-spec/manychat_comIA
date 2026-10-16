@@ -24,7 +24,7 @@ function bruto(path: string, body: Buffer, method = "PUT", headers: Record<strin
   return new NextRequest(new URL(path, BASE_URL), { method, body: new Uint8Array(body), headers: { "content-type": "application/gzip", ...headers } });
 }
 
-const COPIA = { versao: 1, colecoes: { moldes: [{ id: "m1", nome: "Birdie" }], partes: [], pedidos: [{ id: "p1", texto: "ação é ótimo" }] } };
+const COPIA = { formato: "molde-copia-1", projeto: "birdie-lanier", criadoEm: "2026-10-16T13:00:00.000Z", colecoes: { moldes: [{ id: "m1", dados: { nome: "Birdie" } }], partes: [], pedidos: [{ id: "p1", dados: { texto: "ação é ótimo" } }] } };
 
 async function guardar(projeto: string | null, json: unknown) {
   const path = projeto ? `/api/molde/backup?projeto=${projeto}` : "/api/molde/backup";
@@ -278,7 +278,7 @@ describe("quantas ficam: as 30 últimas + 1 por mês por 12 meses", () => {
 describe("envio em partes (/api/molde/backup/partes)", () => {
   /** Cópia que não comprime (≈ 6 MB em gzip): não cabe num pedido só. */
   function copiaGrande() {
-    const json = Buffer.from(JSON.stringify({ colecoes: { biblioteca: [{ id: "b1", imagem: randomBytes(6_000_000).toString("base64") }] } }));
+    const json = Buffer.from(JSON.stringify({ formato: "molde-copia-1", colecoes: { biblioteca: [{ id: "b1", dados: { imagem: randomBytes(6_000_000).toString("base64") } }] } }));
     return { json, gz: gzipSync(json) };
   }
   const pedacos = (gz: Buffer) => Array.from({ length: Math.ceil(gz.length / (2 * 1024 * 1024)) }, (_, i) => gz.subarray(i * 2 * 1024 * 1024, (i + 1) * 2 * 1024 * 1024));
@@ -324,7 +324,7 @@ describe("envio em partes (/api/molde/backup/partes)", () => {
   });
 
   test("recusas: envio, total e parte inválidos; parte acima de 3 MB; partes que não formam gzip", async () => {
-    const ok = { projeto: "p", envio: "abcdefabcdefabcdef", parte: 0, total: 1, gz64: gzipSync(Buffer.from("{}")).toString("base64") };
+    const ok = { projeto: "p", envio: "abcdefabcdefabcdef", parte: 0, total: 1, gz64: gzipSync(Buffer.from(JSON.stringify(COPIA))).toString("base64") };
     for (const errado of [{ envio: "curto" }, { envio: "MAIUSCULAS0123456789" }, { total: 0 }, { total: 13 }, { parte: 1 }, { parte: -1 }, { gz64: "" }, { projeto: "A B" }]) {
       const res = await parte({ ...ok, ...errado });
       assert.equal(res.status, 400, JSON.stringify(errado));
@@ -424,7 +424,7 @@ describe("Revisão F10 · I1 · balde privado para as cópias (R2_BACKUP_BUCKET)
 
 describe("Revisão F10 · I1 · campos de segredo não vão para a cópia", () => {
   const COM_SEGREDOS = {
-    versao: 1,
+    formato: "molde-copia-1",
     token: "tok-raiz",
     colecoes: {
       moldes: [{ id: "m1", dados: { nome: "Birdie", apiKey: "AIza-falsa", configuracao: { senha: "123", Password: "x", segredo: { a: 1 }, client_secret: "s", ok: "fica" } } }],
@@ -472,5 +472,115 @@ describe("Revisão F10 · I1 · campos de segredo não vão para a cópia", () =
     const res = await rota.PUT(bruto("/api/molde/backup", Buffer.from(fundo), "PUT", { ...MOLDE, "content-type": "application/json" }));
     assert.equal(res.status, 400);
     assert.equal((await res.json()).codigo, "invalido");
+  });
+});
+
+describe("Revisão F10 · I3 · só entra cópia no formato da página e com conteúdo", () => {
+  const sem = (tirar: string) => {
+    const copia = JSON.parse(JSON.stringify(COPIA)) as Record<string, unknown>;
+    delete copia[tirar];
+    return copia;
+  };
+
+  test("recusa: sem formato, formato errado, colecoes ausente/vazio/lista, coleção que não é lista, sem nenhum documento", async () => {
+    const casos: unknown[] = [
+      sem("formato"),
+      { ...COPIA, formato: "molde-copia-2" },
+      sem("colecoes"),
+      { ...COPIA, colecoes: {} },
+      { ...COPIA, colecoes: [] },
+      { ...COPIA, colecoes: { moldes: {} } },
+      { ...COPIA, colecoes: { moldes: [], partes: [] } },
+      { versao: 1, colecoes: { moldes: [{ id: "x" }] } },
+      {},
+    ];
+    for (const caso of casos) {
+      const res = await guardar("birdie-lanier", caso);
+      assert.equal(res.status, 400, JSON.stringify(caso));
+      const corpo = await res.json();
+      assert.equal(corpo.codigo, "invalido");
+      assert.ok(corpo.error.length > 20);
+    }
+    // o mesmo vale para gzip direto, gz64 e partes
+    const vazio = gzipSync(Buffer.from(JSON.stringify({ formato: "molde-copia-1", colecoes: {} })));
+    assert.equal((await rota.PUT(bruto("/api/molde/backup?projeto=a", vazio))).status, 400);
+    assert.equal((await rota.POST(request("/api/molde/backup", { json: { projeto: "a", gz64: vazio.toString("base64") }, headers: MOLDE }))).status, 400);
+    const parte = await partesRota.POST(request("/api/molde/backup/partes", { json: { projeto: "a", envio: "a1b2c3d4e5f6a7b8c9d0", parte: 0, total: 1, gz64: vazio.toString("base64") }, headers: MOLDE }));
+    assert.equal(parte.status, 400);
+    assert.equal(meta.r2.size, [...meta.r2.keys()].filter((k) => k.includes("_envios")).length, "nenhuma cópia foi guardada (só, no máximo, a parte temporária)");
+  });
+
+  test("aceita o que a página realmente manda (um projeto com várias coleções) e uma cópia de «tudo» com uma coleção só", async () => {
+    const daPagina = {
+      formato: "molde-copia-1",
+      projeto: "birdie-lanier",
+      nome: "Birdie Lanier",
+      criadoEm: "2026-10-16T13:00:00.000Z",
+      colecoes: {
+        moldes: [{ id: "birdie-lanier", dados: { rev: 3, titulo: "Birdie" } }],
+        partes: [{ id: "birdie-lanier~p1", dados: { texto: "a" } }],
+        pedidos: [],
+        audio: [{ id: "birdie-lanier", dados: { narracoes: [] } }],
+      },
+    };
+    assert.equal((await guardar("birdie-lanier", daPagina)).status, 201);
+    assert.equal((await guardar(null, { formato: "molde-copia-1", colecoes: { moldes: [{ id: "a", dados: {} }] } })).status, 201);
+  });
+});
+
+describe("Revisão F10 · I3 · a poda nunca troca cópias boas por uma ruim", () => {
+  const item = (iso: string, tamanho: number, n: number) => ({
+    id: `p--${lib.stampOf(new Date(iso))}-${String(n).padStart(20, "0")}`,
+    projeto: "p",
+    criadoEm: new Date(iso).toISOString(),
+    tamanho,
+    partes: 1,
+  });
+
+  test("a maior cópia de cada mês nunca sai, mesmo fora das 30 mais novas", () => {
+    const agora = new Date("2026-10-16T12:00:00Z");
+    const itens = [] as ReturnType<typeof item>[];
+    for (let dia = 0; dia < 40; dia += 1) itens.push(item(new Date(agora.getTime() - dia * 86_400_000).toISOString(), 1000, dia));
+    const maiorSetembro = item("2026-09-02T00:00:00Z", 5000, 200); // setembro: fora das 30 e não é a mais nova do mês
+    const novaSetembro = item("2026-09-05T00:00:00Z", 900, 201);
+    const maiorMarco = item("2026-03-05T00:00:00Z", 8000, 202);
+    const novaMarco = item("2026-03-25T00:00:00Z", 100, 203); // truncada, mas é a mais nova do mês: também fica
+    itens.push(maiorSetembro, novaSetembro, maiorMarco, novaMarco);
+    const fica = lib.toKeep(itens, agora);
+    assert.ok(fica.has(maiorSetembro.id));
+    assert.ok(fica.has(maiorMarco.id));
+    assert.ok(fica.has(novaMarco.id));
+    const plano = lib.planPrune(itens, agora);
+    assert.ok(!plano.apagar.some((x) => [maiorSetembro.id, maiorMarco.id, novaMarco.id].includes(x.id)));
+    assert.ok(plano.apagar.length > 0);
+  });
+
+  test("nova com menos de 10% da anterior: nada é apagado; com 10% ou mais, a poda segue", () => {
+    const agora = new Date("2026-10-16T12:00:00Z");
+    const base = [] as ReturnType<typeof item>[];
+    for (let dia = 1; dia <= 35; dia += 1) base.push(item(new Date(agora.getTime() - dia * 86_400_000).toISOString(), 10_000, dia));
+    const pequena = item(agora.toISOString(), 999, 900);
+    assert.deepEqual(lib.planPrune([pequena, ...base], agora), { apagar: [], motivo: "nova_pequena" });
+    const normal = item(agora.toISOString(), 1000, 901);
+    const plano = lib.planPrune([normal, ...base], agora);
+    assert.equal(plano.motivo, undefined);
+    assert.ok(plano.apagar.length >= 1);
+    assert.deepEqual(lib.planPrune([pequena], agora), { apagar: [] }, "sem anterior, nada a comparar");
+  });
+
+  test("ao guardar uma cópia minúscula depois de uma grande, o R2 não perde nenhuma cópia antiga", async () => {
+    const agora = Date.now();
+    const grande = gzipSync(Buffer.from(JSON.stringify({ x: randomBytes(20_000).toString("base64") })));
+    const chaves: string[] = [];
+    for (let dia = 1; dia <= 35; dia += 1) {
+      const quando = new Date(agora - dia * 86_400_000);
+      const key = lib.keyOf("birdie-lanier", lib.stampOf(quando), randomBytes(10).toString("hex"));
+      meta.r2.set(key, { body: grande, lastModified: quando, contentType: "application/gzip" });
+      chaves.push(key);
+    }
+    const res = await guardar("birdie-lanier", { formato: "molde-copia-1", colecoes: { moldes: [{ id: "a", dados: {} }] } });
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).apagadas, 0);
+    assert.ok(chaves.every((key) => meta.r2.has(key)), "todas as antigas continuam lá");
   });
 });

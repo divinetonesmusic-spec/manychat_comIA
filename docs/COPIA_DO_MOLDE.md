@@ -4,7 +4,7 @@ Os dados do Molde (coleções `moldes`, `partes`, `pedidos`, `fabrica`, `audio`,
 
 - **Não precisa de migração.** Usa o mesmo R2 das mídias (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL`) e o mesmo `MOLDE_API_TOKEN`. **Recomendado:** a variável opcional `R2_BACKUP_BUCKET` guarda as cópias num balde **privado** (veja «Balde privado» abaixo). Sem R2 configurado, as rotas respondem `503` com `codigo: "sem_r2"`; o resto do UaiFlow segue normal.
 - Onde fica: `uaiflow/molde-backups/<projeto|tudo>/<AAAAMMDD-HHMMSS-mmm>-<20 letras aleatórias>.json.gz` (o JSON comprimido com gzip). Fica dentro de `uaiflow/`, como todas as outras chaves do UaiFlow no balde.
-- **Quantas ficam (por projeto):** as 30 mais novas + a mais nova de cada mês dos últimos 12 meses. A limpeza roda a cada cópia nova daquele projeto (outros projetos não são tocados). Partes de envios que nunca terminaram são apagadas depois de 1 dia.
+- **Quantas ficam (por projeto):** as 30 mais novas + a mais nova **e a maior** de cada mês dos últimos 12 meses. A limpeza roda a cada cópia nova daquele projeto (outros projetos não são tocados) e **não apaga nada** se a cópia mais nova tiver menos de 10% do tamanho (comprimido) da anterior (provável cópia cortada). Partes de envios que nunca terminaram são apagadas depois de 1 dia.
 - O sufixo aleatório (80 bits) torna o endereço impossível de adivinhar. **Sem `R2_BACKUP_BUCKET`**, as cópias ficam no balde das mídias, que tem endereço público (`R2_PUBLIC_BASE_URL`) para a Meta ler os posts: quem tiver o endereço completo de uma cópia consegue baixá-la. As rotas nunca devolvem esse endereço público (o `formato=link` é um link assinado do R2 que vence em 15 minutos). **Com `R2_BACKUP_BUCKET`** (balde privado, sem domínio público) esse risco some.
 
 ## Balde privado (passo opcional, recomendado)
@@ -38,7 +38,15 @@ O servidor tira da cópia, em qualquer nível, os campos cujo nome parece segred
   | 503 | `sem_r2` / `fechado` | falta configurar o R2 / o `MOLDE_API_TOKEN` no servidor |
 
 - `projeto`: letras minúsculas, números e hífen (`birdie-lanier`), até 60 letras. Vazio = `tudo` (uma cópia de todos os projetos juntos).
-- A cópia precisa ser um **objeto JSON** (`{ … }`). O formato de dentro é da página (sugestão abaixo); o UaiFlow só confere que é JSON e guarda.
+- **Formato da cópia (conferido contra a página, `v107_copia.js` do Molde):** um **objeto JSON** assim:
+
+  ```json
+  { "formato": "molde-copia-1", "projeto": "birdie-lanier", "nome": "Birdie Lanier", "criadoEm": "<ISO>",
+    "colecoes": { "moldes": [ { "id": "birdie-lanier", "dados": { } } ], "partes": [ ], "pedidos": [ ], "fabrica": [ ],
+                  "audio": [ ], "biblioteca": [ ], "versoes": [ ], "traducoes": [ ] } }
+  ```
+
+  O UaiFlow **exige** `formato` igual a `"molde-copia-1"` e `colecoes` como objeto com pelo menos uma coleção, cada uma uma **lista**, e **pelo menos um documento** no total (a página sempre manda o projeto em `colecoes.moldes`). Cópia sem isso é recusada com `400 invalido`: uma cópia vazia ou cortada nunca pode ocupar o lugar de uma boa. O resto do conteúdo (`dados`) é da página. O campo `projeto` de dentro da cópia é só dado dela: o projeto de onde ela fica vem de `?projeto=` (ou do `projeto` ao lado do `gz64`).
 
 ## Rotas
 
@@ -88,7 +96,7 @@ Para quando o gzip passa de ~2 MB (cada chamada pela ponte do robô deve ficar p
 
 **A página (Bastidores › "Cópia de segurança"):**
 
-1. Junta as coleções do projeto num objeto, por exemplo `{ "formato": "molde-copia-1", "projeto": "birdie-lanier", "criadoEm": "<ISO>", "colecoes": { "moldes": [ {id, ...} ], "partes": [...], "pedidos": [...], "fabrica": [...], "audio": [...], "biblioteca": [...], "versoes": [...] } }`.
+1. Junta as coleções do projeto num objeto, por exemplo `{ "formato": "molde-copia-1", "projeto": "birdie-lanier", "nome": "…", "criadoEm": "<ISO>", "colecoes": { "moldes": [ {id, dados} ], "partes": [...], "pedidos": [...], "fabrica": [...], "audio": [...], "biblioteca": [...], "versoes": [...], "traducoes": [...] } }` (o `formato` é obrigatório).
 2. Comprime no navegador: `new Response(new Blob([JSON.stringify(copia)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()` e passa para base64.
 3. Gzip de até 2 MB → uma chamada:
    `ler_video {acao:'uaiflow', op:'chamar', metodo:'POST', rota:'/api/molde/backup?projeto=birdie-lanier', corpo:{ gz64 }}` → `resposta` = `{id, projeto, criadoEm, tamanho, partes}`.

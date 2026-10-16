@@ -25,6 +25,11 @@ export const MAX_PARTES = 12;
 /** Tamanho de cada pedaço na leitura (?parte=N): 2 MB comprimidos ≈ 2,7 MB em base64. */
 export const PARTE_LEITURA = 2 * 1024 * 1024;
 
+/** O que a página do Molde (v107_copia.js) manda em `formato`; sem ele a cópia é recusada. */
+export const COPIA_FORMATO = "molde-copia-1";
+/** Se a cópia nova tem menos que isso da anterior (em bytes comprimidos), ninguém é apagado: pode ser uma cópia truncada. */
+export const MIN_FRACAO = 0.1;
+
 export const KEEP_LATEST = 30;
 export const KEEP_MONTHS = 12;
 const MAX_DELETES = 100;
@@ -149,6 +154,27 @@ export function stripSecrets(value: unknown, depth = 0): number {
   return removed;
 }
 
+/**
+ * O formato da página (M10, v107_copia.js): { formato: "molde-copia-1", projeto, nome, criadoEm, colecoes: { moldes: [{id, dados}],
+ * partes, pedidos, fabrica, audio, biblioteca, versoes, traducoes } }. Recusa cópia sem esse formato ou sem nenhum documento
+ * (uma cópia vazia ou truncada nunca pode ocupar o lugar de uma boa).
+ */
+function checkShape(value: Record<string, unknown>) {
+  if (value.formato !== COPIA_FORMATO) {
+    throw new BackupError(`Isto não parece uma cópia do Molde: falta formato: "${COPIA_FORMATO}".`, 400, "invalido");
+  }
+  const colecoes = value.colecoes;
+  if (!colecoes || typeof colecoes !== "object" || Array.isArray(colecoes) || !Object.keys(colecoes).length) {
+    throw new BackupError("A cópia não tem coleções (colecoes vazio): não guardei, para não trocar uma cópia boa por uma vazia.", 400, "invalido");
+  }
+  let documentos = 0;
+  for (const [nome, lista] of Object.entries(colecoes as Record<string, unknown>)) {
+    if (!Array.isArray(lista)) throw new BackupError(`A coleção «${nome}» precisa ser uma lista de documentos.`, 400, "invalido");
+    documentos += lista.length;
+  }
+  if (!documentos) throw new BackupError("A cópia não tem nenhum documento nas coleções: não guardei, para não trocar uma cópia boa por uma vazia.", 400, "invalido");
+}
+
 export type Inspected = { gz: Buffer; removidos: number };
 
 /** Confere que o JSON é um objeto, tira os campos de segredo e devolve o gzip a guardar (o original, se nada saiu). */
@@ -160,6 +186,7 @@ function inspect(raw: Buffer, original?: Buffer): Inspected {
     throw new BackupError("A cópia não é um JSON válido.", 400, "invalido");
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new BackupError("A cópia precisa ser um objeto JSON ({ … }).", 400, "invalido");
+  checkShape(value as Record<string, unknown>);
   const removidos = stripSecrets(value);
   if (!removidos) return { gz: original ?? gzipSync(raw), removidos: 0 };
   return { gz: gzipSync(Buffer.from(JSON.stringify(value), "utf8")), removidos };
@@ -176,7 +203,7 @@ function decode64(value: unknown, max: number): Buffer {
  * Entende o corpo de PUT/POST /api/molde/backup:
  * 1. bytes que começam com gzip (1f 8b) → o JSON comprimido;
  * 2. JSON com "gz64" (texto) → o gzip em base64 (o jeito da ponte do robô, que só leva JSON); "projeto" pode vir junto;
- * 3. qualquer outro objeto JSON → é a própria cópia (o servidor comprime).
+ * 3. qualquer outro objeto JSON → é a própria cópia (o servidor comprime); o `projeto` dela não vale como endereço.
  */
 export function parseBody(bytes: Buffer, projetoQuery: string | null): { projeto: string; gz: Buffer; removidos: number } {
   if (!bytes.length) throw new BackupError("Corpo vazio: mande a cópia (JSON, gzip ou { gz64 }).", 400, "invalido");
@@ -191,10 +218,10 @@ export function parseBody(bytes: Buffer, projetoQuery: string | null): { projeto
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new BackupError("A cópia precisa ser um objeto JSON ({ … }).", 400, "invalido");
   const record = body as Record<string, unknown>;
-  const projeto = cleanProjeto(projetoQuery ?? record.projeto);
-  if ("gz64" in record) return { projeto, ...checkGzip(decode64(record.gz64, MAX_PEDIDO)) };
-  const copia = inspect(bytes);
-  return { projeto, ...copia };
+  // O `projeto` do corpo só vale junto com gz64 (o envelope da ponte do robô). Na própria cópia, o campo `projeto` é dado
+  // dela, não endereço: sem ?projeto= a cópia vai para «tudo».
+  if ("gz64" in record) return { projeto: cleanProjeto(projetoQuery ?? record.projeto), ...checkGzip(decode64(record.gz64, MAX_PEDIDO)) };
+  return { projeto: cleanProjeto(projetoQuery), ...inspect(bytes) };
 }
 
 /** Guarda uma cópia e aplica a regra de quantas ficar. */
@@ -221,27 +248,43 @@ export function toKeep(items: BackupItem[], now = new Date()) {
   }
   const keep = new Set<string>();
   const seenMonths = new Set<string>();
+  const biggest = new Map<string, BackupItem>();
   sorted.forEach((item, index) => {
     if (index < KEEP_LATEST) keep.add(item.id);
     const month = item.criadoEm.slice(0, 7);
-    if (months.has(month) && !seenMonths.has(month)) {
+    if (!months.has(month)) return;
+    if (!seenMonths.has(month)) {
       seenMonths.add(month);
-      keep.add(item.id);
+      keep.add(item.id); // a mais nova do mês
     }
+    const atual = biggest.get(month);
+    if (!atual || item.tamanho > atual.tamanho) biggest.set(month, item); // empate: fica a mais nova (vem primeiro)
   });
+  for (const item of biggest.values()) keep.add(item.id); // a maior do mês nunca sai
   return keep;
+}
+
+/**
+ * O que apagar de um projeto: tudo que `toKeep` não guarda, MENOS quando a cópia mais nova tem menos de 10 % do tamanho
+ * da anterior (provável cópia truncada ou vazia): então nada é apagado, para não trocar cópias boas por uma ruim.
+ */
+export function planPrune(items: BackupItem[], now = new Date()): { apagar: BackupItem[]; motivo?: "nova_pequena" } {
+  const sorted = [...items].sort((a, b) => b.id.localeCompare(a.id));
+  if (sorted.length >= 2 && sorted[0].tamanho < sorted[1].tamanho * MIN_FRACAO) return { apagar: [], motivo: "nova_pequena" };
+  const keep = toKeep(sorted, now);
+  return { apagar: sorted.filter((item) => !keep.has(item.id)) };
 }
 
 async function prune(projeto: string, now: Date, config: R2Config) {
   const items = (await listR2Objects(`${BACKUP_PREFIX}${projeto}/`, 5000, { config }))
     .map((obj) => itemFromKey(obj.key, obj.size))
     .filter((item): item is BackupItem => Boolean(item));
-  const keep = toKeep(items, now);
+  const plan = planPrune(items, now);
+  if (plan.motivo) console.warn(`[molde-backup] ${projeto}: a cópia mais nova tem menos de 10% da anterior; não apaguei nenhuma cópia antiga.`);
   let apagadas = 0;
   const ate = Date.now() + PRUNE_BUDGET_MS; // o resto fica para a próxima cópia (a rota tem 30 s)
-  for (const item of items) {
+  for (const item of plan.apagar) {
     if (apagadas >= MAX_DELETES || Date.now() > ate) break;
-    if (keep.has(item.id)) continue;
     if (await deleteR2Object(keyFromId(item.id)!, undefined, config).catch(() => false)) apagadas += 1;
   }
   // Partes de envios que nunca terminaram (mais de 1 dia).
