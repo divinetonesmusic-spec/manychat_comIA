@@ -11,6 +11,8 @@ O que muda com ela:
 
 Sobre a migração:
 
+- **Limpeza das prévias:** os vídeos de prévia que o Mac sobe para você aprovar (pasta `molde-previas` no R2) são apagados sozinhos 30 dias depois. O vídeo final continua no Mac.
+
 - Não apaga nada: cria uma tabela nova (`molde_jobs`) e algumas colunas novas nas DMs sem resposta (o rascunho do Molde).
 - Pode ser colada mais de uma vez sem problema.
 - Cole a 0006 antes desta. Se a 0006 ainda não foi colada, a 0008 funciona do mesmo jeito e só pula a parte das DMs; depois de colar a 0006, cole a 0008 de novo.
