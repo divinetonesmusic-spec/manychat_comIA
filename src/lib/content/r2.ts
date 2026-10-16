@@ -20,6 +20,8 @@ type SignInput = {
    * esses valores; senão o R2 recusa (403 SignatureDoesNotMatch).
    */
   headers?: Record<string, string>;
+  /** Parâmetros extras da query (ex.: list-type=2 e prefix para listar uma pasta). Entram na assinatura. */
+  query?: Record<string, string>;
 };
 
 const encode = (value: string) =>
@@ -42,6 +44,7 @@ export function presignUrl(input: SignInput) {
   const headerNames = Object.keys(headers).sort();
   const signedHeaders = headerNames.join(";");
   const query: Record<string, string> = {
+    ...(input.query ?? {}),
     "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
     "X-Amz-Credential": `${input.accessKeyId}/${scope}`,
     "X-Amz-Date": amzDate,
@@ -89,11 +92,12 @@ export function getR2Config(): R2Config | null {
   return { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl: publicBaseUrl.replace(/\/$/, "") };
 }
 
-function r2Request(config: R2Config, method: SignInput["method"], key: string, expiresSeconds: number, headers?: Record<string, string>) {
+function r2Request(config: R2Config, method: SignInput["method"], key: string, expiresSeconds: number, headers?: Record<string, string>, query?: Record<string, string>) {
   return presignUrl({
     method,
     host: `${config.accountId}.r2.cloudflarestorage.com`,
-    path: `/${config.bucket}/${key}`,
+    path: key ? `/${config.bucket}/${key}` : `/${config.bucket}`,
+    query,
     region: "auto",
     service: "s3",
     accessKeyId: config.accessKeyId,
@@ -164,4 +168,71 @@ export function keyFromPublicUrl(url: string) {
   const config = getR2Config();
   if (!config || !url.startsWith(`${config.publicBaseUrl}/`)) return null;
   return decodeURIComponent(url.slice(config.publicBaseUrl.length + 1));
+}
+
+/* ---------- Arquivos privados do servidor (cópias de segurança do Molde): enviar, ler, listar ---------- */
+
+export class R2Error extends Error {}
+
+function needConfig() {
+  const config = getR2Config();
+  if (!config) throw new R2Error("O armazenamento (Cloudflare R2) ainda não foi configurado.");
+  return config;
+}
+
+/** Guarda um arquivo no R2 (o servidor envia direto, sem link para ninguém). */
+export async function putR2Object(key: string, body: Buffer, contentType: string) {
+  const config = needConfig();
+  const response = await fetch(r2Request(config, "PUT", key, 300), {
+    method: "PUT",
+    headers: { "content-type": contentType, "content-length": String(body.length) },
+    body: new Uint8Array(body),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new R2Error(`O R2 recusou guardar o arquivo (${response.status}).`);
+}
+
+/** Lê um arquivo do R2. null = não existe. */
+export async function getR2Object(key: string): Promise<Buffer | null> {
+  const config = needConfig();
+  const response = await fetch(r2Request(config, "GET", key, 300), { method: "GET", signal: AbortSignal.timeout(20_000) });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new R2Error(`O R2 não entregou o arquivo (${response.status}).`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+/** Link de leitura com prazo (para baixar no computador). */
+export function r2DownloadUrl(key: string, expiresSeconds: number) {
+  return r2Request(needConfig(), "GET", key, expiresSeconds);
+}
+
+export type R2Listed = { key: string; size: number; lastModified: string };
+
+const xmlText = (value: string) =>
+  value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+
+/** Lista os arquivos de uma pasta (ListObjectsV2), até `max` arquivos. */
+export async function listR2Objects(prefix: string, max = 5000): Promise<R2Listed[]> {
+  const config = needConfig();
+  const items: R2Listed[] = [];
+  let token: string | null = null;
+  for (let page = 0; page < 20 && items.length < max; page += 1) {
+    const query: Record<string, string> = { "list-type": "2", prefix, "max-keys": "1000" };
+    if (token) query["continuation-token"] = token;
+    const response = await fetch(r2Request(config, "GET", "", 300, undefined, query), { method: "GET", signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new R2Error(`O R2 não listou a pasta (${response.status}).`);
+    const xml = await response.text();
+    for (const block of xml.match(/<Contents>[\s\S]*?<\/Contents>/g) ?? []) {
+      const key = block.match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
+      if (!key) continue;
+      items.push({
+        key: xmlText(key),
+        size: Number(block.match(/<Size>(\d+)<\/Size>/)?.[1] ?? 0),
+        lastModified: block.match(/<LastModified>([^<]+)<\/LastModified>/)?.[1] ?? "",
+      });
+    }
+    token = /<IsTruncated>true<\/IsTruncated>/.test(xml) ? (xml.match(/<NextContinuationToken>([^<]+)<\/NextContinuationToken>/)?.[1] ?? null) : null;
+    if (!token) break;
+  }
+  return items.slice(0, max);
 }

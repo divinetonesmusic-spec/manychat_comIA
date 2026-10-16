@@ -45,6 +45,10 @@ export type FakeMeta = {
   createMediaFailure: null | { status: number; error: Record<string, unknown> };
   /** Caminhos em que a Meta "trava" (não responde até o UaiFlow desistir pelo prazo). */
   hang: RegExp | null;
+  /** Arquivos do R2 falso (chave → conteúdo). PUT guarda, GET lê/lista (ListObjectsV2), DELETE apaga. */
+  r2: Map<string, { body: Buffer; lastModified: Date; contentType: string }>;
+  /** Se definido, toda chamada ao R2 responde este código (ex.: 500). */
+  r2Fails: number | null;
   reset: () => void;
   restore: () => void;
 };
@@ -76,6 +80,8 @@ export function installFakeMeta(): FakeMeta {
     mediaMessageFails: 0,
     createMediaFailure: null,
     hang: null,
+    r2: new Map(),
+    r2Fails: null,
     reset: () => {
       fake.calls.length = 0;
       fake.containerStatus.clear();
@@ -94,6 +100,8 @@ export function installFakeMeta(): FakeMeta {
       fake.mediaMessageFails = 0;
       fake.createMediaFailure = null;
       fake.hang = null;
+      fake.r2.clear();
+      fake.r2Fails = null;
       containerCaption.clear();
     },
     restore: () => {
@@ -125,7 +133,7 @@ export function installFakeMeta(): FakeMeta {
       });
     }
 
-    if (url.hostname.endsWith("r2.cloudflarestorage.com")) return new Response(null, { status: 204 });
+    if (url.hostname.endsWith("r2.cloudflarestorage.com")) return fakeR2(fake, method, url, init);
 
     // Telegram (avisos): /bot<token>/sendMessage; as outras chamadas (editMessageText, answerCallbackQuery, setWebhook…) vão
     // para telegramApi.
@@ -221,6 +229,44 @@ export function metaTimestamp(date: Date) {
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+/** R2 falso com estado: /<balde>/<chave>. Só o essencial do S3 que o UaiFlow usa. */
+async function fakeR2(fake: FakeMeta, method: string, url: URL, init: RequestInit) {
+  if (fake.r2Fails) return new Response("<Error><Code>InternalError</Code></Error>", { status: fake.r2Fails });
+  const [, , ...rest] = url.pathname.split("/");
+  const key = rest.map((part) => decodeURIComponent(part)).join("/");
+  if (method === "GET" && !key && url.searchParams.get("list-type") === "2") {
+    const prefix = url.searchParams.get("prefix") ?? "";
+    const max = Number(url.searchParams.get("max-keys") || 1000);
+    const start = Number(url.searchParams.get("continuation-token") || 0);
+    const keys = [...fake.r2.keys()].filter((k) => k.startsWith(prefix)).sort();
+    const page = keys.slice(start, start + max);
+    const truncated = start + max < keys.length;
+    const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const contents = page
+      .map((k) => `<Contents><Key>${esc(k)}</Key><Size>${fake.r2.get(k)!.body.length}</Size><LastModified>${fake.r2.get(k)!.lastModified.toISOString()}</LastModified></Contents>`)
+      .join("");
+    const xml = `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Name>balde</Name><Prefix>${esc(prefix)}</Prefix><KeyCount>${page.length}</KeyCount><IsTruncated>${truncated}</IsTruncated>${truncated ? `<NextContinuationToken>${start + max}</NextContinuationToken>` : ""}${contents}</ListBucketResult>`;
+    return new Response(xml, { status: 200, headers: { "content-type": "application/xml" } });
+  }
+  if (method === "PUT") {
+    const raw = init.body;
+    const body = raw == null ? Buffer.alloc(0) : typeof raw === "string" ? Buffer.from(raw) : raw instanceof Uint8Array ? Buffer.from(raw) : Buffer.from(await new Response(raw as BodyInit).arrayBuffer());
+    const headers = new Headers(init.headers);
+    fake.r2.set(key, { body, lastModified: new Date(), contentType: headers.get("content-type") || "" });
+    return new Response(null, { status: 200 });
+  }
+  if (method === "GET") {
+    const obj = fake.r2.get(key);
+    if (!obj) return new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 });
+    return new Response(new Uint8Array(obj.body), { status: 200, headers: { "content-type": obj.contentType } });
+  }
+  if (method === "DELETE") {
+    fake.r2.delete(key);
+    return new Response(null, { status: 204 });
+  }
+  return new Response(null, { status: 405 });
 }
 
 async function readBody(body: BodyInit | null | undefined): Promise<Record<string, unknown>> {
