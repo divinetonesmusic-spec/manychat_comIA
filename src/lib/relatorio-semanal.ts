@@ -8,7 +8,7 @@ import { appLink, sendTelegram, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
  * rastreados (0006), conversas do Direct respondidas e esperando (0006), posts com erro e os gastos do Molde no mês
  * (0008) contra o teto. O que falta (sem a 0006 ou a 0008) é pulado sem erro.
  * A última semana enviada fica em public.app_status (chave 'relatorio_semanal'): no máximo 1 relatório por domingo
- * (se o Telegram falhar, tenta de novo a cada 10 min, até 5 vezes).
+ * (se o Telegram falhar, tenta de novo a cada 10 min, até 5 vezes; reserva que ficou parada 15 min sem `enviadoEm` é liberada).
  * Desligar: RELATORIO_SEMANAL=desligado nas variáveis do servidor.
  */
 
@@ -230,17 +230,25 @@ export async function maybeSendWeeklyReport(options: { now?: Date; deadline?: nu
     // Reserva o envio desta semana (só um relógio manda) já como "enviado": se o Telegram aceitar e o banco cair logo
     // depois, o relatório não sai duas vezes. Se o Telegram falhar, a reserva é desfeita e o próximo relógio tenta de
     // novo em 10 min (até 5 vezes); se faltar tempo antes de mandar, desfaz sem gastar tentativa.
+    // A reserva guarda `reservadoEm`; o envio feito grava `enviadoEm`. Reserva parada, sem `enviadoEm`, há mais de 15 min
+    // (o processo morreu antes de mandar) é liberada para outra tentativa, dentro do mesmo limite de tentativas.
     const claimed = await query(
       `insert into public.app_status (chave, valor, atualizado_em)
-       values ('relatorio_semanal', jsonb_build_object('semana', $1::text, 'enviado', true, 'tentativas', 1), now())
+       values ('relatorio_semanal', jsonb_build_object('semana', $1::text, 'enviado', true, 'tentativas', 1, 'reservadoEm', now()), now())
        on conflict (chave) do update set
-         valor = jsonb_build_object('semana', $1::text, 'enviado', true, 'tentativas',
+         valor = jsonb_build_object('semana', $1::text, 'enviado', true, 'reservadoEm', now(), 'tentativas',
                    case when public.app_status.valor ->> 'semana' = $1 then coalesce((public.app_status.valor ->> 'tentativas')::int, 0) + 1 else 1 end),
          atualizado_em = now()
        where public.app_status.valor ->> 'semana' is distinct from $1
-          or (coalesce((public.app_status.valor ->> 'enviado')::boolean, false) = false
-              and coalesce((public.app_status.valor ->> 'tentativas')::int, 0) < $2
-              and public.app_status.atualizado_em < now() - interval '10 minutes')
+          or (coalesce((public.app_status.valor ->> 'tentativas')::int, 0) < $2
+              and (
+                (coalesce((public.app_status.valor ->> 'enviado')::boolean, false) = false
+                  and public.app_status.atualizado_em < now() - interval '10 minutes')
+                or (coalesce((public.app_status.valor ->> 'enviado')::boolean, false) = true
+                  and public.app_status.valor ->> 'enviadoEm' is null
+                  and public.app_status.valor ->> 'reservadoEm' is not null
+                  and (public.app_status.valor ->> 'reservadoEm')::timestamptz < now() - interval '15 minutes')
+              ))
        returning chave`,
       [semana, REPORT_TRIES],
     );
@@ -263,9 +271,14 @@ export async function maybeSendWeeklyReport(options: { now?: Date; deadline?: nu
       await releaseReservation(semana, false);
       return { sent: false, motivo: "erro" };
     }
-    await query(
-      "update public.app_status set valor = valor || jsonb_build_object('enviadoEm', now()) where chave = 'relatorio_semanal'",
-    ).catch(() => undefined); // só o horário: o "enviado" já foi gravado na reserva
+    // O horário do envio impede a liberação da reserva (acima). Duas tentativas: sem ele, em 15 min o relatório sairia de novo.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const saved = await query(
+        "update public.app_status set valor = valor || jsonb_build_object('enviadoEm', now()) where chave = 'relatorio_semanal' and valor ->> 'semana' = $1",
+        [semana],
+      ).catch(() => null);
+      if (saved) break;
+    }
     return { sent: true };
   } catch (error) {
     if (isMissing(error)) return { sent: false, motivo: "sem_migracao" };

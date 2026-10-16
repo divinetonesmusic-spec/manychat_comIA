@@ -640,6 +640,41 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       assert.equal(meta.telegram.length, 1);
     });
 
+    test("Revisão F10 · reserva parada: grava reservadoEm; sem enviadoEm depois de 15 min é liberada (dentro do limite de tentativas)", async () => {
+      const estado = async () => (await db.sql<{ valor: Record<string, unknown> }>("select valor from public.app_status where chave = 'relatorio_semanal'"))[0]?.valor;
+      const parar = (minutos: number) => db.sql(
+        "update public.app_status set valor = (valor - 'enviadoEm') || jsonb_build_object('reservadoEm', (now() - make_interval(mins => $1))::text), atualizado_em = now() - make_interval(mins => $1) where chave = 'relatorio_semanal'",
+        [minutos],
+      );
+      assert.deepEqual(await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 }), { sent: true });
+      const depois = await estado();
+      assert.ok(depois?.reservadoEm, "a reserva guarda reservadoEm");
+      assert.ok(depois?.enviadoEm, "e o envio guarda enviadoEm");
+      assert.equal(meta.telegram.length, 1);
+
+      // Enviado com enviadoEm: nunca é liberado, por mais velho que seja
+      await db.sql("update public.app_status set valor = valor || jsonb_build_object('reservadoEm', (now() - interval '3 hours')::text), atualizado_em = now() - interval '3 hours' where chave = 'relatorio_semanal'");
+      assert.equal((await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 })).motivo, "ja_enviado");
+
+      // Sem enviadoEm, parada há 14 min: ainda vale (pode estar mandando agora); há 16 min: liberada
+      await parar(14);
+      assert.equal((await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 })).motivo, "ja_enviado");
+      await parar(16);
+      assert.deepEqual(await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 }), { sent: true });
+      assert.equal(meta.telegram.length, 2, "o relatório saiu na nova tentativa");
+      assert.equal((await estado())?.tentativas, 2);
+      assert.ok((await estado())?.enviadoEm);
+
+      // O limite de 5 tentativas vale também para a reserva parada
+      await db.sql("update public.app_status set valor = (valor - 'enviadoEm') || jsonb_build_object('tentativas', 5, 'reservadoEm', (now() - interval '1 hour')::text) where chave = 'relatorio_semanal'");
+      assert.equal((await relatorio.maybeSendWeeklyReport({ now: DOMINGO_9H, deadline: Date.now() + 8000 })).motivo, "ja_enviado");
+      assert.equal(meta.telegram.length, 2);
+
+      // Outro domingo começa do zero
+      assert.deepEqual(await relatorio.maybeSendWeeklyReport({ now: new Date("2026-10-25T12:30:00Z"), deadline: Date.now() + 8000 }), { sent: true });
+      assert.equal((await estado())?.tentativas, 1);
+    });
+
     test("o texto: posts da semana, o mais visto, posts com erro e os gastos do Molde contra o teto", async () => {
       process.env.MOLDE_TETO_USD = "20";
       const columns = "account_id, publish_type, caption, media_url, status, published_at, insights, title";
