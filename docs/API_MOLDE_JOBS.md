@@ -118,6 +118,8 @@ qualquer estado não terminado ──cancelar──> cancelado ──repetir─�
 | `repetir` | `{}` | Depois de `erro` ou `cancelado`: volta para `na_fila` do começo, tentativas zeradas. A última decisão (`aprovacao`) sai (o histórico fica em `aprovacoes`), então o robô recebe `retomada: "comecar"` e refaz de verdade, mesmo que o trabalho tivesse sido aprovado antes. | qualquer outro estado |
 | `forcar` | `{"confirmo":"passar do teto"}` | Libera este trabalho a passar do teto do mês. Sem a frase: 400. | — |
 
+> **`decidir` e `forcar` são confirmação de interface, não proteção.** Qualquer um com o `MOLDE_API_TOKEN` (a página e o robô do Mac têm) pode chamar `decidir` ou mandar `confirmo: "passar do teto"`: a frase e a `rodada` só evitam toques por engano e decisões sobre uma prévia que a tela não mostrou. A proteção de verdade é o token ficar só no Mac e no servidor. O Telegram tem a sua própria trava (segredo do webhook, conversa `TELEGRAM_CHAT_ID`, assinatura dos botões e, se quiser, `TELEGRAM_ALLOWED_USER_IDS`).
+
 ## Rotas do robô
 
 O robô se identifica com `worker` (o nome do Mac, 1–80 letras, sempre o mesmo). As ações sobre um trabalho só valem para o Mac que o pegou e enquanto ele está `rodando`; senão vem `409` com `estado` e a frase — **o robô deve parar o que estiver fazendo nesse trabalho** (foi cancelado, o prazo venceu e voltou para a fila, ou está com outro Mac).
