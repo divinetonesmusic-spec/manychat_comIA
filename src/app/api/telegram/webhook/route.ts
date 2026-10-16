@@ -34,8 +34,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, ignorado: true });
   }
 
+  // Num grupo, qualquer membro vê os botões: com TELEGRAM_ALLOWED_USER_IDS (ids separados por vírgula), só essas
+  // pessoas decidem. Vazia: vale qualquer toque da conversa (como antes).
+  const allowed = allowedUserIds();
+  if (allowed.size && !allowed.has(String(callback.from?.id ?? ""))) {
+    await answerCallback(callback.id, "Você não pode decidir isto no UaiFlow.");
+    return NextResponse.json({ ok: true, ignorado: true });
+  }
+
   const result = await handleCallback(callback);
   return NextResponse.json({ ok: true, ...result });
+}
+
+function allowedUserIds() {
+  return new Set((process.env.TELEGRAM_ALLOWED_USER_IDS ?? "").split(/[\s,;]+/).map((id) => id.trim()).filter((id) => /^-?\d+$/.test(id)));
 }
 
 export async function GET() {

@@ -105,13 +105,13 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
   const relogioAgora = () => relogio.runMoldeClock({ deadline: Date.now() + 8000, origin: "https://uaiflow.teste", now: new Date("2026-10-14T15:00:00Z") });
 
   /** Um toque num botão do Telegram, como o Telegram manda ao webhook. */
-  function tocar(data: string, opcoes: { chat?: string | number; headers?: Record<string, string>; messageId?: number } = {}) {
+  function tocar(data: string, opcoes: { chat?: string | number; headers?: Record<string, string>; messageId?: number; de?: number } = {}) {
     toque += 1;
     const update = {
       update_id: toque,
       callback_query: {
         id: `cb-${toque}`,
-        from: { id: 7, username: "nicolas" },
+        from: { id: opcoes.de ?? 7, username: "nicolas" },
         data,
         message: { message_id: opcoes.messageId ?? 1, chat: { id: opcoes.chat ?? Number(CHAT) }, text: "UaiFlow: mensagem antiga" },
       },
@@ -477,6 +477,26 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       assert.equal((await linha(job.id)).estado, "esperando_aprovacao");
       delete process.env.TELEGRAM_WEBHOOK_SECRET;
       assert.equal((await tocar(aprovar.callback_data)).status, 503);
+    });
+
+    test("Revisão F9 · TELEGRAM_ALLOWED_USER_IDS: só essas pessoas decidem; vazia, vale qualquer uma da conversa", async (t) => {
+      t.after(() => { delete process.env.TELEGRAM_ALLOWED_USER_IDS; });
+      const job = await esperando();
+      const [aprovar] = botoes();
+      process.env.TELEGRAM_ALLOWED_USER_IDS = "42, 1001";
+      const intruso = await tocar(aprovar.callback_data, { de: 7 });
+      assert.equal((await intruso.json()).ignorado, true);
+      assert.match(String(chamadas("answerCallbackQuery").at(-1)?.body.text), /Você não pode decidir/);
+      assert.equal((await linha(job.id)).estado, "esperando_aprovacao");
+      assert.equal((await (await tocar(aprovar.callback_data, { de: 1001 })).json()).ignorado, undefined);
+      assert.equal((await linha(job.id)).estado, "aprovado");
+      await acao(job.id, "cancelar"); // senão o próximo claim pega este (aprovado) primeiro
+
+      const outro = await esperando();
+      const [aprovarOutro] = botoes();
+      process.env.TELEGRAM_ALLOWED_USER_IDS = " ";
+      await tocar(aprovarOutro.callback_data, { de: 7 });
+      assert.equal((await linha(outro.id)).estado, "aprovado", "vazia: como antes");
     });
 
     test("o webhook compara o segredo em tempo constante (safeEqualSecret) e a assinatura com timingSafeEqual", () => {
