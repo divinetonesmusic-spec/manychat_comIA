@@ -64,6 +64,9 @@ create table if not exists public.molde_jobs (
 -- Quando o relógio apagou do R2 a prévia de aprovação (pasta molde-previas, 30 dias depois). Em "add column" à parte
 -- para valer também onde uma versão anterior desta migração já foi colada.
 alter table public.molde_jobs add column if not exists previa_apagada_em timestamptz;
+-- Código de posse: cada claim gera um novo; as ações do robô (batimento, aprovacao, concluir, erro) precisam dele.
+-- Um robô que pegou o trabalho antes (e perdeu o prazo) não mexe mais nele, mesmo com o mesmo nome de Mac.
+alter table public.molde_jobs add column if not exists posse uuid;
 
 -- Um trabalho por (projeto, tipo, ref): pedir de novo devolve o mesmo.
 create unique index if not exists molde_jobs_ref_unique

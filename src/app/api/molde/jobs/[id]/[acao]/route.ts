@@ -25,11 +25,11 @@ const NOT_FOUND = "Trabalho não encontrado.";
 
 /**
  * POST /api/molde/jobs/<id>/<acao>
- * Do robô (precisam de `worker`, o mesmo nome que pegou o trabalho):
- *   batimento { worker, etapa?, progresso? }   renova o prazo de 10 min e grava o andamento
- *   concluir  { worker, resultado? }           "pronto"
- *   erro      { worker, erro, tentarDeNovo? }  "erro" (ou de volta à fila, se tentarDeNovo e ainda há tentativas)
- *   aprovacao { worker, previa, resultado? }   "esperando_aprovacao" + mensagem no Telegram com «Aprovar» / «Refazer»
+ * Do robô (precisam de `worker`, o mesmo nome que pegou o trabalho, e de `posse`, o código que veio no claim):
+ *   batimento { worker, posse, etapa?, progresso? }   renova o prazo de 10 min e grava o andamento
+ *   concluir  { worker, posse, resultado? }           "pronto"
+ *   erro      { worker, posse, erro, tentarDeNovo? }  "erro" (ou de volta à fila, se tentarDeNovo e ainda há tentativas)
+ *   aprovacao { worker, posse, previa, resultado? }   "esperando_aprovacao" + mensagem no Telegram com «Aprovar» / «Refazer»
  * Da página:
  *   decidir   { decisao: "aprovar" | "refazer", nota?, por?, rodada? }
  *   cancelar  {}
@@ -43,6 +43,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { id, acao } = await params;
   const body = await readBody(request);
   if (!UUID.test(id)) return answer(NOT_FOUND, 404);
+  // Código de posse do claim (as 4 ações do robô precisam dele); fora do formato conta como "não mandou".
+  const posse = typeof body.posse === "string" && UUID.test(body.posse) ? body.posse.toLowerCase() : null;
 
   try {
     switch (acao) {
@@ -53,21 +55,21 @@ export async function POST(request: NextRequest, { params }: Params) {
         if (body.etapa !== undefined && body.etapa !== null && !etapa) return answer("A etapa precisa ter de 1 a 120 letras.", 400);
         const progresso = body.progresso === undefined || body.progresso === null ? null : Number(body.progresso);
         if (progresso !== null && (!Number.isFinite(progresso) || progresso < 0 || progresso > 100)) return answer("O progresso precisa ser um número de 0 a 100.", 400);
-        return workerAnswer(await heartbeatJob(id, worker, { etapa, progresso: progresso === null ? null : Math.round(progresso) }));
+        return workerAnswer(await heartbeatJob(id, worker, posse, { etapa, progresso: progresso === null ? null : Math.round(progresso) }));
       }
       case "concluir": {
         const worker = workerName(body.worker);
         if (!worker) return answer("Falta o nome do Mac (worker).", 400);
         const resultado = jsonObject(body.resultado);
         if (resultado === null) return answer("O resultado precisa ser um objeto JSON de até 64 KB.", 400);
-        return workerAnswer(await finishJob(id, worker, resultado ?? null));
+        return workerAnswer(await finishJob(id, worker, posse, resultado ?? null));
       }
       case "erro": {
         const worker = workerName(body.worker);
         if (!worker) return answer("Falta o nome do Mac (worker).", 400);
         const erro = text(body.erro, 1000);
         if (!erro) return answer("Mande o erro (uma frase em português, até 1000 letras).", 400);
-        return workerAnswer(await failJob(id, worker, erro, body.tentarDeNovo === true));
+        return workerAnswer(await failJob(id, worker, posse, erro, body.tentarDeNovo === true));
       }
       case "aprovacao": {
         const worker = workerName(body.worker);
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         if ("error" in previa) return answer(previa.error, 400);
         const resultado = jsonObject(body.resultado);
         if (resultado === null) return answer("O resultado precisa ser um objeto JSON de até 64 KB.", 400);
-        const outcome = await requestApproval(id, worker, previa, resultado ?? null);
+        const outcome = await requestApproval(id, worker, posse, previa, resultado ?? null);
         if (!outcome.ok) return workerAnswer(outcome);
         // A mensagem com «Aprovar» / «Refazer» sai agora; se o Telegram falhar, o relógio tenta de novo em alguns minutos.
         const telegram = await sendJobApproval(id);
@@ -133,6 +135,13 @@ export async function POST(request: NextRequest, { params }: Params) {
 function workerAnswer(outcome: WorkerOutcome) {
   if (outcome.ok) return NextResponse.json({ data: jobView(outcome.job) });
   if (outcome.motivo === "not-found") return answer(NOT_FOUND, 404);
+  if (outcome.motivo === "no-posse") {
+    return answer(
+      "O código de posse não bate: este trabalho foi pego de novo depois (ou o robô não mandou `posse`). Pare o que estiver fazendo nele.",
+      409,
+      { codigo: "sem_posse", estado: outcome.job.estado, data: jobView(outcome.job) },
+    );
+  }
   return answer(notYoursText(outcome.job), 409, { estado: outcome.job.estado, data: jobView(outcome.job) });
 }
 

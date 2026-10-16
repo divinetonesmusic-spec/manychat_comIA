@@ -12,7 +12,7 @@ const fmtUsd = (value: number) => `US$ ${new Intl.NumberFormat("pt-BR", { minimu
 
 /**
  * POST /api/molde/jobs/claim  { worker: "Mac do Nicolas", tipos: ["reel_pipeline", "narrar"] }
- * Entrega o próximo trabalho (ou data: null). O trabalho fica "rodando" com este Mac por 10 min (renove com o batimento).
+ * Entrega o próximo trabalho (ou data: null), com `posse` (código deste claim, que as ações do robô precisam). O trabalho fica "rodando" com este Mac por 10 min (renove com o batimento).
  * Se o que está na fila passaria do teto de gastos do mês, nada sai e vem `aviso` (e 1 aviso por mês no Telegram).
  */
 export async function POST(request: NextRequest) {
@@ -29,7 +29,8 @@ export async function POST(request: NextRequest) {
   try {
     const result = await claimNextJob({ worker, tipos });
     const gastos = { mes: monthKey(), gastoUsd: result.gastoUsd, tetoUsd: result.tetoUsd };
-    if (result.job) return NextResponse.json({ data: jobView(result.job), gastos });
+    // `posse`: o código deste claim; o robô manda de volta em batimento, aprovacao, concluir e erro.
+    if (result.job) return NextResponse.json({ data: { ...jobView(result.job), posse: result.job.posse ?? null }, gastos });
     if (!result.barradoPeloTeto) return NextResponse.json({ data: null, gastos });
 
     const n = result.barradoPeloTeto;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { query, transaction } from "@/lib/db/client";
 
@@ -66,6 +67,8 @@ export type JobRow = {
   retomar_estado: JobState | null;
   lease_until: Date | null;
   worker: string | null;
+  /** Código de posse do último claim (só sai na resposta do claim). */
+  posse?: string | null;
   custo_estimado_usd: string | number;
   forcar_custo: boolean;
   rodada: number;
@@ -235,6 +238,7 @@ export type ClaimResult = {
  */
 export async function claimNextJob(input: { worker: string; tipos: string[] }): Promise<ClaimResult> {
   const teto = capUsd();
+  const posse = randomUUID();
   return transaction(async (client) => {
     await client.query("select pg_advisory_xact_lock($1)", [CLAIM_LOCK_KEY]);
     const gasto = await monthSpendUsd(client);
@@ -251,11 +255,11 @@ export async function claimNextJob(input: { worker: string; tipos: string[] }): 
        set estado = 'rodando', retomar_estado = c.estado, worker = $5, lease_until = now() + make_interval(mins => $6),
            tentativas = j.tentativas + 1, iniciado_em = coalesce(j.iniciado_em, now()), erro = null,
            etapa = case when c.estado = 'na_fila' then coalesce(j.etapa, 'Começando') else j.etapa end,
-           atualizado_em = now()
+           posse = $7::uuid, atualizado_em = now()
        from candidato c
        where j.id = c.id
        returning j.id`,
-      [CLAIMABLE_STATES, input.tipos, gasto, teto, input.worker, LEASE_MINUTES],
+      [CLAIMABLE_STATES, input.tipos, gasto, teto, input.worker, LEASE_MINUTES, posse],
     );
     await client.query(
       `insert into public.app_status (chave, valor, atualizado_em) values ('molde_mac', $1::jsonb, now())
@@ -281,41 +285,48 @@ export async function claimNextJob(input: { worker: string; tipos: string[] }): 
 export type WorkerOutcome =
   | { ok: true; job: JobRow }
   | { ok: false; motivo: "not-found" }
-  | { ok: false; motivo: "not-yours"; job: JobRow };
+  | { ok: false; motivo: "not-yours"; job: JobRow }
+  /** Está rodando com este Mac, mas o código de posse não bate (um claim mais novo pegou o trabalho, ou o robô não mandou). */
+  | { ok: false; motivo: "no-posse"; job: JobRow };
 
 /** Explica por que a ação do robô não pegou (trabalho sumiu, foi cancelado, voltou para a fila ou está com outro Mac). */
-async function explainWorkerMiss(id: string): Promise<WorkerOutcome> {
+async function explainWorkerMiss(id: string, worker: string): Promise<WorkerOutcome> {
   const job = await getJob(id);
-  return job ? { ok: false, motivo: "not-yours", job } : { ok: false, motivo: "not-found" };
+  if (!job) return { ok: false, motivo: "not-found" };
+  if (job.estado === "rodando" && job.worker === worker) return { ok: false, motivo: "no-posse", job };
+  return { ok: false, motivo: "not-yours", job };
 }
 
-async function workerUpdate(id: string, worker: string, setSql: string, params: unknown[]): Promise<WorkerOutcome> {
+/** Ação do robô: só vale para o trabalho "rodando" com este Mac E com o código de posse do último claim. */
+async function workerUpdate(id: string, worker: string, posse: string | null, setSql: string, params: unknown[]): Promise<WorkerOutcome> {
   const { rows } = await query<{ id: string }>(
     `update public.molde_jobs set ${setSql}, atualizado_em = now()
-     where id = $1 and estado = 'rodando' and worker = $2
+     where id = $1 and estado = 'rodando' and worker = $2 and posse = $3::uuid
      returning id`,
-    [id, worker, ...params],
+    [id, worker, posse, ...params],
   );
-  if (!rows[0]) return explainWorkerMiss(id);
+  if (!rows[0]) return explainWorkerMiss(id, worker);
   return { ok: true, job: (await getJob(id)) as JobRow };
 }
 
 /** Batimento: renova o prazo (10 min) e grava a etapa e o progresso (os que vierem). */
-export function heartbeatJob(id: string, worker: string, input: { etapa?: string | null; progresso?: number | null }) {
+export function heartbeatJob(id: string, worker: string, posse: string | null, input: { etapa?: string | null; progresso?: number | null }) {
   return workerUpdate(
     id,
     worker,
-    `lease_until = now() + make_interval(mins => $3), etapa = coalesce($4::text, etapa), progresso = coalesce($5::int, progresso)`,
+    posse,
+    `lease_until = now() + make_interval(mins => $4), etapa = coalesce($5::text, etapa), progresso = coalesce($6::int, progresso)`,
     [LEASE_MINUTES, input.etapa ?? null, input.progresso ?? null],
   );
 }
 
 /** Terminou: "pronto", progresso 100, com o resultado (os que vierem). */
-export function finishJob(id: string, worker: string, resultado: Record<string, unknown> | null) {
+export function finishJob(id: string, worker: string, posse: string | null, resultado: Record<string, unknown> | null) {
   return workerUpdate(
     id,
     worker,
-    `estado = 'pronto', progresso = 100, etapa = coalesce($3::text, 'Pronto'), resultado = coalesce($4::jsonb, resultado),
+    posse,
+    `estado = 'pronto', progresso = 100, etapa = coalesce($4::text, 'Pronto'), resultado = coalesce($5::jsonb, resultado),
      lease_until = null, concluido_em = now(), erro = null`,
     ["Pronto", resultado ? JSON.stringify(resultado) : null],
   );
@@ -325,23 +336,25 @@ export function finishJob(id: string, worker: string, resultado: Record<string, 
  * Erro. Com `tentarDeNovo` (erro passageiro: internet, site fora do ar) e menos de 3 tentativas, volta para a fila
  * (para o mesmo ponto de onde saiu); senão vira "erro" e o relógio avisa no Telegram.
  */
-export function failJob(id: string, worker: string, erro: string, tentarDeNovo: boolean) {
+export function failJob(id: string, worker: string, posse: string | null, erro: string, tentarDeNovo: boolean) {
   return workerUpdate(
     id,
     worker,
-    `estado = case when $4 and tentativas < $5 then coalesce(retomar_estado, 'na_fila') else 'erro' end,
-     erro = $3, worker = null, lease_until = null,
-     concluido_em = case when $4 and tentativas < $5 then null else now() end`,
+    posse,
+    `estado = case when $5 and tentativas < $6 then coalesce(retomar_estado, 'na_fila') else 'erro' end,
+     erro = $4, worker = null, lease_until = null,
+     concluido_em = case when $5 and tentativas < $6 then null else now() end`,
     [erro, tentarDeNovo, MAX_ATTEMPTS],
   );
 }
 
 /** O robô terminou uma parte e pede aprovação com a prévia. A rodada aumenta; a decisão anterior sai de "aprovacao". */
-export function requestApproval(id: string, worker: string, previa: JobPreview, resultado: Record<string, unknown> | null) {
+export function requestApproval(id: string, worker: string, posse: string | null, previa: JobPreview, resultado: Record<string, unknown> | null) {
   return workerUpdate(
     id,
     worker,
-    `estado = 'esperando_aprovacao', previa = $3::jsonb, resultado = coalesce($4::jsonb, resultado), rodada = rodada + 1,
+    posse,
+    `estado = 'esperando_aprovacao', previa = $4::jsonb, resultado = coalesce($5::jsonb, resultado), rodada = rodada + 1,
      aprovacao = null, worker = null, lease_until = null, tentativas = 0, etapa = 'Esperando a sua aprovação',
      telegram_msg_id = null, telegram_aviso_em = null`,
     [JSON.stringify(previa), resultado ? JSON.stringify(resultado) : null],
@@ -400,12 +413,16 @@ export async function cancelJob(id: string): Promise<{ ok: true; job: JobRow } |
   return { ok: false, motivo: "finished", job };
 }
 
-/** «Tentar de novo» depois de erro ou cancelamento: volta para a fila do começo, com as tentativas zeradas. */
+/**
+ * «Tentar de novo» depois de erro ou cancelamento: volta para a fila do começo, com as tentativas zeradas. A última
+ * decisão (`aprovacao`) sai (o histórico fica em `aprovacoes`): o robô recebe `retomada: "comecar"` e refaz de verdade,
+ * mesmo que o trabalho tivesse sido aprovado antes do erro.
+ */
 export async function retryJob(id: string): Promise<{ ok: true; job: JobRow } | { ok: false; motivo: "not-found" } | { ok: false; motivo: "busy"; job: JobRow }> {
   const { rows } = await query<{ id: string }>(
     `update public.molde_jobs
      set estado = 'na_fila', erro = null, tentativas = 0, worker = null, lease_until = null, retomar_estado = null,
-         etapa = null, progresso = 0, concluido_em = null, aviso_erro_em = null, atualizado_em = now()
+         aprovacao = null, posse = null, etapa = null, progresso = 0, concluido_em = null, aviso_erro_em = null, atualizado_em = now()
      where id = $1 and estado in ('erro', 'cancelado')
      returning id`,
     [id],

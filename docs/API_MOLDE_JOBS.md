@@ -16,6 +16,7 @@ A ideia: a página põe trabalhos na fila; o robô pede o próximo sozinho (mesm
   | 503 | `fechado` | o servidor está sem `MOLDE_API_TOKEN` | esperar (recuo longo) |
   | 503 | `falta_0008` | a migração 0008 não foi colada | esperar (recuo longo) |
   | 503 | `falta_0006` | (só `/api/molde/dms` e `/api/molde/links`) a 0006 não foi colada | esperar |
+  | 409 | `sem_posse` | (batimento, aprovacao, concluir, erro) o `posse` não é o do último claim deste trabalho | parar o que estiver fazendo nesse trabalho (outro claim pegou) |
 
   Os campos são novos e só acrescentam: a frase (`error`) continua a mesma de antes.
   - `400` pedido errado (a frase diz o quê); `404` trabalho não encontrado; `409` o trabalho não está no estado certo para isso (veja abaixo); `500` falha passageira (tente de novo).
@@ -114,12 +115,14 @@ qualquer estado não terminado ──cancelar──> cancelado ──repetir─�
 |---|---|---|---|
 | `decidir` | `{"decisao":"aprovar"\|"refazer", "nota"?, "por"?, "rodada"?}` | «Aprovar» → `aprovado`; «Refazer» → `recusado` (a `nota` vai para o robô). A mensagem do Telegram passa a mostrar a decisão. Mande `rodada` (a que a tela mostrou) para não decidir uma prévia mais nova sem ver. | já decidido (a frase diz quando e por onde), prévia antiga, ou não está esperando aprovação |
 | `cancelar` | `{}` | `cancelado`. Se estiver `rodando`, o robô descobre no próximo batimento (409) e para. Cancelar de novo devolve 200. | já `pronto` ou `erro` |
-| `repetir` | `{}` | Depois de `erro` ou `cancelado`: volta para `na_fila` do começo, tentativas zeradas. | qualquer outro estado |
+| `repetir` | `{}` | Depois de `erro` ou `cancelado`: volta para `na_fila` do começo, tentativas zeradas. A última decisão (`aprovacao`) sai (o histórico fica em `aprovacoes`), então o robô recebe `retomada: "comecar"` e refaz de verdade, mesmo que o trabalho tivesse sido aprovado antes. | qualquer outro estado |
 | `forcar` | `{"confirmo":"passar do teto"}` | Libera este trabalho a passar do teto do mês. Sem a frase: 400. | — |
 
 ## Rotas do robô
 
 O robô se identifica com `worker` (o nome do Mac, 1–80 letras, sempre o mesmo). As ações sobre um trabalho só valem para o Mac que o pegou e enquanto ele está `rodando`; senão vem `409` com `estado` e a frase — **o robô deve parar o que estiver fazendo nesse trabalho** (foi cancelado, o prazo venceu e voltou para a fila, ou está com outro Mac).
+
+**Código de posse (`posse`):** cada claim gera um código novo (uuid) e o devolve no trabalho entregue (`data.posse`; ele só aparece na resposta do claim). As 4 ações do robô (`batimento`, `aprovacao`, `concluir`, `erro`) precisam mandar `"posse": "<o código>"` no corpo. Sem ele, ou com um código de um claim antigo, vem `409 {"codigo": "sem_posse", "estado": "rodando", …}`: isso acontece quando o prazo venceu e o trabalho foi pego de novo (até pelo mesmo Mac, depois de dormir) — o processo antigo para e deixa o novo trabalhar. Precisa da 0008 com a coluna `posse` (a 0008 foi atualizada; colar de novo não estraga nada).
 
 ### Pegar o próximo — `POST /api/molde/jobs/claim`
 
@@ -129,7 +132,7 @@ O robô se identifica com `worker` (o nome do Mac, 1–80 letras, sempre o mesmo
 
 - `tipos`: de 1 a 30, só os que este robô sabe fazer. Trabalho de outro tipo nunca sai para ele. O robô 0.10.0 pede `["montar", "versoes", "narrar_tratar"]` (veja "Tipos e payload" abaixo).
 - Entrega o de maior `prioridade` e, entre iguais, o mais antigo. Dois Macs pedindo ao mesmo tempo nunca recebem o mesmo (`for update skip locked`).
-- Resposta com trabalho: `200 {"data": <trabalho em "rodando">, "gastos": {...}}`.
+- Resposta com trabalho: `200 {"data": <trabalho em "rodando"> + "posse": "<uuid>", "gastos": {...}}`. Guarde o `posse` para as ações deste trabalho.
 - Sem trabalho: `200 {"data": null, "gastos": {...}}`.
 - Teto atingido: `200 {"data": null, "gastos": {...}, "aviso": "Teto de gastos do Molde em outubro: …"}` (1 aviso por mês também no Telegram).
 - **Teto de gastos:** o gasto do mês é a soma de `custoEstimadoUsd` dos trabalhos **começados** no mês (horário de São Paulo; zera no dia 1º). Um trabalho que ainda não começou só sai se `gasto + custo <= MOLDE_TETO_USD` (padrão 50), ou se custa 0, ou se tem `forcarCusto`. Trabalho já começado (voltando de aprovação, por exemplo) não conta de novo e não é barrado.
@@ -139,7 +142,7 @@ O robô se identifica com `worker` (o nome do Mac, 1–80 letras, sempre o mesmo
 ### Batimento — `POST /api/molde/jobs/<id>/batimento`
 
 ```json
-{ "worker": "Mac do Nicolas", "etapa": "Gerando a voz", "progresso": 40 }
+{ "worker": "Mac do Nicolas", "posse": "<do claim>", "etapa": "Gerando a voz", "progresso": 40 }
 ```
 
 Renova o prazo (10 min) e grava `etapa` (1–120 letras, português simples) e `progresso` (0–100), os que vierem. Mande **pelo menos a cada 2–3 minutos** enquanto trabalha. → `200 {"data": <trabalho>}` ou `409` (pare).
@@ -149,6 +152,7 @@ Renova o prazo (10 min) e grava `etapa` (1–120 letras, português simples) e `
 ```json
 {
   "worker": "Mac do Nicolas",
+  "posse": "<do claim>",
   "previa": { "texto": "Versão de 28 s, voz da Birdie.", "video": "https://midia.exemplo.com/previa.mp4" },
   "resultado": { "arquivos": ["…"] }
 }
@@ -162,11 +166,11 @@ Renova o prazo (10 min) e grava `etapa` (1–120 letras, português simples) e `
 
 ### Concluir — `POST /api/molde/jobs/<id>/concluir`
 
-`{ "worker": "Mac do Nicolas", "resultado": { "video": "https://…", "postId": "…" } }` → `pronto`, progresso 100.
+`{ "worker": "Mac do Nicolas", "posse": "<do claim>", "resultado": { "video": "https://…", "postId": "…" } }` → `pronto`, progresso 100.
 
 ### Erro — `POST /api/molde/jobs/<id>/erro`
 
-`{ "worker": "Mac do Nicolas", "erro": "O HeyGen ficou fora do ar.", "tentarDeNovo": true }`
+`{ "worker": "Mac do Nicolas", "posse": "<do claim>", "erro": "O HeyGen ficou fora do ar.", "tentarDeNovo": true }`
 
 - `erro`: frase em português para a dona (até 1000 letras).
 - `tentarDeNovo: true` (erro passageiro: internet, site fora do ar) e ainda há tentativas: volta para a fila (para o mesmo ponto de onde saiu). Senão: `erro`, com aviso no Telegram (1 por trabalho).
@@ -199,8 +203,9 @@ a cada 30–60 s, se estiver livre:
   se job.retomada == "refazer": refazer usando job.aprovacao.nota
   se job.retomada == "continuar": seguir sem refazer (ex.: conferir os arquivos e concluir)
   senão ("comecar"): começar do zero com job.payload
-  durante o trabalho, a cada 2 min: POST …/batimento {worker, etapa, progresso}; se 409, parar tudo
-  para a dona ver: POST …/aprovacao {worker, previa}; e voltar a pedir trabalho
-  no fim: POST …/concluir {worker, resultado}
-  se falhar: POST …/erro {worker, erro, tentarDeNovo}
+  posse = job.posse   (vai em todas as ações abaixo)
+  durante o trabalho, a cada 2 min: POST …/batimento {worker, posse, etapa, progresso}; se 409 (inclusive sem_posse), parar tudo
+  para a dona ver: POST …/aprovacao {worker, posse, previa}; e voltar a pedir trabalho
+  no fim: POST …/concluir {worker, posse, resultado}
+  se falhar: POST …/erro {worker, posse, erro, tentarDeNovo}
 ```

@@ -86,13 +86,21 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
   }
   const claim = (worker = "Mac do Nicolas", tipos = ["reel_pipeline", "narrar"]) =>
     claimRoute.POST(request("/api/molde/jobs/claim", { method: "POST", json: { worker, tipos }, headers: MOLDE }));
+  /** Código de posse do último claim de cada trabalho (o robô manda de volta nas 4 ações dele). */
+  const posses = new Map<string, string>();
   async function pegar(worker = "Mac do Nicolas", tipos?: string[]) {
     const response = await claim(worker, tipos);
     assert.equal(response.status, 200);
-    return (await response.json()) as { data: Job | null; aviso?: string; gastos: { gastoUsd: number; tetoUsd: number } };
+    const corpo = (await response.json()) as { data: (Job & { posse?: string }) | null; aviso?: string; gastos: { gastoUsd: number; tetoUsd: number } };
+    if (corpo.data?.posse) posses.set(corpo.data.id, corpo.data.posse);
+    return corpo;
   }
-  const acao = (id: string, nome: string, json: Record<string, unknown> = {}) =>
-    acaoRoute.POST(request(`/api/molde/jobs/${id}/${nome}`, { method: "POST", json, headers: MOLDE }), routeParams({ id, acao: nome }));
+  const ACOES_DO_ROBO = new Set(["batimento", "concluir", "erro", "aprovacao"]);
+  /** Ação num trabalho; nas do robô, manda a posse do último claim (a não ser que o teste mande outra, ou `posse: undefined`). */
+  const acao = (id: string, nome: string, json: Record<string, unknown> = {}) => {
+    const corpo = ACOES_DO_ROBO.has(nome) && !("posse" in json) ? { posse: posses.get(id), ...json } : json;
+    return acaoRoute.POST(request(`/api/molde/jobs/${id}/${nome}`, { method: "POST", json: corpo, headers: MOLDE }), routeParams({ id, acao: nome }));
+  };
   const linha = async (id: string) => (await db.sql<Record<string, unknown>>("select * from public.molde_jobs where id = $1", [id]))[0];
   const relogioAgora = () => relogio.runMoldeClock({ deadline: Date.now() + 8000, origin: "https://uaiflow.teste", now: new Date("2026-10-14T15:00:00Z") });
 
@@ -622,6 +630,59 @@ describe("Fase 9: fila do Molde, Telegram e relatório", { skip: semBanco }, () 
       const continuar = (await pegar()).data as Job & { retomada: string; aprovacao: { rodada: number } };
       assert.equal(continuar.retomada, "continuar");
       assert.equal(continuar.aprovacao.rodada, 2);
+    });
+
+    test("Revisão F9 · repetir depois de aprovado → erro: a decisão sai e o robô recebe comecar (refaz de verdade)", async () => {
+      const job = await novo();
+      await pegar();
+      await acao(job.id, "aprovacao", { worker: "Mac do Nicolas", previa: { texto: "v1" } });
+      await acao(job.id, "decidir", { decisao: "aprovar" });
+      const continuar = (await pegar()).data as Job & { retomada: string };
+      assert.equal(continuar.retomada, "continuar");
+      await acao(job.id, "erro", { worker: "Mac do Nicolas", erro: "Disco cheio." });
+      const repetido = (await (await acao(job.id, "repetir")).json()).data as Job & { retomada: string; aprovacao: unknown; aprovacoes: unknown[] };
+      assert.equal(repetido.retomada, "comecar");
+      assert.equal(repetido.aprovacao, null);
+      assert.equal(repetido.aprovacoes.length, 1, "o histórico fica");
+      const denovo = (await pegar()).data as Job & { retomada: string; retomarEstado: string };
+      assert.deepEqual([denovo.retomada, denovo.retomarEstado], ["comecar", "na_fila"]);
+
+      // cancelado (esperando aprovação já aprovada) → repetir: também comecar
+      await acao(job.id, "aprovacao", { worker: "Mac do Nicolas", previa: { texto: "v2" } });
+      await acao(job.id, "decidir", { decisao: "aprovar" });
+      await acao(job.id, "cancelar");
+      const outra = (await (await acao(job.id, "repetir")).json()).data as Job & { retomada: string };
+      assert.equal(outra.retomada, "comecar");
+      assert.equal(((await pegar()).data as Job & { retomada: string }).retomada, "comecar");
+    });
+
+    test("Revisão F9 · posse: o claim devolve um código novo a cada vez; sem ele ou com o antigo, 409 sem_posse", async () => {
+      const job = await novo();
+      const primeiro = (await pegar()).data as Job & { posse: string };
+      assert.match(primeiro.posse, /^[0-9a-f-]{36}$/);
+      assert.equal((await acao(job.id, "batimento", { worker: "Mac do Nicolas" })).status, 200, "com a posse certa");
+      for (const posse of [undefined, "nao-e-uuid", "00000000-0000-0000-0000-000000000000"]) {
+        const r = await acao(job.id, "batimento", { worker: "Mac do Nicolas", posse });
+        assert.equal(r.status, 409, String(posse));
+        const corpo = await r.json();
+        assert.equal(corpo.codigo, "sem_posse");
+        assert.equal(corpo.estado, "rodando");
+      }
+      // o prazo vence, o mesmo Mac pega de novo: o processo antigo (posse velha) não mexe mais
+      await db.sql("update public.molde_jobs set lease_until = now() - interval '1 minute' where id = $1", [job.id]);
+      await relogioAgora();
+      const segundo = (await pegar()).data as Job & { posse: string };
+      assert.equal(segundo.id, job.id);
+      assert.notEqual(segundo.posse, primeiro.posse);
+      for (const nome of ["batimento", "concluir", "aprovacao", "erro"]) {
+        const r = await acao(job.id, nome, { worker: "Mac do Nicolas", posse: primeiro.posse, erro: "x", previa: { texto: "x" } });
+        assert.equal(r.status, 409, nome);
+        assert.equal((await r.json()).codigo, "sem_posse", nome);
+      }
+      assert.equal((await linha(job.id)).estado, "rodando");
+      assert.equal((await acao(job.id, "concluir", { worker: "Mac do Nicolas", posse: segundo.posse })).status, 200);
+      const lista = await (await jobsRoute.GET(request("/api/molde/jobs", { headers: MOLDE }))).json();
+      assert.ok(lista.data.every((item: Record<string, unknown>) => !("posse" in item)), "a posse só sai no claim");
     });
 
     test("upload com folder molde-previas fica em uaiflow/molde-previas/ (sem molde- a mais); o link serve de prévia", async () => {
