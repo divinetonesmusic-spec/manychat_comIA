@@ -39,7 +39,7 @@ import {
   publishInstagramMediaContainer,
   type InstagramPublishType,
 } from "@/lib/instagram/client";
-import { deleteR2Object, getR2Config, keyFromPublicUrl } from "@/lib/content/r2";
+import { deleteR2Object, getR2Config, isProtectedKey, keyFromPublicUrl } from "@/lib/content/r2";
 import { findMatchingMedia, parseMetaTimestamp, type FeedMedia } from "@/lib/content/publish-check";
 import { notifyPostFailed, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
 import { formatSaoPauloTime } from "@/lib/time";
@@ -218,10 +218,10 @@ async function runCycleSteps(
     const r2 = getR2Config();
     for (const post of await listPostsForMediaCleanup(10, r2 ? `${r2.publicBaseUrl}/` : null)) {
       if (timeLeft() < 1000) { out.stoppedEarly = true; break; }
-      const keys = new Set<string>(post.media_keys ?? []);
+      const keys = new Set<string>((post.media_keys ?? []).filter((key) => !isProtectedKey(key)));
       for (const url of [post.media_url, post.cover_url, ...(post.media_items ?? []).flatMap((item) => [item.url, item.cover_url])]) {
         const key = url ? keyFromPublicUrl(url) : null;
-        if (key) keys.add(key);
+        if (key && !isProtectedKey(key)) keys.add(key);
       }
       let ok = true;
       for (const key of keys) ok = (await deleteR2Object(key).catch(() => false)) && ok;

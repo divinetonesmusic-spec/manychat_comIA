@@ -192,6 +192,14 @@ export async function deleteR2Object(key: string, timeoutMs = R2_DELETE_TIMEOUT_
   return response.ok || response.status === 404;
 }
 
+/** Prefixos do R2 que NÃO são mídia de post: cópias de segurança do Molde e prévias de aprovação (têm limpeza própria). */
+const NOT_POST_MEDIA = ["uaiflow/molde-backups/", `uaiflow/${PREVIEW_FOLDER}/`];
+
+/** true = a chave é de cópia de segurança ou prévia: um post nunca apaga isto. */
+export function isProtectedKey(key: string) {
+  return NOT_POST_MEDIA.some((prefix) => key.startsWith(prefix));
+}
+
 /** Descobre a chave a partir do endereço público (para posts antigos que não guardaram media_keys). */
 export function keyFromPublicUrl(url: string) {
   const config = getR2Config();

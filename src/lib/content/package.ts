@@ -1,3 +1,4 @@
+import { isProtectedKey } from "@/lib/content/r2";
 import type { ContentMediaItem, ContentPublishType } from "@/lib/db/repositories";
 import type { AutomationOptions, PostPackage } from "@/lib/db/content-planner";
 
@@ -57,8 +58,9 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
     mediaUrl: publishType === "carousel" ? undefined : mediaUrl,
     coverUrl,
     mediaItems: publishType === "carousel" ? mediaItems : publishType ? [] : undefined,
-    // só chaves criadas pelo próprio UaiFlow (pasta uaiflow/): ninguém apaga outro arquivo do bucket por aqui
-    mediaKeys: Array.isArray(body.mediaKeys) ? body.mediaKeys.filter((key): key is string => typeof key === "string" && /^uaiflow\/[\w.\-/]+$/.test(key) && !key.includes("..")).slice(0, 12) : undefined,
+    // só chaves de mídia criadas pelo próprio UaiFlow (pasta uaiflow/): ninguém apaga outro arquivo do bucket por aqui,
+    // nem as cópias de segurança do Molde nem as prévias de aprovação (essas têm a limpeza própria)
+    mediaKeys: Array.isArray(body.mediaKeys) ? body.mediaKeys.filter(isMediaKey).slice(0, 12) : undefined,
     scheduledAt,
     firstComment: optionalText(body.firstComment, 2200),
     keyword,
@@ -135,4 +137,8 @@ export function isHttpUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+export function isMediaKey(key: unknown): key is string {
+  return typeof key === "string" && /^uaiflow\/[\w.\-/]+$/.test(key) && !key.includes("..") && !isProtectedKey(key);
 }

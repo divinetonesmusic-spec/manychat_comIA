@@ -10,7 +10,7 @@ import {
   updatePlannedPost,
   type PostPackage,
 } from "@/lib/db/content-planner";
-import { deleteR2Object, keyFromPublicUrl } from "@/lib/content/r2";
+import { deleteR2Object, isProtectedKey, keyFromPublicUrl } from "@/lib/content/r2";
 import { confirmEarlierPublish, publishPostNow } from "@/lib/content/scheduler";
 
 /** Regras comuns da tela de Conteúdo e do Molde: criar/atualizar, publicar agora, cancelar e apagar. */
@@ -120,11 +120,11 @@ export async function removePost(id: string) {
   const removed = await deleteContentPost(id);
   if (!removed) throw new ContentError("Este post está sendo publicado agora. Espere 1 minuto e tente de novo.", 409);
 
-  const keys = new Set<string>(current.media_keys ?? []);
+  const keys = new Set<string>((current.media_keys ?? []).filter((key) => !isProtectedKey(key)));
   if (!current.media_deleted_at) {
     for (const url of [current.media_url, current.cover_url, ...(current.media_items ?? []).flatMap((item) => [item.url, item.cover_url])]) {
       const key = url ? keyFromPublicUrl(url) : null;
-      if (key) keys.add(key);
+      if (key && !isProtectedKey(key)) keys.add(key);
     }
   }
   let mediaRemoved = 0;
