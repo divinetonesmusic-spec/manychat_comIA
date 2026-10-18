@@ -57,6 +57,25 @@ if (process.env.APP_BASE_URL && process.env.FACEBOOK_REDIRECT_URI) {
   if (process.env.FACEBOOK_REDIRECT_URI !== expectedFacebook) warnings.push(`FACEBOOK_REDIRECT_URI diferente de ${expectedFacebook}: confira se é o mesmo endereço cadastrado no Login do Facebook.`);
 }
 
+// Outras redes (opcional): Threads e YouTube, cada par junto ou nenhum (docs/redes-e-vendas.md).
+for (const [nome, keys, callback] of [
+  ["Threads", ["THREADS_APP_ID", "THREADS_APP_SECRET"], "THREADS_REDIRECT_URI", "/api/oauth/threads/callback"],
+  ["YouTube (Google)", ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], "GOOGLE_REDIRECT_URI", "/api/oauth/youtube/callback"],
+].map(([nome, keys, redirect, path]) => [nome, keys, { redirect, path }])) {
+  const set = keys.filter((key) => process.env[key]);
+  if (set.length === 1) warnings.push(`${nome} incompleto (falta ${keys.filter((key) => !process.env[key]).join(", ")}). Sem as duas, o botão de conectar avisa que falta configurar.`);
+  if (process.env.APP_BASE_URL && process.env[callback.redirect]) {
+    const expected = `${process.env.APP_BASE_URL.replace(/\/$/, "")}${callback.path}`;
+    if (process.env[callback.redirect] !== expected) warnings.push(`${callback.redirect} diferente de ${expected}: confira se é o mesmo endereço cadastrado no painel.`);
+  }
+}
+const chunkMb = process.env.YOUTUBE_CHUNK_MB;
+if (chunkMb && !(Number(chunkMb.replace(",", ".")) > 0)) warnings.push("YOUTUBE_CHUNK_MB deve ser um número de MB maior que zero (padrão 8).");
+// Vendas por webhook (opcional): cada plataforma só liga com o seu segredo.
+if (process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.startsWith("whsec_")) warnings.push("STRIPE_WEBHOOK_SECRET normalmente começa com whsec_ (o segredo de assinatura do endpoint, não a chave da API).");
+if (process.env.GUMROAD_WEBHOOK_KEY && process.env.GUMROAD_WEBHOOK_KEY.length < 24) warnings.push("GUMROAD_WEBHOOK_KEY deve ter pelo menos 24 caracteres (vai no endereço do ping).");
+if (process.env.CAKTO_WEBHOOK_SECRET && process.env.CAKTO_WEBHOOK_SECRET.length < 8) warnings.push("CAKTO_WEBHOOK_SECRET parece curto: copie o segredo exato do webhook na Cakto.");
+
 // Avisos pelo Telegram (opcional): as duas variáveis juntas, ou nenhuma.
 const telegramKeys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
 const telegramSet = telegramKeys.filter((key) => process.env[key]);

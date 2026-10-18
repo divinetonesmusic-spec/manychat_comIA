@@ -39,6 +39,10 @@ type Props = {
   connectPath: string;
   /** Contas que também estão conectadas pelo Facebook (libera a música do Instagram nos Reels). Só ids, nunca token. */
   facebookAccountIds?: string[];
+  /** Outras redes de cada conta: Página do Facebook pode publicar? Threads/YouTube: nome (conectado) ou null. Nunca token. */
+  redesPorConta?: Record<string, { facebook: boolean; threads: string | null; youtube: string | null }>;
+  /** O servidor tem as variáveis de cada rede extra? */
+  redesConfiguradas?: { facebook: boolean; threads: boolean; youtube: boolean };
 };
 
 type Notice = { tone: "success" | "error"; text: string } | null;
@@ -62,7 +66,7 @@ type BusyAction = "save" | "load_menu" | "sync_menu" | "delete_menu" | "load_ice
 const emptyMenuItem: PersistentMenuItem = { title: "", type: "postback", payload: "" };
 const emptyIceBreaker: IceBreakerItem = { question: "", payload: "" };
 
-export function PerfisClient({ accounts, automations, config, settings, activeAccountId = null, metaDeveloperUrl, connectPath, facebookAccountIds = [] }: Props) {
+export function PerfisClient({ accounts, automations, config, settings, activeAccountId = null, metaDeveloperUrl, connectPath, facebookAccountIds = [], redesPorConta = {}, redesConfiguradas = { facebook: false, threads: false, youtube: false } }: Props) {
   const [draft, setDraft] = useState(settings);
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState<BusyAction>(null);
@@ -382,6 +386,7 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
                     {facebookAccountIds.includes(account.id) ? "Reconectar pelo Facebook" : "Conectar pelo Facebook"}
                   </a>
                 </div>
+                <OutrasRedes accountId={account.id} facebookConectado={facebookAccountIds.includes(account.id)} redes={redesPorConta[account.id]} configuradas={redesConfiguradas} />
                 {diagnostic ? <DiagnosticPanel result={diagnostic} /> : null}
               </article>
             );
@@ -602,4 +607,47 @@ function parseRemoteIceBreakers(payload: { data?: Array<Record<string, unknown>>
   const groups = Array.isArray(profile.ice_breakers) ? profile.ice_breakers as Array<Record<string, unknown>> : [];
   const actions = Array.isArray(groups[0]?.call_to_actions) ? groups[0].call_to_actions as Array<Record<string, unknown>> : [];
   return actions.map((action) => ({ question: String(action.question || ""), payload: String(action.payload || "") })).filter((item) => item.question && item.payload);
+}
+
+/** Publicar o mesmo Reel na Página do Facebook, no Threads e no YouTube Shorts (opcional, uma conexão por conta). */
+function OutrasRedes({ accountId, facebookConectado, redes, configuradas }: {
+  accountId: string;
+  facebookConectado: boolean;
+  redes?: { facebook: boolean; threads: string | null; youtube: string | null };
+  configuradas: { facebook: boolean; threads: boolean; youtube: boolean };
+}) {
+  const next = encodeURIComponent(hrefWithAccount("/perfis", accountId));
+  const conta = encodeURIComponent(accountId);
+  return (
+    <div className="mt-3 grid gap-2 border-t border-[var(--ms-border)] pt-3" aria-label="Outras redes">
+      <p className="text-xs font-semibold text-[var(--ms-muted)]">Outras redes (o mesmo Reel)</p>
+      <div className="flex flex-wrap items-center gap-2">
+        {redes?.facebook
+          ? <span className="status-pill status-pill-green">Página do Facebook: publica Reels</span>
+          : <span className="text-xs text-[var(--ms-muted)]">{facebookConectado ? "Página do Facebook: reconecte pelo Facebook para liberar a publicação." : "Página do Facebook: use «Conectar pelo Facebook»."}</span>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {redes?.threads !== null && redes?.threads !== undefined ? <span className="status-pill status-pill-green">Threads conectado{redes.threads ? ` (@${redes.threads})` : ""}</span> : null}
+        {configuradas.threads
+          ? (
+            <a className="btn-secondary h-9" href={`/api/oauth/threads/login?conta=${conta}&next=${next}`}>
+              <ExternalLink size={15} />
+              {redes?.threads !== null && redes?.threads !== undefined ? "Reconectar Threads" : "Conectar Threads"}
+            </a>
+          )
+          : <span className="text-xs text-[var(--ms-muted)]">Threads: falta configurar no servidor (THREADS_APP_ID).</span>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {redes?.youtube !== null && redes?.youtube !== undefined ? <span className="status-pill status-pill-green">YouTube conectado{redes.youtube ? ` (${redes.youtube})` : ""}</span> : null}
+        {configuradas.youtube
+          ? (
+            <a className="btn-secondary h-9" href={`/api/oauth/youtube/login?conta=${conta}&next=${next}`}>
+              <ExternalLink size={15} />
+              {redes?.youtube !== null && redes?.youtube !== undefined ? "Reconectar YouTube" : "Conectar YouTube"}
+            </a>
+          )
+          : <span className="text-xs text-[var(--ms-muted)]">YouTube: falta configurar no servidor (GOOGLE_CLIENT_ID).</span>}
+      </div>
+    </div>
+  );
 }

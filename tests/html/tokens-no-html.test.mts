@@ -18,7 +18,7 @@ const semBuild = existsSync(path.join(ROOT, ".next", "BUILD_ID")) ? false : "sem
 const motivo = semBanco || semBuild;
 const PORT = 3400 + (process.pid % 400);
 const BASE = `http://127.0.0.1:${PORT}`;
-const TOKEN = /IGAA-TESTE|FB-TESTE/; // FB-TESTE: tokens da conexão pelo Facebook (música do Instagram)
+const TOKEN = /IGAA-TESTE|FB-TESTE|TH-TESTE|YT-TESTE|ya29\./; // FB-TESTE: conexão pelo Facebook; TH/YT/ya29: Threads e YouTube (0010)
 
 describe("depois do build: nenhum token no HTML e link de conexão funcionando", { skip: motivo }, () => {
   let db: TestDatabase;
@@ -39,6 +39,15 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     await db.sql(
       `insert into public.instagram_facebook_connections (account_id, instagram_user_id, page_id, page_name, user_access_token, page_access_token)
        values ($1, '2002', 'page-teste', 'Página teste', 'FB-TESTE-VAZOU-USUARIO', 'FB-TESTE-VAZOU-PAGINA')`,
+      [secondAccountId],
+    );
+    // conexões do Threads e do YouTube (0010) do segundo perfil: também nunca vão para o navegador
+    await db.sql(
+      `insert into public.threads_connections (account_id, threads_user_id, threads_username, access_token) values ($1, '7001', 'threads_teste', 'TH-TESTE-VAZOU-THREADS')`,
+      [secondAccountId],
+    );
+    await db.sql(
+      `insert into public.youtube_connections (account_id, refresh_token, access_token) values ($1, 'YT-TESTE-VAZOU-REFRESH', 'ya29.TESTE-VAZOU-ACESSO')`,
       [secondAccountId],
     );
     [{ id: automationId }] = await db.sql<{ id: string }>("insert into public.automations (account_id, name, keywords) values ($1, 'Fluxo de teste', array['EBOOK']) returning id", [secondAccountId]);

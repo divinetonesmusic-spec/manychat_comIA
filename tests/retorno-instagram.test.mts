@@ -105,7 +105,7 @@ describe("mensagemRetornoInstagram", () => {
   });
 
   test("os nomes dos parâmetros que o 'Fechar' tira", () => {
-    assert.deepEqual([...PARAMETROS_RETORNO_INSTAGRAM].sort(), ["facebook_connected", "facebook_error", "instagram_connected", "instagram_error"]);
+    assert.deepEqual([...PARAMETROS_RETORNO_INSTAGRAM].sort(), ["facebook_connected", "facebook_error", "instagram_connected", "instagram_error", "threads_connected", "threads_error", "youtube_connected", "youtube_error"]);
   });
 
   test("a rota de volta usa a mesma mensagem de link vencido", () => {

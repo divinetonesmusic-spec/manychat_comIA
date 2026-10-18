@@ -41,6 +41,12 @@ export function publicView(post: ContentPost) {
     aiGenerated: Boolean(post.ai_generated),
     /** Música do Instagram do Reel (null = sem música). Precisa da 0009. */
     musica: musicView(post),
+    /** Redes do post (0010; sem ela: só ["instagram"]). O Instagram é sempre a principal. */
+    redes: redesView(post),
+    /** Situação de cada rede: instagram (a mesma do post) e as extras (pending, processing, published, failed). */
+    redesStatus: redesStatusView(post),
+    youtubePrivacidade: post.youtube_privacidade ?? "public",
+    youtubeTitulo: post.youtube_titulo ?? null,
     automationId: post.automation_id,
     firstCommentDone: Boolean(post.first_comment_id),
     insights: post.insights ?? {},
@@ -57,6 +63,33 @@ export function musicView(post: ContentPost) {
     volumeMusica: post.musica_volume ?? 20,
     volumeVideo: post.video_volume ?? 100,
   };
+}
+
+export function redesView(post: ContentPost) {
+  const list = Array.isArray(post.redes) && post.redes.length ? post.redes : ["instagram"];
+  return list.includes("instagram") ? list : ["instagram", ...list];
+}
+
+/** Instagram pelo status do post; as outras pelo resultado de cada uma (redes_resultado). Sem token nem dado interno. */
+export function redesStatusView(post: ContentPost) {
+  const out: Record<string, { status: string; externalId: string | null; permalink: string | null; erro: string | null; publishedAt: string | null; tentativas?: number }> = {
+    instagram: {
+      status: post.status,
+      externalId: post.published_media_id ?? null,
+      permalink: post.permalink ?? null,
+      erro: post.status === "failed" ? post.last_error ?? null : null,
+      publishedAt: post.published_at ?? null,
+    },
+  };
+  const results = new Map((post.redes_resultado ?? []).map((item) => [item.rede, item]));
+  for (const rede of redesView(post)) {
+    if (rede === "instagram") continue;
+    const item = results.get(rede as "facebook" | "threads" | "youtube");
+    out[rede] = item
+      ? { status: item.status, externalId: item.externalId, permalink: item.permalink, erro: item.erro, publishedAt: item.publishedAt, tentativas: item.tentativas }
+      : { status: "pending", externalId: null, permalink: null, erro: null, publishedAt: null, tentativas: 0 };
+  }
+  return out;
 }
 
 const CAPTION_START_LENGTH = 140;

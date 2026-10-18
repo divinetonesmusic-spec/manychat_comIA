@@ -1,6 +1,8 @@
 import { query } from "@/lib/db/client";
 import { getDefaultInstagramAccount, type ContentMediaItem, type ContentPost, type ContentPublishType } from "@/lib/db/repositories";
 import { formatSaoPauloTime } from "@/lib/time";
+import { hasRedesTables } from "@/lib/db/redes";
+import type { Rede, YoutubePrivacidade } from "@/lib/redes/redes";
 
 /** Tudo o que um post leva: mídia, legenda, horário e o funil (palavra → DM → link). */
 export type PostPackage = {
@@ -25,6 +27,12 @@ export type PostPackage = {
   aiGenerated?: boolean;
   /** Música do Instagram (só Reel). Objeto = escolhe/troca; null = tira; ausente = não mexe (post novo começa sem). */
   music?: MusicChoice | null;
+  /** Redes do post (0010). Lista = troca (o Instagram sempre na frente); ausente = não mexe (post novo: só Instagram). */
+  redes?: Rede[];
+  /** Privacidade no YouTube (0010). Ausente = não mexe (post novo: public). */
+  youtubePrivacidade?: YoutubePrivacidade;
+  /** Título no YouTube (0010). null = tira; ausente = não mexe. */
+  youtubeTitulo?: string | null;
   source?: string;
   externalRef?: string | null;
 };
@@ -54,8 +62,18 @@ export async function createPlannedPost(input: PostPackage): Promise<ContentPost
   const withAi = await hasAiGeneratedColumn();
   // Colunas da música vêm da 0009; sem ela (ou sem música, ou se não for Reel) grava como antes.
   const music = input.music && reelType(input.publishType) && (await hasMusicColumns()) ? input.music : null;
-  const extraColumns = [...(withAi ? ["ai_generated"] : []), ...(music ? ["musica_audio_id", "musica_titulo", "musica_volume", "video_volume"] : [])];
-  const extraValues = [...(withAi ? [input.aiGenerated === true] : []), ...(music ? [music.audioId, music.titulo, music.volumeMusica, music.volumeVideo] : [])];
+  // Redes e YouTube vêm da 0010; sem ela o post sai só no Instagram (como antes).
+  const withRedes = await hasRedesTables();
+  const extraColumns = [
+    ...(withAi ? ["ai_generated"] : []),
+    ...(music ? ["musica_audio_id", "musica_titulo", "musica_volume", "video_volume"] : []),
+    ...(withRedes ? ["redes", "youtube_privacidade", "youtube_titulo"] : []),
+  ];
+  const extraValues = [
+    ...(withAi ? [input.aiGenerated === true] : []),
+    ...(music ? [music.audioId, music.titulo, music.volumeMusica, music.volumeVideo] : []),
+    ...(withRedes ? [input.redes?.length ? input.redes : ["instagram"], input.youtubePrivacidade ?? "public", input.youtubeTitulo ?? null] : []),
+  ];
   const { rows } = await query<ContentPost>(
     `insert into public.content_posts (
        account_id, publish_type, title, caption, media_url, cover_url, media_items, media_keys, status,
@@ -160,13 +178,24 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
     musicClause = `, musica_audio_id = $${base}, musica_titulo = $${base + 1}, musica_volume = $${base + 2}, video_volume = $${base + 3}`;
     musicValues.push(music?.audioId ?? null, music?.titulo ?? null, music?.volumeMusica ?? 20, music?.volumeVideo ?? 100);
   }
+  // Redes (0010): troca quando a edição traz o campo.
+  const redesValues: unknown[] = [];
+  let redesClause = "";
+  if (await hasRedesTables()) {
+    const base = 19 + (setAi ? 1 : 0) + musicValues.length;
+    const parts: string[] = [];
+    if (input.redes !== undefined) { redesValues.push(input.redes.length ? input.redes : ["instagram"]); parts.push(`redes = $${base + redesValues.length - 1}`); }
+    if (input.youtubePrivacidade !== undefined) { redesValues.push(input.youtubePrivacidade); parts.push(`youtube_privacidade = $${base + redesValues.length - 1}`); }
+    if (input.youtubeTitulo !== undefined) { redesValues.push(input.youtubeTitulo); parts.push(`youtube_titulo = $${base + redesValues.length - 1}`); }
+    redesClause = parts.map((part) => `, ${part}`).join("");
+  }
   const { rows } = await query<ContentPost>(
     `update public.content_posts set
        publish_type = $2, title = $3, caption = $4, media_url = $5, cover_url = $6, media_items = $7,
        media_keys = $8, scheduled_at = $9, first_comment = $10, keyword = $11, dm_text = $12,
        link_url = $13, link_label = $14, public_reply = $15, status = $16, last_error = null,
        container_id = null, attempts = 0, automation_options = $17, publishing_started_at = null, lock_until = null,
-       media_deleted_at = case when $18 then null else media_deleted_at end${aiClause}${musicClause}${resetRequest}
+       media_deleted_at = case when $18 then null else media_deleted_at end${aiClause}${musicClause}${redesClause}${resetRequest}
      where id = $1
      returning *`,
     [
@@ -175,6 +204,7 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
       next.link_label, next.public_reply, status, JSON.stringify(next.automation_options), newMedia,
       ...(setAi ? [input.aiGenerated === true] : []),
       ...musicValues,
+      ...redesValues,
     ],
   );
   return rows[0] ?? null;
@@ -498,9 +528,13 @@ export const MEDIA_REMOVED_NOTE = `A mídia foi apagada do armazenamento depois 
  *   público do R2 com "/" no fim): um link de fora colado na mão não é apagado nem marcado.
  */
 export async function listPostsForMediaCleanup(limit = 10, r2Prefix: string | null = null): Promise<ContentPost[]> {
+  // Com a 0010: espera as outras redes (Facebook, Threads, YouTube) terminarem de usar o vídeo antes de apagar.
+  const redesPendentes = (await hasRedesTables())
+    ? `and not exists (select 1 from public.content_post_redes r where r.post_id = content_posts.id and r.status in ('pending', 'processing') and content_posts.status in ('published', 'failed'))`
+    : "";
   const { rows } = await query<ContentPost>(
     `select * from public.content_posts
-     where media_deleted_at is null
+     where media_deleted_at is null ${redesPendentes}
        and ((status = 'published' and published_at < now() - interval '3 days')
          or (status = 'canceled' and updated_at < now() - make_interval(days => $3))
          or (status in ('draft', 'failed') and updated_at < now() - make_interval(days => $3)

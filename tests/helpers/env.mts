@@ -10,6 +10,11 @@ const falsas: Record<string, string> = {
   // App da Meta do Login do Facebook (música do Instagram). Falso.
   FACEBOOK_APP_ID: "987654321",
   FACEBOOK_APP_SECRET: "segredo-falso-do-app-do-facebook",
+  // Apps do Threads e do Google (YouTube). Falsos.
+  THREADS_APP_ID: "555000111",
+  THREADS_APP_SECRET: "segredo-falso-do-app-do-threads",
+  GOOGLE_CLIENT_ID: "cliente-falso.apps.googleusercontent.com",
+  GOOGLE_CLIENT_SECRET: "segredo-falso-do-google",
   WORKER_SECRET: "segredo-falso-do-relogio-com-mais-de-32-caracteres",
   ADMIN_SESSION_SECRET: "segredo-falso-da-sessao-com-mais-de-32-caracteres",
   MOLDE_API_TOKEN: "token-falso-do-molde-0123456789abcdef",

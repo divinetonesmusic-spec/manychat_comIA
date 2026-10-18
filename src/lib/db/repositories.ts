@@ -271,6 +271,14 @@ export type ContentPost = {
   musica_volume?: number;
   /** Volume da voz/vídeo original, 0 a 100 (padrão 100). */
   video_volume?: number;
+  /** Redes do post (0010; ausente sem ela = só Instagram). O Instagram vem sempre primeiro. */
+  redes?: string[] | null;
+  /** Privacidade do vídeo no YouTube (0010): public, unlisted ou private. Padrão public. */
+  youtube_privacidade?: string | null;
+  /** Título do vídeo no YouTube (0010). Vazio = o título do post ou a 1ª linha da legenda. */
+  youtube_titulo?: string | null;
+  /** Resultado de cada rede extra (não é coluna: juntado por attachRedes, sem nada interno). */
+  redes_resultado?: Array<{ rede: "facebook" | "threads" | "youtube"; status: "pending" | "processing" | "published" | "failed"; externalId: string | null; permalink: string | null; erro: string | null; publishedAt: string | null; tentativas: number }>;
 };
 export type InboxConversationMessage = {
   id: string;

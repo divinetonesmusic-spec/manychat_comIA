@@ -4,7 +4,7 @@
  * Baseado no simulador da auditoria (fetch-mock.cjs), com estado em memória por teste.
  */
 
-export type FakeCall = { method: string; host: string; path: string; search: URLSearchParams; body: Record<string, unknown>; auth: string | null };
+export type FakeCall = { method: string; host: string; path: string; search: URLSearchParams; body: Record<string, unknown>; auth: string | null; headers: Headers };
 
 export type FakeMedia = { id: string; caption: string; timestamp: string; permalink: string };
 
@@ -59,11 +59,31 @@ export type FakeMeta = {
   igAudioError: string | null;
   /** Tokens do Facebook cuja troca (fb_exchange_token) a Meta recusa. */
   facebookRefreshFails: Set<string>;
+  /** Permissões concedidas devolvidas em GET /me/permissions (Login do Facebook). */
+  facebookPermissions: string[];
+  /** Reels da Página: o status devolvido em GET /{video-id}?fields=status. */
+  fbReelStatus: Record<string, unknown>;
+  /** Se definido, o finish (upload_phase=finish) responde este erro. */
+  fbReelFinishError: string | null;
+  /** Threads: status de cada container (o padrão vale para os outros) e erro na criação do container. */
+  threadsStatus: Map<string, string>;
+  threadsDefaultStatus: string;
+  threadsCreateError: string | null;
+  threadsRefreshFails: Set<string>;
+  /** YouTube: sessões de envio (upload_id → total e bytes recebidos), erro ao abrir a sessão, pedaços que falham (503). */
+  youtubeSessions: Map<string, { total: number; received: number; resource: Record<string, unknown>; done: boolean }>;
+  youtubeStartError: null | { status: number; reason: string; message: string };
+  youtubeChunkFails: number;
+  googleRefreshFails: boolean;
+  /** Tamanho do vídeo servido por https://midia.teste.invalid/... (HEAD e GET com Range). */
+  mediaSize: number;
+  /** Vendas que a API do Gumroad confirma (GET /v2/sales/{id}). */
+  gumroadSales: Set<string>;
   reset: () => void;
   restore: () => void;
 };
 
-const SIMULATED_HOSTS = /(^|\.)instagram\.com$|(^|\.)facebook\.com$|r2\.cloudflarestorage\.com$|\.invalid$|^api\.telegram\.org$/;
+const SIMULATED_HOSTS = /(^|\.)instagram\.com$|(^|\.)facebook\.com$|r2\.cloudflarestorage\.com$|\.invalid$|^api\.telegram\.org$|(^|\.)threads\.net$|^oauth2\.googleapis\.com$|^www\.googleapis\.com$|^api\.gumroad\.com$/;
 
 export function installFakeMeta(): FakeMeta {
   const realFetch = globalThis.fetch;
@@ -97,6 +117,19 @@ export function installFakeMeta(): FakeMeta {
     igAudio: [],
     igAudioError: null,
     facebookRefreshFails: new Set(),
+    facebookPermissions: ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+    fbReelStatus: { video_status: "upload_complete", uploading_phase: { status: "complete" }, processing_phase: { status: "in_progress" } },
+    fbReelFinishError: null,
+    threadsStatus: new Map(),
+    threadsDefaultStatus: "FINISHED",
+    threadsCreateError: null,
+    threadsRefreshFails: new Set(),
+    youtubeSessions: new Map(),
+    youtubeStartError: null,
+    youtubeChunkFails: 0,
+    googleRefreshFails: false,
+    mediaSize: 600 * 1024,
+    gumroadSales: new Set(),
     reset: () => {
       fake.calls.length = 0;
       fake.containerStatus.clear();
@@ -122,6 +155,19 @@ export function installFakeMeta(): FakeMeta {
       fake.igAudio = [];
       fake.igAudioError = null;
       fake.facebookRefreshFails.clear();
+      fake.facebookPermissions = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement", "pages_manage_posts"];
+      fake.fbReelStatus = { video_status: "upload_complete", uploading_phase: { status: "complete" }, processing_phase: { status: "in_progress" } };
+      fake.fbReelFinishError = null;
+      fake.threadsStatus.clear();
+      fake.threadsDefaultStatus = "FINISHED";
+      fake.threadsCreateError = null;
+      fake.threadsRefreshFails.clear();
+      fake.youtubeSessions.clear();
+      fake.youtubeStartError = null;
+      fake.youtubeChunkFails = 0;
+      fake.googleRefreshFails = false;
+      fake.mediaSize = 600 * 1024;
+      fake.gumroadSales.clear();
       containerCaption.clear();
     },
     restore: () => {
@@ -137,10 +183,12 @@ export function installFakeMeta(): FakeMeta {
       throw new Error(`Rede real bloqueada nos testes: ${method} ${url.hostname}`);
     }
 
-    const body = await readBody(init.body);
+    const rawBody = init.body;
+    const body = rawBody instanceof Uint8Array ? {} : await readBody(rawBody);
     const path = url.pathname.replace(/^\/v\d+\.\d+/, "");
-    const auth = new Headers(init.headers ?? request?.headers ?? undefined).get("authorization");
-    fake.calls.push({ method, host: url.hostname, path, search: url.searchParams, body, auth });
+    const headers = new Headers(init.headers ?? request?.headers ?? undefined);
+    const auth = headers.get("authorization");
+    fake.calls.push({ method, host: url.hostname, path, search: url.searchParams, body, auth, headers });
     const id = path.split("/").filter(Boolean)[0] ?? "";
     const fields = url.searchParams.get("fields") || "";
 
@@ -155,6 +203,92 @@ export function installFakeMeta(): FakeMeta {
     }
 
     if (url.hostname.endsWith("r2.cloudflarestorage.com")) return fakeR2(fake, method, url, init);
+
+    // Vídeo público no R2 (as outras redes leem o arquivo): HEAD dá o tamanho, GET com Range dá o pedaço.
+    if (url.hostname === "midia.teste.invalid" && (method === "HEAD" || method === "GET")) {
+      const size = fake.mediaSize;
+      if (method === "HEAD") return new Response(null, { status: 200, headers: { "content-length": String(size), "content-type": "video/mp4" } });
+      const range = headers.get("range")?.match(/bytes=(\d+)-(\d+)/);
+      const start = range ? Number(range[1]) : 0;
+      const end = range ? Math.min(Number(range[2]), size - 1) : size - 1;
+      const chunk = new Uint8Array(end - start + 1).fill(7);
+      return new Response(chunk, { status: range ? 206 : 200, headers: { "content-type": "video/mp4", "content-range": `bytes ${start}-${end}/${size}` } });
+    }
+
+    // Threads API (graph.threads.net)
+    if (url.hostname.endsWith("threads.net")) {
+      if (path === "/oauth/access_token" && method === "POST") {
+        if (!body.code) return json({ error: { message: "Missing code", code: 100 } }, 400);
+        return json({ access_token: "TH-TESTE-CURTO", user_id: 7001 });
+      }
+      if (path === "/access_token") return json({ access_token: `TH-TESTE-LONGO-${++seq}`, token_type: "bearer", expires_in: 5_184_000 });
+      if (path === "/refresh_access_token") {
+        const token = url.searchParams.get("access_token") || "";
+        if (fake.threadsRefreshFails.has(token)) return json({ error: { message: "Session has expired", code: 190 } }, 400);
+        return json({ access_token: `TH-TESTE-RENOVADO-${++seq}`, token_type: "bearer", expires_in: 5_184_000 });
+      }
+      if (path === "/me") return json({ id: "7001", username: "threads_teste" });
+      if (path.endsWith("/threads_publish") && method === "POST") {
+        const containerId = url.searchParams.get("creation_id") || "";
+        fake.threadsStatus.set(containerId, "PUBLISHED");
+        return json({ id: `thmedia-${++seq}` });
+      }
+      if (path.endsWith("/threads") && method === "POST") {
+        if (fake.threadsCreateError) return json({ error: { message: fake.threadsCreateError, code: 100 } }, 400);
+        return json({ id: `thcontainer-${++seq}` });
+      }
+      if (method === "GET" && fields.includes("status")) return json({ id, status: fake.threadsStatus.get(id) ?? fake.threadsDefaultStatus });
+      if (method === "GET" && fields === "permalink") return json({ id, permalink: `https://www.threads.net/@threads_teste/post/${id}` });
+      return json({ error: { message: `simulado: rota do Threads não prevista ${method} ${path}` } }, 400);
+    }
+
+    // Google OAuth
+    if (url.hostname === "oauth2.googleapis.com" && path === "/token") {
+      if (body.grant_type === "authorization_code") {
+        return json({ access_token: "ya29.TESTE-ACESSO", expires_in: 3599, refresh_token: "YT-TESTE-REFRESH", scope: "https://www.googleapis.com/auth/youtube.upload", token_type: "Bearer" });
+      }
+      if (fake.googleRefreshFails) return json({ error: "invalid_grant", error_description: "Token has been expired or revoked." }, 400);
+      return json({ access_token: `ya29.TESTE-${++seq}`, expires_in: 3599, token_type: "Bearer" });
+    }
+
+    // YouTube Data API: envio "resumable"
+    if (url.hostname === "www.googleapis.com" && path === "/upload/youtube/v3/videos") {
+      const uploadId = url.searchParams.get("upload_id");
+      if (method === "POST" && url.searchParams.get("uploadType") === "resumable" && !uploadId) {
+        if (fake.youtubeStartError) return json({ error: { message: fake.youtubeStartError.message, errors: [{ reason: fake.youtubeStartError.reason }] } }, fake.youtubeStartError.status);
+        const newId = `UP${++seq}`;
+        fake.youtubeSessions.set(newId, { total: Number(headers.get("x-upload-content-length")), received: 0, resource: body, done: false });
+        return new Response(null, { status: 200, headers: { location: `https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=${newId}` } });
+      }
+      const session = uploadId ? fake.youtubeSessions.get(uploadId) : undefined;
+      if (method === "PUT") {
+        if (!session) return json({ error: { message: "Not Found" } }, 404);
+        const finished = () => json({ id: `yt-video-${uploadId}`, snippet: { channelId: "UC-teste" }, status: { uploadStatus: "uploaded" } }, 201);
+        const incomplete = () => new Response(null, { status: 308, headers: session.received ? { range: `bytes=0-${session.received - 1}` } : {} });
+        const contentRange = headers.get("content-range") || "";
+        if (/^bytes \*\//.test(contentRange)) return session.done ? finished() : incomplete();
+        if (fake.youtubeChunkFails > 0) {
+          fake.youtubeChunkFails -= 1;
+          return json({ error: { message: "Backend Error" } }, 503);
+        }
+        const match = contentRange.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+        const size = rawBody instanceof Uint8Array ? rawBody.length : 0;
+        if (!match || Number(match[1]) !== session.received || Number(match[2]) - Number(match[1]) + 1 !== size) return incomplete();
+        session.received = Number(match[2]) + 1;
+        if (session.received >= session.total) {
+          session.done = true;
+          return finished();
+        }
+        return incomplete();
+      }
+    }
+
+    // API do Gumroad (confirmação da venda)
+    if (url.hostname === "api.gumroad.com") {
+      const saleId = decodeURIComponent(path.split("/").pop() ?? "");
+      if (path.startsWith("/v2/sales/") && fake.gumroadSales.has(saleId)) return json({ success: true, sale: { id: saleId } });
+      return json({ success: false, message: "The sale was not found." }, 404);
+    }
 
     // Telegram (avisos): /bot<token>/sendMessage; as outras chamadas (editMessageText, answerCallbackQuery, setWebhook…) vão
     // para telegramApi.
@@ -183,12 +317,28 @@ export function installFakeMeta(): FakeMeta {
         return json({ access_token: "FB-TESTE-CURTO", token_type: "bearer" });
       }
       if (path === "/me") return json({ id: "fb-user-1", name: "Pessoa Teste" });
+      if (path === "/me/permissions") return json({ data: fake.facebookPermissions.map((permission) => ({ permission, status: "granted" })) });
+      // Reels da Página: start / finish em /{page-id}/video_reels; status e permalink_url no vídeo
+      if (path.endsWith("/video_reels") && method === "POST") {
+        if (body.upload_phase === "start") return json({ video_id: `fbvideo-${++seq}`, upload_url: "https://rupload.facebook.com/video-upload/v25.0/x" });
+        if (body.upload_phase === "finish") {
+          if (fake.fbReelFinishError) return json({ error: { message: fake.fbReelFinishError, code: 100 } }, 400);
+          fake.fbReelStatus = { ...fake.fbReelStatus, publishing_phase: { status: "complete" } };
+          return json({ success: true });
+        }
+      }
+      if (method === "GET" && fields === "status") return json({ id, status: fake.fbReelStatus });
+      if (method === "GET" && fields === "permalink_url") return json({ id, permalink_url: `/reel/${id}` });
       if (path === "/me/accounts") return json({ data: fake.facebookPages });
       if (path === "/ig_audio") {
         if (fake.igAudioError) return json({ error: { message: fake.igAudioError, code: 100 } }, 400);
         return json({ audio: fake.igAudio });
       }
       if (method === "GET" && fields === "access_token") return json({ id, access_token: `FB-TESTE-PAGINA-${++seq}` });
+    }
+    if (url.hostname === "rupload.facebook.com" && path.startsWith("/video-upload/")) {
+      if (!headers.get("file_url")) return json({ error: { message: "file_url ausente" } }, 400);
+      return json({ success: true });
     }
 
     // Login do Instagram (troca do código por token curto e longo)

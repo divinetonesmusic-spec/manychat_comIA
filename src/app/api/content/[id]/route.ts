@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getContentPost } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
-import { packageWarning, cancelPost, ContentError, editPost, removePost } from "@/lib/content/service";
+import { packageWarning, cancelPost, ContentError, editPost, removePost, retryPostRede } from "@/lib/content/service";
+import { attachRedesOne } from "@/lib/db/redes";
 import { translateError } from "@/lib/content/scheduler";
 
 export const runtime = "nodejs";
@@ -11,22 +12,23 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, { params }: Params) {
   const { id } = await params;
-  const post = await getContentPost(id);
+  const post = await attachRedesOne(await getContentPost(id));
   return post ? NextResponse.json({ data: post }) : NextResponse.json({ error: "Post não encontrado." }, { status: 404 });
 }
 
-/** Edita/reagenda. body.action: "publish_now" | "cancel" | "retry" (opcional). */
+/** Edita/reagenda. body.action: "publish_now" | "cancel" | "retry" | "retry_rede" (com body.rede) (opcional). */
 export async function PATCH(request: NextRequest, { params }: Params) {
   const { id } = await params;
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   let warning: string | undefined;
   return handle(async () => {
     if (body.action === "cancel") return cancelPost(id);
+    if (body.action === "retry_rede") return retryPostRede(id, body.rede);
     const parsed = parsePostPackage(body, { partial: true });
     if (!parsed.ok) throw new ContentError(parsed.error);
     const publishNow = parsed.publishNow || body.action === "publish_now" || body.action === "retry";
     const post = await editPost(id, parsed.value, publishNow);
-    warning = await packageWarning(parsed.value, post); // aiGenerated:true sem a 0006 (ou música sem a 0009 / sem a conexão pelo Facebook)
+    warning = await packageWarning(parsed.value, post, parsed.avisos); // aiGenerated:true sem a 0006 (ou música sem a 0009 / sem a conexão pelo Facebook)
     return post;
   }, () => warning);
 }

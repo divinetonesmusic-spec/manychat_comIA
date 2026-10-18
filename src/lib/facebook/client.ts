@@ -7,8 +7,11 @@ import { graphFetch, metaFetch, readGraphResponse } from "@/lib/instagram/client
  * App da Meta: FACEBOOK_APP_ID / FACEBOOK_APP_SECRET (o app com o produto "Login do Facebook").
  */
 
-/** Permissões pedidas no Login do Facebook (as que a Audio API e a lista de Páginas pedem). */
-export const FACEBOOK_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement"];
+/**
+ * Permissões pedidas no Login do Facebook: as que a Audio API e a lista de Páginas pedem e, desde a 0010,
+ * pages_manage_posts (publicar o mesmo Reel na Página do Facebook; a Meta pede também pages_show_list e pages_read_engagement).
+ */
+export const FACEBOOK_SCOPES = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement", "pages_manage_posts"];
 
 type FacebookToken = { access_token: string; token_type?: string; expires_in?: number };
 
@@ -40,6 +43,13 @@ export async function getFacebookUser(userToken: string) {
   const url = new URL(`${FACEBOOK_GRAPH_BASE_URL}/me`);
   url.searchParams.set("fields", "id,name");
   return graphFetch<{ id: string; name?: string }>(url, userToken);
+}
+
+/** Permissões que a pessoa realmente concedeu (ela pode desmarcar alguma no Login do Facebook). */
+export async function getGrantedFacebookScopes(userToken: string): Promise<string[]> {
+  const url = new URL(`${FACEBOOK_GRAPH_BASE_URL}/me/permissions`);
+  const result = await graphFetch<{ data?: Array<{ permission?: string; status?: string }> }>(url, userToken);
+  return (result.data ?? []).filter((item) => item.status === "granted" && item.permission).map((item) => item.permission as string);
 }
 
 export type FacebookPage = {

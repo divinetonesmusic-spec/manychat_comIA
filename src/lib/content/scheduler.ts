@@ -47,6 +47,7 @@ import { deleteR2Object, getR2Config, isProtectedKey, keyFromPublicUrl } from "@
 import { findMatchingMedia, parseMetaTimestamp, type FeedMedia } from "@/lib/content/publish-check";
 import { notifyPostFailed, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
 import { formatSaoPauloTime } from "@/lib/time";
+import { runRedesCycle, type RedesCycleResult } from "@/lib/redes/publisher";
 
 /**
  * Relógio do planner: roda junto com o /api/queue/drain (a cada minuto).
@@ -62,6 +63,8 @@ export type ContentCycleResult = {
   insights: number;
   cleaned: number;
   stoppedEarly: boolean;
+  /** Outras redes (Facebook, Threads, YouTube), depois do Instagram (0010). */
+  redes?: RedesCycleResult;
 };
 
 const MAX_PUBLISHING_HOURS = 2;
@@ -190,6 +193,18 @@ async function runCycleSteps(
         await touchContentPost(post.id, translateError(error));
         out.waiting += 1;
       }
+    }
+  }
+
+  // 2b) Outras redes (Facebook/Página, Threads, YouTube) dos posts cujo Instagram já terminou. Cada rede por si:
+  // um erro numa delas não mexe no Instagram nem nas outras. Fora do ciclo leve (tela aberta), para a tela não esperar.
+  if (!options.light && timeLeft() > 3000) {
+    try {
+      const redes = await runRedesCycle(deadline - 1500);
+      out.redes = redes;
+      if (redes.stoppedEarly) out.stoppedEarly = true;
+    } catch (error) {
+      console.warn("[redes] ciclo das outras redes falhou", error instanceof Error ? error.message.slice(0, 200) : error);
     }
   }
 

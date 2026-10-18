@@ -8,6 +8,7 @@ import { getSelectedAccountId, hrefWithAccount, type AccountRouteSearchParams } 
 import { toPublicConfig } from "@/lib/instagram/public-account";
 import { createLoginLinkToken } from "@/lib/oauth-state";
 import { listFacebookConnectedAccountIds } from "@/lib/db/facebook-connections";
+import { connectedRedesByAccount, redesConfiguradas } from "@/lib/db/redes";
 
 export const dynamic = "force-dynamic";
 
@@ -22,13 +23,18 @@ export default async function PerfisPage({ searchParams }: Props) {
     listPublicInstagramAccounts(),
   ]);
   const activeAccountId = getSelectedAccountId(params, accounts);
-  const [config, settings, automations, facebookAccountIds] = await Promise.all([
+  const [config, settings, automations, facebookAccountIds, redesMap] = await Promise.all([
     getConfig(activeAccountId),
     getProfileSettings(activeAccountId),
     listAutomations(activeAccountId),
     // só os ids das contas com a conexão pelo Facebook (nunca o token)
     listFacebookConnectedAccountIds().catch(() => [] as string[]),
+    // Página do Facebook, Threads e YouTube de cada conta: só sim/não, motivo e nome (nunca token)
+    connectedRedesByAccount(accounts).catch(() => new Map()),
   ]);
+  const redesPorConta = Object.fromEntries(
+    [...redesMap].map(([id, redes]) => [id, { facebook: redes.facebook.conectado, threads: redes.threads.conectado ? redes.threads.nome ?? "" : null, youtube: redes.youtube.conectado ? redes.youtube.nome ?? "" : null }]),
+  );
   const connected = Boolean(config.instagram_user_id);
   const next = encodeURIComponent(hrefWithAccount("/perfis", activeAccountId));
   const connectPath = instagramConnectPath(hrefWithAccount("/perfis", activeAccountId));
@@ -51,7 +57,7 @@ export default async function PerfisPage({ searchParams }: Props) {
         }
       />
 
-      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={toPublicConfig(config)} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} connectPath={connectPath} facebookAccountIds={facebookAccountIds} />
+      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={toPublicConfig(config)} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} connectPath={connectPath} facebookAccountIds={facebookAccountIds} redesPorConta={redesPorConta} redesConfiguradas={redesConfiguradas()} />
     </AppFrame>
   );
 }

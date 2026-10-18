@@ -9,7 +9,10 @@ export const INVALID_STATE_MESSAGE = "O link de conexão com o Instagram venceu 
  * Parâmetros do endereço que o aviso usa (o "Fechar" tira só estes). Os de facebook_ vêm da conexão pelo Facebook
  * (/api/oauth/facebook/callback, só para a música do Instagram).
  */
-export const PARAMETROS_RETORNO_INSTAGRAM = ["instagram_connected", "instagram_error", "facebook_connected", "facebook_error"] as const;
+export const PARAMETROS_RETORNO_INSTAGRAM = [
+  "instagram_connected", "instagram_error", "facebook_connected", "facebook_error",
+  "threads_connected", "threads_error", "youtube_connected", "youtube_error",
+] as const;
 
 export type RetornoInstagram = {
   tom: "sucesso" | "erro";
@@ -33,6 +36,12 @@ export function mensagemRetornoInstagram(params: Parametros): RetornoInstagram |
   }
   const motivoFacebook = (params.get("facebook_error") ?? "").trim();
   if (motivoFacebook) return mensagemErroFacebook(motivoFacebook);
+  if (params.get("threads_connected") === "1") return { tom: "sucesso", texto: "Pronto! O Threads foi conectado. Já dá para marcar o Threads nos Reels desta conta." };
+  if (params.get("youtube_connected") === "1") return { tom: "sucesso", texto: "Pronto! O YouTube foi conectado. Já dá para marcar o YouTube Shorts nos Reels desta conta." };
+  const motivoThreads = (params.get("threads_error") ?? "").trim();
+  if (motivoThreads) return mensagemErroRede("Threads", motivoThreads);
+  const motivoYoutube = (params.get("youtube_error") ?? "").trim();
+  if (motivoYoutube) return mensagemErroRede("YouTube", motivoYoutube);
 
   const motivo = (params.get("instagram_error") ?? "").trim();
   if (!motivo) return null;
@@ -93,4 +102,13 @@ function mensagemErroFacebook(motivo: string): RetornoInstagram {
   }
   if (/^missing_code$/i.test(motivo)) return { tom: "erro", texto: "O Facebook não devolveu a autorização. Tente conectar de novo." };
   return { tom: "erro", texto: "Não consegui conectar pelo Facebook.", detalhe: motivo.slice(0, MAX_DETALHE) };
+}
+
+/** Erro da conexão do Threads ou do YouTube: frase geral, com o motivo na linha de baixo. */
+function mensagemErroRede(nome: string, motivo: string): RetornoInstagram {
+  if (/\b(access_denied|user_denied)\b|\buser denied\b/i.test(motivo)) {
+    return { tom: "erro", texto: `Você não autorizou o ${nome}. Nada mudou; tente de novo quando quiser.` };
+  }
+  if (/^missing_code$/i.test(motivo)) return { tom: "erro", texto: `O ${nome} não devolveu a autorização. Tente conectar de novo.` };
+  return { tom: "erro", texto: `Não consegui conectar o ${nome}.`, detalhe: motivo.slice(0, MAX_DETALHE) };
 }

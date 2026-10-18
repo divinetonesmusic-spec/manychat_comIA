@@ -1,6 +1,7 @@
 import { getInstagramAccountById } from "@/lib/db/repositories";
 import { saveFacebookConnection, type PublicFacebookConnection, toPublicFacebookConnection } from "@/lib/db/facebook-connections";
-import { exchangeFacebookCode, getFacebookUser, listFacebookPages } from "@/lib/facebook/client";
+import { exchangeFacebookCode, getFacebookUser, getGrantedFacebookScopes, listFacebookPages } from "@/lib/facebook/client";
+import { setFacebookGrantedScopes } from "@/lib/db/redes";
 
 /** Endereço de volta do Login do Facebook (FACEBOOK_REDIRECT_URI, ou o padrão do site). Cadastre este no app da Meta. */
 export function facebookRedirectUri(appBaseUrl: string) {
@@ -22,7 +23,11 @@ export async function connectFacebookForAccount(input: { accountId: string; code
   if (!account) throw new FacebookConnectError("Conta do Instagram não encontrada. Conecte o Instagram primeiro na tela Perfis.");
 
   const token = await exchangeFacebookCode(input.code, input.redirectUri);
-  const [user, pages] = await Promise.all([getFacebookUser(token.access_token).catch(() => null), listFacebookPages(token.access_token)]);
+  const [user, pages, scopes] = await Promise.all([
+    getFacebookUser(token.access_token).catch(() => null),
+    listFacebookPages(token.access_token),
+    getGrantedFacebookScopes(token.access_token).catch(() => null),
+  ]);
   const page = pages.find((item) => item.instagram_business_account?.id === account.instagram_user_id);
   if (!page) {
     throw new FacebookConnectError(
@@ -40,5 +45,7 @@ export async function connectFacebookForAccount(input: { accountId: string; code
     userTokenExpiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000) : null,
     pageAccessToken: page.access_token ?? null,
   });
+  // Permissões concedidas (0010): dizem se a conexão já pode publicar Reels na Página (pages_manage_posts).
+  if (scopes) await setFacebookGrantedScopes(account.id, scopes).catch(() => undefined);
   return toPublicFacebookConnection(saved);
 }

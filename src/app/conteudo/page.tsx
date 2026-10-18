@@ -3,6 +3,7 @@ import { ConteudoClient } from "./conteudo-client";
 import { getConfig, listPublicInstagramAccounts } from "@/lib/db/repositories";
 import { listContentPostsInRange } from "@/lib/db/content-planner";
 import { listFacebookConnectedAccountIds } from "@/lib/db/facebook-connections";
+import { attachRedes, connectedRedesByAccount } from "@/lib/db/redes";
 import { getSelectedAccountId, type AccountRouteSearchParams } from "@/lib/account-routing";
 import { getCurrentWorkspaceContext } from "@/lib/workspace";
 
@@ -21,11 +22,15 @@ export default async function ConteudoPage({ searchParams }: Props) {
   const initialMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const from = new Date(now.getFullYear(), now.getMonth(), -7);
   const to = new Date(now.getFullYear(), now.getMonth() + 1, 8);
-  const [config, posts, facebookAccountIds] = await Promise.all([
+  const [config, posts, facebookAccountIds, redesMap] = await Promise.all([
     getConfig(activeAccountId),
-    listContentPostsInRange({ accountId: activeAccountId, from, to }),
+    listContentPostsInRange({ accountId: activeAccountId, from, to }).then((list) => attachRedes(list)),
     listFacebookConnectedAccountIds().catch(() => [] as string[]),
+    // Página do Facebook, Threads e YouTube da conta ativa: só sim/não (nunca token)
+    activeAccountId ? connectedRedesByAccount([{ id: activeAccountId }]).catch(() => new Map()) : Promise.resolve(new Map()),
   ]);
+  const redesAtivas = activeAccountId ? redesMap.get(activeAccountId) : undefined;
+  const redesConectadas = { facebook: Boolean(redesAtivas?.facebook.conectado), threads: Boolean(redesAtivas?.threads.conectado), youtube: Boolean(redesAtivas?.youtube.conectado) };
   const connected = Boolean(config.instagram_user_id);
 
   return (
@@ -36,7 +41,7 @@ export default async function ConteudoPage({ searchParams }: Props) {
         description="Agende Reels, carrosséis, fotos e stories. Na hora marcada o sistema publica, faz o 1º comentário e liga a automação da palavra-chave (comentou → DM com o link)."
       />
 
-      <ConteudoClient activeAccountId={activeAccountId} connected={connected} username={config.instagram_username} initialPosts={posts} initialMonth={initialMonth} facebookConnected={Boolean(activeAccountId && facebookAccountIds.includes(activeAccountId))} />
+      <ConteudoClient activeAccountId={activeAccountId} connected={connected} username={config.instagram_username} initialPosts={posts} initialMonth={initialMonth} facebookConnected={Boolean(activeAccountId && facebookAccountIds.includes(activeAccountId))} redesConectadas={redesConectadas} />
     </AppFrame>
   );
 }

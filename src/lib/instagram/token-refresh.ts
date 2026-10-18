@@ -2,6 +2,8 @@ import { listInstagramAccounts, updateToken } from "@/lib/db/repositories";
 import { refreshLongLivedToken } from "@/lib/instagram/client";
 import { listFacebookConnections, updateFacebookTokens } from "@/lib/db/facebook-connections";
 import { exchangeForLongLivedUserToken, getFacebookPageToken } from "@/lib/facebook/client";
+import { listThreadsConnections, updateThreadsToken } from "@/lib/db/redes";
+import { refreshThreadsToken } from "@/lib/redes/threads";
 
 /** Avisar quando faltar menos que isto para o token vencer. */
 export const TOKEN_ALERT_DAYS = 10;
@@ -73,6 +75,34 @@ export async function refreshAllFacebookTokens(now = new Date()): Promise<TokenR
 }
 
 /**
+ * Renova a conexão do Threads de cada conta que tem (th_refresh_token: mais 60 dias). Mesmas regras do Instagram:
+ * renovado há menos de 24 h fica para depois; cada conta tem a sua tentativa. Sem a 0010 ou sem THREADS_APP_ID/SECRET:
+ * lista vazia. O YouTube não precisa: o refresh token do Google não vence sozinho (o token curto é pedido na hora).
+ */
+export async function refreshAllThreadsTokens(now = new Date()): Promise<TokenRefreshResult[]> {
+  if (!process.env.THREADS_APP_ID || !process.env.THREADS_APP_SECRET) return [];
+  const [connections, accounts] = await Promise.all([listThreadsConnections(), listInstagramAccounts()]);
+  const usernames = new Map(accounts.map((account) => [account.id, account.instagram_username]));
+  const results: TokenRefreshResult[] = [];
+  for (const connection of connections) {
+    const base = { accountId: connection.account_id, username: `${usernames.get(connection.account_id) ?? connection.threads_username ?? connection.threads_user_id} (Threads)` };
+    if (tokenIssuedRecently({ last_token_refresh_at: connection.last_token_refresh_at, token_expires_at: connection.token_expires_at }, now)) {
+      results.push({ ...base, ok: true, skipped: true, expiresAt: toIso(connection.token_expires_at) });
+      continue;
+    }
+    try {
+      const token = await refreshThreadsToken(connection.access_token);
+      const expiresAt = token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : null;
+      await updateThreadsToken({ accountId: connection.account_id, accessToken: token.access_token, expiresAt });
+      results.push({ ...base, ok: true, expiresAt: expiresAt ? expiresAt.toISOString() : null });
+    } catch (error) {
+      results.push({ ...base, ok: false, error: safeErrorMessage(error), tokenExpiresAt: toIso(connection.token_expires_at) });
+    }
+  }
+  return results;
+}
+
+/**
  * Token emitido ou renovado há menos de 24 h: a Meta recusaria a renovação (falso "não consegui renovar").
  * Usa a hora da última renovação e o vencimento (60 dias a partir da emissão). created_at e updated_at não
  * servem: reconectar não muda o created_at, e o updated_at muda com qualquer alteração da conta.
@@ -121,6 +151,7 @@ function safeErrorMessage(error: unknown) {
     .replace(/(access_token|fb_exchange_token|client_secret)=[^&\s]+/gi, "$1=***")
     .replace(/IG[A-Za-z0-9_-]{20,}/g, "***")
     .replace(/EAA[A-Za-z0-9_-]{20,}/g, "***")
+    .replace(/TH[A-Za-z0-9_-]{20,}/g, "***")
     .slice(0, 300);
 }
 

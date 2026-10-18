@@ -261,7 +261,7 @@ describe("música do Instagram com banco", { skip: semBanco }, () => {
     assert.equal(dialogo.host, "www.facebook.com");
     assert.equal(dialogo.searchParams.get("client_id"), process.env.FACEBOOK_APP_ID);
     assert.equal(dialogo.searchParams.get("redirect_uri"), "https://uaiflow.teste/api/oauth/facebook/callback");
-    assert.equal(dialogo.searchParams.get("scope"), "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement");
+    assert.equal(dialogo.searchParams.get("scope"), "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,pages_manage_posts");
     const state = dialogo.searchParams.get("state") as string;
     const cookie = stateCookieFrom(inicio);
 

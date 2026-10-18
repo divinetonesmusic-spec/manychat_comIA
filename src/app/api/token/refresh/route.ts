@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeEqualSecret } from "@/lib/secrets";
-import { refreshAllFacebookTokens, refreshAllInstagramTokens, tokenRefreshAlerts } from "@/lib/instagram/token-refresh";
+import { refreshAllFacebookTokens, refreshAllInstagramTokens, refreshAllThreadsTokens, tokenRefreshAlerts } from "@/lib/instagram/token-refresh";
 import { notifyTokenAlerts } from "@/lib/notify";
 
 export const runtime = "nodejs";
@@ -36,8 +36,14 @@ async function refresh(request: NextRequest) {
     return [];
   });
 
+  // Conexões do Threads (0010): renovadas junto; uma falha aqui também não muda o resultado das contas.
+  const threads = await refreshAllThreadsTokens().catch((error) => {
+    console.warn("[token] renovação das conexões do Threads falhou", error instanceof Error ? error.message.slice(0, 200) : error);
+    return [];
+  });
+
   // Aviso no Telegram (se configurado): contas que não renovaram e contas vencendo em menos de 10 dias.
-  await notifyTokenAlerts(tokenRefreshAlerts([...resultados, ...facebook]), request.nextUrl.origin);
+  await notifyTokenAlerts(tokenRefreshAlerts([...resultados, ...facebook, ...threads]), request.nextUrl.origin);
 
   const renovadas = resultados.filter((resultado) => resultado.ok).length;
   return NextResponse.json(
@@ -53,6 +59,16 @@ async function refresh(request: NextRequest) {
       ...(facebook.length
         ? {
             facebook: facebook.map((resultado) =>
+              resultado.ok
+                ? { username: resultado.username, ok: true, expiresAt: resultado.expiresAt, ...(resultado.skipped ? { pulada: true } : {}) }
+                : { username: resultado.username, ok: false, erro: resultado.error },
+            ),
+          }
+        : {}),
+      // campo novo (só acréscimo): as conexões do Threads, no mesmo formato
+      ...(threads.length
+        ? {
+            threads: threads.map((resultado) =>
               resultado.ok
                 ? { username: resultado.username, ok: true, expiresAt: resultado.expiresAt, ...(resultado.skipped ? { pulada: true } : {}) }
                 : { username: resultado.username, ok: false, erro: resultado.error },

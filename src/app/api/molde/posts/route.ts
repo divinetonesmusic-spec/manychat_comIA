@@ -4,6 +4,7 @@ import { parsePostPackage } from "@/lib/content/package";
 import { packageWarning, ContentError, savePostPackage } from "@/lib/content/service";
 import { PUBLISH_NOW_NOTICE, translateError } from "@/lib/content/scheduler";
 import { checkMoldeToken, publicView } from "@/lib/content/molde-auth";
+import { attachRedes } from "@/lib/db/redes";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const refs = (params.get("refs") || "").split(",").map((ref) => ref.trim()).filter(Boolean).slice(0, 200);
   const posts = await listPostsBySource({ source: "molde", accountId: params.get("accountId"), externalRefs: refs, limit: Number(params.get("limit") || 200) });
-  return NextResponse.json({ data: posts.map(publicView) });
+  return NextResponse.json({ data: (await attachRedes(posts)).map(publicView) });
 }
 
 export async function POST(request: NextRequest) {
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     // "notice" é campo novo (só acréscimo): o "Publicar agora" não publica na hora, o relógio termina em até 2 min.
     // "warning" (campo novo, só acréscimo): aiGenerated:true sem a 0006 no Supabase não é guardado; o Molde trata como bloqueio.
     // Vai também dentro de "data" porque o robô do Mac (0.9.1) devolve só o "data" à página.
-    const warning = await packageWarning(parsed.value, post);
+    const warning = await packageWarning(parsed.value, post, parsed.avisos);
     const data = post ? { ...publicView(post), ...(parsed.publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}), ...(warning ? { warning } : {}) } : null;
     return NextResponse.json({ data, created, ...(warning ? { warning } : {}) }, { status: created ? 201 : 200 });
   } catch (error) {

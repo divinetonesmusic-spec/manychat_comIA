@@ -36,7 +36,19 @@ type Props = {
   initialMonth: string; // "2026-10"
   /** A conta ativa também está conectada pelo Facebook (só isso libera a música do Instagram). */
   facebookConnected?: boolean;
+  /** Outras redes conectadas na conta ativa (só sim/não). Só as conectadas podem ser marcadas. */
+  redesConectadas?: RedesConectadas;
 };
+
+type RedeExtra = "facebook" | "threads" | "youtube";
+type RedesConectadas = Record<RedeExtra, boolean>;
+type YoutubePrivacidade = "public" | "unlisted" | "private";
+type RedeResultado = NonNullable<ContentPost["redes_resultado"]>[number];
+const REDES_EXTRAS: Array<{ value: RedeExtra; label: string }> = [
+  { value: "facebook", label: "Facebook (Página)" },
+  { value: "threads", label: "Threads" },
+  { value: "youtube", label: "YouTube Shorts" },
+];
 
 type Notice = { tone: "success" | "error" | "warn"; text: string } | null;
 type View = "calendar" | "list";
@@ -62,6 +74,11 @@ type Draft = {
   aiGenerated: boolean;
   /** Música do Instagram (só Reel). null = sem música. */
   music: DraftMusic | null;
+  /** Outras redes além do Instagram (só Reel). */
+  redes: RedeExtra[];
+  youtubePrivacidade: YoutubePrivacidade;
+  /** Resultado de cada rede (só leitura, do post salvo). */
+  redesResultado: RedeResultado[];
   when: When;
   date: string;
   time: string;
@@ -78,7 +95,7 @@ const TYPES: Array<{ value: ContentPublishType; label: string; icon: "video" | "
 const WEEKDAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 const EDITABLE = new Set<ContentPost["status"]>(["draft", "scheduled", "failed", "canceled"]);
 
-export function ConteudoClient({ activeAccountId, connected, username, initialPosts, initialMonth, facebookConnected = false }: Props) {
+export function ConteudoClient({ activeAccountId, connected, username, initialPosts, initialMonth, facebookConnected = false, redesConectadas = { facebook: false, threads: false, youtube: false } }: Props) {
   const [posts, setPosts] = useState<Map<string, ContentPost>>(() => new Map(initialPosts.map((post) => [post.id, post])));
   const [view, setView] = useState<View>("calendar");
   const [month, setMonth] = useState(initialMonth);
@@ -238,6 +255,7 @@ export function ConteudoClient({ activeAccountId, connected, username, initialPo
             accountId={activeAccountId}
             username={username}
             facebookConnected={facebookConnected}
+            redesConectadas={redesConectadas}
             onClose={() => setDraft(null)}
             onSaved={onSaved}
             onRemoved={onRemoved}
@@ -388,11 +406,12 @@ export function PostList({ posts, onOpenPost }: { posts: ContentPost[]; onOpenPo
 
 /* ---------------- Compositor (novo / editar) ---------------- */
 
-export function Composer({ initial, accountId, username, facebookConnected = false, onClose, onSaved, onRemoved }: {
+export function Composer({ initial, accountId, username, facebookConnected = false, redesConectadas = { facebook: false, threads: false, youtube: false }, onClose, onSaved, onRemoved }: {
   initial: Draft;
   accountId: string | null;
   username: string | null;
   facebookConnected?: boolean;
+  redesConectadas?: RedesConectadas;
   onClose: () => void;
   onSaved: (post: ContentPost | null, notice: Notice) => void;
   onRemoved: (id: string) => void;
@@ -431,6 +450,9 @@ export function Composer({ initial, accountId, username, facebookConnected = fal
         publicReply: draft.publicReply,
         aiGenerated: draft.aiGenerated,
         // música só no Reel (null = sem música); em outro tipo o servidor tira sozinho
+        // outras redes só no Reel; o Instagram é sempre a principal
+        redes: ["instagram", ...(isReel ? draft.redes : [])],
+        youtubePrivacidade: draft.youtubePrivacidade,
         musica: isReel ? (draft.music ? { audioId: draft.music.audioId, titulo: draft.music.titulo, volumeMusica: draft.music.volumeMusica, volumeVideo: draft.music.volumeVideo } : null) : undefined,
         scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
         when: draft.when,
@@ -522,6 +544,17 @@ export function Composer({ initial, accountId, username, facebookConnected = fal
               facebookConnected={facebookConnected}
               value={draft.music}
               onChange={(music) => set({ music })}
+            />
+          ) : null}
+
+          {isReel ? (
+            <RedesPicker
+              conectadas={redesConectadas}
+              value={draft.redes}
+              privacidade={draft.youtubePrivacidade}
+              resultados={draft.redesResultado}
+              onChange={(redes) => set({ redes })}
+              onPrivacidade={(youtubePrivacidade) => set({ youtubePrivacidade })}
             />
           ) : null}
 
@@ -802,6 +835,7 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
         {notice ? <p className={noticeClass(notice.tone)}>{notice.text}</p> : null}
         {post.last_error ? <p className={`text-sm ${lastErrorClass(post.status)}`}>{post.last_error}</p> : null}
         {post.status === "published" ? <InsightsGrid insights={post.insights} at={post.insights_at} /> : null}
+        <RedesStatus post={post} onSaved={onSaved} onError={setError} />
         {error ? <p className="status-pill w-fit text-red-500"><AlertCircle size={14} /> {error}</p> : null}
         <div className="flex flex-wrap gap-2">
           {post.permalink ? <a className="btn-secondary" href={post.permalink} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Ver no Instagram</a> : null}
@@ -812,6 +846,99 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
       </div>
     </section>
   );
+}
+
+/** Onde mais o Reel sai: só as redes conectadas nesta conta podem ser marcadas. */
+function RedesPicker({ conectadas, value, privacidade, resultados, onChange, onPrivacidade }: {
+  conectadas: RedesConectadas;
+  value: RedeExtra[];
+  privacidade: YoutubePrivacidade;
+  resultados: RedeResultado[];
+  onChange: (redes: RedeExtra[]) => void;
+  onPrivacidade: (value: YoutubePrivacidade) => void;
+}) {
+  const byRede = new Map(resultados.map((item) => [item.rede, item]));
+  return (
+    <div className="grid gap-2 rounded-lg border border-[var(--ms-border)] p-3" aria-label="Redes">
+      <span className="text-sm font-bold">Publicar também em</span>
+      <p className="text-xs text-[var(--ms-muted)]">O Instagram sai primeiro; depois o mesmo vídeo vai para as redes marcadas. Uma rede com erro não atrapalha as outras.</p>
+      <div className="flex flex-wrap gap-3">
+        {REDES_EXTRAS.map((rede) => {
+          const checked = value.includes(rede.value);
+          const enabled = conectadas[rede.value] || checked;
+          const resultado = byRede.get(rede.value);
+          return (
+            <label className={`check justify-start ${enabled ? "" : "opacity-60"}`} key={rede.value} title={conectadas[rede.value] ? undefined : "Conecte esta rede em Perfis"}>
+              <input
+                aria-label={rede.label}
+                checked={checked}
+                disabled={!enabled}
+                onChange={(event) => onChange(event.target.checked ? [...value, rede.value] : value.filter((item) => item !== rede.value))}
+                type="checkbox"
+              />
+              <span>{rede.label}{conectadas[rede.value] ? "" : " (não conectado)"}{resultado ? ` · ${redeStatusLabel(resultado.status)}` : ""}</span>
+            </label>
+          );
+        })}
+      </div>
+      {value.includes("youtube") ? (
+        <label className="field">
+          <span>Privacidade no YouTube</span>
+          <select className="input" value={privacidade} onChange={(event) => onPrivacidade(event.target.value as YoutubePrivacidade)}>
+            <option value="public">Público</option>
+            <option value="unlisted">Não listado</option>
+            <option value="private">Privado</option>
+          </select>
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+/** Situação de cada rede extra do post, com o link e o «Tentar de novo» de cada uma. */
+function RedesStatus({ post, onSaved, onError }: { post: ContentPost; onSaved: (post: ContentPost | null, notice: Notice) => void; onError: (text: string) => void }) {
+  const [busy, setBusy] = useState<RedeExtra | null>(null);
+  const resultados = post.redes_resultado ?? [];
+  if (!resultados.length) return null;
+  async function retry(rede: RedeExtra) {
+    setBusy(rede);
+    const response = await fetch(`/api/content/${post.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retry_rede", rede }) });
+    const result = (await response.json().catch(() => null)) as { data?: ContentPost; error?: string } | null;
+    setBusy(null);
+    if (!result?.data) return onError(result?.error || "Não deu para tentar de novo.");
+    onSaved(result.data, { tone: "warn", text: "Tentando de novo nesta rede. Sai em alguns minutos." });
+  }
+  return (
+    <div className="grid gap-2 rounded-lg border border-[var(--ms-border)] p-3" aria-label="Outras redes">
+      <span className="text-sm font-bold">Outras redes</span>
+      {resultados.map((item) => {
+        const label = REDES_EXTRAS.find((rede) => rede.value === item.rede)?.label ?? item.rede;
+        return (
+          <div className="flex flex-wrap items-center gap-2 text-sm" key={item.rede}>
+            <span className="font-semibold">{label}</span>
+            <span className={redeStatusClass(item.status)}>{redeStatusLabel(item.status)}</span>
+            {item.permalink ? <a className="text-xs underline" href={item.permalink} target="_blank" rel="noreferrer">Ver post</a> : null}
+            {item.erro ? <span className={`text-xs ${item.status === "failed" ? "text-red-500" : "text-[var(--ms-muted)]"}`}>{item.erro}</span> : null}
+            {item.status === "failed" ? (
+              <button className="btn-secondary h-8" disabled={busy === item.rede} onClick={() => retry(item.rede)} type="button">
+                {busy === item.rede ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />} Tentar de novo
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function redeStatusLabel(status: RedeResultado["status"]) {
+  return { pending: "Na fila (depois do Instagram)", processing: "Publicando", published: "Publicado", failed: "Erro" }[status];
+}
+
+function redeStatusClass(status: RedeResultado["status"]) {
+  if (status === "published") return "status-pill status-pill-green";
+  if (status === "failed") return "status-pill text-red-500";
+  return "status-pill status-pill-amber";
 }
 
 function RetryButton({ id, onSaved, onError }: { id: string; onSaved: (post: ContentPost | null, notice: Notice) => void; onError: (text: string) => void }) {
@@ -951,6 +1078,9 @@ export function emptyDraft(date?: string): Draft {
     publicReply: "",
     aiGenerated: false, // post feito à mão começa sem o aviso; quem vem do Molde mostra o que veio
     music: null,
+    redes: [],
+    youtubePrivacidade: "public",
+    redesResultado: [],
     when: "schedule",
     date: date ?? dayKey(next),
     time: date ? "18:00" : `${String(next.getHours()).padStart(2, "0")}:00`,
@@ -981,6 +1111,9 @@ export function draftFromPost(post: ContentPost): Draft {
     music: post.musica_audio_id
       ? { audioId: post.musica_audio_id, titulo: post.musica_titulo ?? "", volumeMusica: post.musica_volume ?? 20, volumeVideo: post.video_volume ?? 100 }
       : null,
+    redes: (post.redes ?? []).filter((rede): rede is RedeExtra => rede === "facebook" || rede === "threads" || rede === "youtube"),
+    youtubePrivacidade: post.youtube_privacidade === "unlisted" || post.youtube_privacidade === "private" ? post.youtube_privacidade : "public",
+    redesResultado: post.redes_resultado ?? [],
     when: post.status === "draft" || post.status === "canceled" ? "draft" : "schedule",
     date: dayKey(at),
     time: timeLabel(at),

@@ -16,6 +16,9 @@ import { confirmEarlierPublish, publishPostNow } from "@/lib/content/scheduler";
 import { isReelType } from "@/lib/content/package";
 import { facebookAccessToken, getFacebookConnection } from "@/lib/db/facebook-connections";
 import { MUSIC_FACEBOOK_EXPIRED, MUSIC_NEEDS_FACEBOOK } from "@/lib/facebook/audio";
+import { attachRedesOne, connectedRedesByAccount, hasRedesTables, retryRede, syncPostRedes } from "@/lib/db/redes";
+import { getInstagramAccountById } from "@/lib/db/repositories";
+import { isRedeExtra, REDE_NOME, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
 
 /** Regras comuns da tela de Conteúdo e do Molde: criar/atualizar, publicar agora, cancelar e apagar. */
 export class ContentError extends Error {
@@ -48,10 +51,40 @@ export async function musicWarning(input: { music?: unknown }, post: ContentPost
   return facebookAccessToken(connection) ? undefined : MUSIC_FACEBOOK_EXPIRED;
 }
 
-/** Todos os avisos do pacote salvo (IA e música), numa frase só. */
-export async function packageWarning(input: { aiGenerated?: boolean; music?: unknown }, post: ContentPost | null): Promise<string | undefined> {
-  const warnings = [await aiColumnWarning(input), await musicWarning(input, post)].filter(Boolean);
+/** Aviso quando o pacote traz redes mas a 0010 ainda não foi colada (o post sai só no Instagram). */
+export const REDES_COLUMN_MISSING_WARNING = "Falta colar a atualização 0010 no Supabase: o post sai só no Instagram (as outras redes não foram guardadas).";
+
+/**
+ * Avisos das outras redes depois de salvar: 0010 faltando, ou rede escolhida que não está conectada nesta conta
+ * (o post é salvo do mesmo jeito; o Instagram sai normalmente e aquela rede fica "Com erro" se continuar sem conexão).
+ */
+export async function redesWarning(input: { redes?: unknown }, post: ContentPost | null): Promise<string | undefined> {
+  if (input.redes === undefined) return undefined;
+  if (!(await hasRedesTables())) return REDES_COLUMN_MISSING_WARNING;
+  const extras = redesExtras(post?.redes);
+  if (!post?.account_id || !extras.length) return undefined;
+  const account = await getInstagramAccountById(post.account_id);
+  if (!account) return undefined;
+  const conexoes = (await connectedRedesByAccount([account])).get(account.id);
+  const faltando = extras.filter((rede) => !conexoes?.[rede].conectado);
+  if (!faltando.length) return undefined;
+  return `Não conectado nesta conta: ${faltando.map((rede) => REDE_NOME[rede]).join(", ")}. Conecte em Perfis antes do horário; o Instagram sai normalmente.`;
+}
+
+/** Todos os avisos do pacote salvo (IA, música e redes), numa frase só. */
+export async function packageWarning(input: { aiGenerated?: boolean; music?: unknown; redes?: unknown }, post: ContentPost | null, avisos: string[] = []): Promise<string | undefined> {
+  const warnings = [...avisos, await aiColumnWarning(input), await musicWarning(input, post), await redesWarning(input, post)].filter(Boolean);
   return warnings.length ? warnings.join(" ") : undefined;
+}
+
+/** «Tentar de novo» de uma rede extra (só a que está com erro). */
+export async function retryPostRede(id: string, rede: unknown) {
+  if (!isRedeExtra(rede)) throw new ContentError("rede inválida: use facebook, threads ou youtube.");
+  const current = await getContentPost(id);
+  if (!current) throw new ContentError("Post não encontrado.", 404);
+  if (!(await hasRedesTables())) throw new ContentError(REDES_COLUMN_MISSING_WARNING, 409);
+  if (!(await retryRede(id, rede))) throw new ContentError(`${REDE_NOME[rede]} não está com erro neste post.`, 409);
+  return attachRedesOne(await getContentPost(id));
 }
 
 export async function savePostPackage(input: PostPackage, publishNow: boolean): Promise<{ post: ContentPost | null; created: boolean }> {
@@ -85,14 +118,18 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean): 
     post = await createPlannedPost(pkg);
     created = true;
   }
+  if (post) await syncPostRedes(post, { restart: !created });
   if (publishNow && post) post = await publishPostNow(post.id);
-  return { post, created };
+  return { post: await attachRedesOne(post), created };
 }
 
 export async function editPost(id: string, input: Partial<PostPackage>, publishNow: boolean) {
   const current = await getContentPost(id);
   if (!current) throw new ContentError("Post não encontrado.", 404);
   if (input.music && !isReelType(input.publishType ?? current.publish_type)) throw new ContentError("Música do Instagram só vale para Reel.");
+  if (redesExtras(input.redes ?? current.redes).length && !isReelType(input.publishType ?? current.publish_type) && (input.redes !== undefined || input.publishType !== undefined)) {
+    throw new ContentError(REDES_SO_REEL);
+  }
   if ((publishNow || input.scheduledAt) && current.account_id) {
     const config = await getConfig(current.account_id);
     if (!config.instagram_user_id || !config.instagram_access_token) throw new ContentError("Instagram não conectado para este perfil.");
@@ -116,8 +153,9 @@ export async function editPost(id: string, input: Partial<PostPackage>, publishN
       throw new ContentError(error instanceof Error ? error.message : "Não deu para editar.", 409);
     }
   }
+  if (post && Object.keys(input).length) await syncPostRedes(post, { restart: true });
   if (publishNow) post = await publishPostNow(id);
-  return post;
+  return attachRedesOne(post);
 }
 
 /**

@@ -2,12 +2,17 @@ import { isProtectedKey } from "@/lib/content/r2";
 import type { ContentMediaItem, ContentPublishType } from "@/lib/db/repositories";
 import type { AutomationOptions, MusicChoice, PostPackage } from "@/lib/db/content-planner";
 import { clampVolume, DEFAULT_MUSIC_VOLUME, DEFAULT_VIDEO_VOLUME } from "@/lib/instagram/client";
+import { isYoutubePrivacidade, parseRedes, REDES_INVALIDAS, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
 
 /**
  * Lê e confere o "pacote" de um post vindo da tela de Conteúdo ou do Molde do Avatar:
  * mídia, legenda, horário e o funil (palavra-chave → DM → link + 1º comentário).
  */
-export type ParsedPackage = { ok: true; value: PostPackage; publishNow: boolean } | { ok: false; error: string };
+export type ParsedPackage = { ok: true; value: PostPackage; publishNow: boolean; avisos?: string[] } | { ok: false; error: string };
+
+/** Aviso quando a lista de redes veio sem o Instagram (ele é sempre a rede principal e entra sozinho). */
+export const REDES_INSTAGRAM_INCLUIDO = "O Instagram é sempre a rede principal: foi incluído nas redes do post.";
+export const YOUTUBE_PRIVACIDADE_INVALIDA = "youtubePrivacidade inválida: use public, unlisted ou private.";
 
 const PUBLISH_TYPES: ContentPublishType[] = ["feed_image", "feed_video", "reel_video", "story_image", "story_video", "carousel"];
 
@@ -51,6 +56,12 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
   if (music === "invalid") return { ok: false, error: MUSIC_INVALID };
   if (music && publishType && !isReelType(publishType)) return { ok: false, error: "Música do Instagram só vale para Reel." };
 
+  const redes = parseRedes(body.redes);
+  if (redes === "invalid") return { ok: false, error: REDES_INVALIDAS };
+  if (redes && redesExtras(redes.redes).length && publishType && !isReelType(publishType)) return { ok: false, error: REDES_SO_REEL };
+  if (body.youtubePrivacidade !== undefined && !isYoutubePrivacidade(body.youtubePrivacidade)) return { ok: false, error: YOUTUBE_PRIVACIDADE_INVALIDA };
+  const youtubeTitulo = body.youtubeTitulo === null ? null : optionalText(body.youtubeTitulo, 100)?.trim();
+
   const keyword = optionalText(body.keyword, 120);
   const dmText = optionalText(body.dmText, 1000);
   if (keyword && !dmText && !linkUrl) return { ok: false, error: "Com palavra-chave, preencha a mensagem da DM ou o link." };
@@ -78,6 +89,10 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
     aiGenerated: typeof body.aiGenerated === "boolean" ? body.aiGenerated : undefined,
     // música do Instagram: objeto = escolhe (ou troca); null = tira; ausente = não mexe
     music,
+    // redes (0010): lista = troca; ausente = não mexe (post novo: só Instagram)
+    redes: redes ? redes.redes : undefined,
+    youtubePrivacidade: isYoutubePrivacidade(body.youtubePrivacidade) ? body.youtubePrivacidade : undefined,
+    youtubeTitulo: youtubeTitulo === "" ? null : youtubeTitulo,
     source: optionalString(body.source)?.slice(0, 40),
     externalRef: optionalString(body.externalRef)?.slice(0, 200) ?? null,
   };
@@ -85,7 +100,7 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
   if (partial) {
     for (const key of Object.keys(value) as (keyof PostPackage)[]) if (value[key] === undefined) delete value[key];
   }
-  return { ok: true, value, publishNow };
+  return { ok: true, value, publishNow, ...(redes?.instagramIncluido ? { avisos: [REDES_INSTAGRAM_INCLUIDO] } : {}) };
 }
 
 export const MUSIC_INVALID = "musica inválida: mande { audioId, titulo, volumeMusica, volumeVideo } (audioId é o id da música do Instagram; volumes de 0 a 100) ou null para tirar.";
