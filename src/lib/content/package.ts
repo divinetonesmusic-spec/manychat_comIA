@@ -1,6 +1,7 @@
 import { isProtectedKey } from "@/lib/content/r2";
 import type { ContentMediaItem, ContentPublishType } from "@/lib/db/repositories";
-import type { AutomationOptions, PostPackage } from "@/lib/db/content-planner";
+import type { AutomationOptions, MusicChoice, PostPackage } from "@/lib/db/content-planner";
+import { clampVolume, DEFAULT_MUSIC_VOLUME, DEFAULT_VIDEO_VOLUME } from "@/lib/instagram/client";
 
 /**
  * Lê e confere o "pacote" de um post vindo da tela de Conteúdo ou do Molde do Avatar:
@@ -46,6 +47,10 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
   const linkUrl = optionalString(body.linkUrl);
   if (linkUrl && !isHttpUrl(linkUrl)) return { ok: false, error: "O link do produto precisa comecar com https://" };
 
+  const music = parseMusic(body.musica);
+  if (music === "invalid") return { ok: false, error: MUSIC_INVALID };
+  if (music && publishType && !isReelType(publishType)) return { ok: false, error: "Música do Instagram só vale para Reel." };
+
   const keyword = optionalText(body.keyword, 120);
   const dmText = optionalText(body.dmText, 1000);
   if (keyword && !dmText && !linkUrl) return { ok: false, error: "Com palavra-chave, preencha a mensagem da DM ou o link." };
@@ -71,6 +76,8 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
     automationOptions: parseAutomationOptions(body.automationOptions),
     // "feito com IA": só vale boolean de verdade; qualquer outro tipo é ignorado
     aiGenerated: typeof body.aiGenerated === "boolean" ? body.aiGenerated : undefined,
+    // música do Instagram: objeto = escolhe (ou troca); null = tira; ausente = não mexe
+    music,
     source: optionalString(body.source)?.slice(0, 40),
     externalRef: optionalString(body.externalRef)?.slice(0, 200) ?? null,
   };
@@ -79,6 +86,37 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
     for (const key of Object.keys(value) as (keyof PostPackage)[]) if (value[key] === undefined) delete value[key];
   }
   return { ok: true, value, publishNow };
+}
+
+export const MUSIC_INVALID = "musica inválida: mande { audioId, titulo, volumeMusica, volumeVideo } (audioId é o id da música do Instagram; volumes de 0 a 100) ou null para tirar.";
+
+/** Reel = Reel ou vídeo no feed (os dois saem como REELS na Meta). Só eles levam música do Instagram. */
+export function isReelType(type: ContentPublishType | null | undefined) {
+  return type === "reel_video" || type === "feed_video";
+}
+
+/**
+ * musica: { audioId, titulo?, volumeMusica?, volumeVideo? } | null. Volumes fora de 0–100 são ajustados para a ponta
+ * (padrão: música 20, voz/vídeo 100). undefined = campo ausente; null = tirar a música; "invalid" = formato errado.
+ */
+export function parseMusic(value: unknown): MusicChoice | null | undefined | "invalid" {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return "invalid";
+  const record = value as Record<string, unknown>;
+  const rawId = typeof record.audioId === "number" && Number.isSafeInteger(record.audioId) ? String(record.audioId) : record.audioId;
+  const audioId = typeof rawId === "string" ? rawId.trim() : "";
+  if (!audioId || !/^[A-Za-z0-9_.:-]{1,80}$/.test(audioId)) return "invalid";
+  for (const key of ["volumeMusica", "volumeVideo"] as const) {
+    const volume = record[key];
+    if (volume !== undefined && volume !== null && !(typeof volume === "number" && Number.isFinite(volume))) return "invalid";
+  }
+  return {
+    audioId,
+    titulo: typeof record.titulo === "string" && record.titulo.trim() ? record.titulo.trim().slice(0, 200) : null,
+    volumeMusica: clampVolume(record.volumeMusica, DEFAULT_MUSIC_VOLUME),
+    volumeVideo: clampVolume(record.volumeVideo, DEFAULT_VIDEO_VOLUME),
+  };
 }
 
 function parseAutomationOptions(value: unknown): AutomationOptions | undefined {

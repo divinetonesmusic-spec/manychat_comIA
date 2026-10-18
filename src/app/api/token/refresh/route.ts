@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeEqualSecret } from "@/lib/secrets";
-import { refreshAllInstagramTokens, tokenRefreshAlerts } from "@/lib/instagram/token-refresh";
+import { refreshAllFacebookTokens, refreshAllInstagramTokens, tokenRefreshAlerts } from "@/lib/instagram/token-refresh";
 import { notifyTokenAlerts } from "@/lib/notify";
 
 export const runtime = "nodejs";
@@ -30,8 +30,14 @@ async function refresh(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Instagram não conectado", contas: [] }, { status: 409 });
   }
 
+  // Conexões pelo Facebook (música do Instagram): renovadas junto; uma falha aqui não muda o resultado das contas.
+  const facebook = await refreshAllFacebookTokens().catch((error) => {
+    console.warn("[token] renovação das conexões pelo Facebook falhou", error instanceof Error ? error.message.slice(0, 200) : error);
+    return [];
+  });
+
   // Aviso no Telegram (se configurado): contas que não renovaram e contas vencendo em menos de 10 dias.
-  await notifyTokenAlerts(tokenRefreshAlerts(resultados), request.nextUrl.origin);
+  await notifyTokenAlerts(tokenRefreshAlerts([...resultados, ...facebook]), request.nextUrl.origin);
 
   const renovadas = resultados.filter((resultado) => resultado.ok).length;
   return NextResponse.json(
@@ -43,6 +49,16 @@ async function refresh(request: NextRequest) {
           ? { username: resultado.username, ok: true, expiresAt: resultado.expiresAt, ...(resultado.skipped ? { pulada: true } : {}) }
           : { username: resultado.username, ok: false, erro: resultado.error },
       ),
+      // campo novo (só acréscimo): as conexões pelo Facebook, no mesmo formato
+      ...(facebook.length
+        ? {
+            facebook: facebook.map((resultado) =>
+              resultado.ok
+                ? { username: resultado.username, ok: true, expiresAt: resultado.expiresAt, ...(resultado.skipped ? { pulada: true } : {}) }
+                : { username: resultado.username, ok: false, erro: resultado.error },
+            ),
+          }
+        : {}),
     },
     { status: renovadas > 0 ? 200 : 500 },
   );

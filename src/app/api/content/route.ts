@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listContentPosts } from "@/lib/db/repositories";
 import { listContentPostsInRange } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
-import { aiColumnWarning, ContentError, savePostPackage } from "@/lib/content/service";
+import { packageWarning, ContentError, savePostPackage } from "@/lib/content/service";
 import { PUBLISH_NOW_NOTICE, runContentCycle, translateError } from "@/lib/content/scheduler";
 
 export const runtime = "nodejs";
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   try {
     const { post } = await savePostPackage({ ...parsed.value, source: parsed.value.source ?? "manual" }, parsed.publishNow);
     const publishingWarning = post?.status === "publishing" ? `${PUBLISH_NOW_NOTICE} O UaiFlow publica sozinho, faz o 1º comentário e liga a automação.` : undefined;
-    const aiWarning = await aiColumnWarning(parsed.value);
+    const aiWarning = await packageWarning(parsed.value, post);
     const warning = [publishingWarning, aiWarning].filter(Boolean).join(" ") || undefined;
     return NextResponse.json({ data: post, warning }, { status: post?.status === "failed" ? 502 : publishingWarning ? 202 : 200 });
   } catch (error) {

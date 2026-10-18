@@ -6,12 +6,16 @@ import {
   findPostByExternalRef,
   getContentPost,
   hasAiGeneratedColumn,
+  hasMusicColumns,
   MEDIA_REMOVED_NOTE,
   updatePlannedPost,
   type PostPackage,
 } from "@/lib/db/content-planner";
 import { deleteR2Object, isProtectedKey, keyFromPublicUrl } from "@/lib/content/r2";
 import { confirmEarlierPublish, publishPostNow } from "@/lib/content/scheduler";
+import { isReelType } from "@/lib/content/package";
+import { facebookAccessToken, getFacebookConnection } from "@/lib/db/facebook-connections";
+import { MUSIC_FACEBOOK_EXPIRED, MUSIC_NEEDS_FACEBOOK } from "@/lib/facebook/audio";
 
 /** Regras comuns da tela de Conteúdo e do Molde: criar/atualizar, publicar agora, cancelar e apagar. */
 export class ContentError extends Error {
@@ -26,6 +30,28 @@ export const AI_COLUMN_MISSING_WARNING = "Falta colar a atualização 0006 no Su
 export async function aiColumnWarning(input: { aiGenerated?: boolean }): Promise<string | undefined> {
   if (input.aiGenerated !== true) return undefined;
   return (await hasAiGeneratedColumn()) ? undefined : AI_COLUMN_MISSING_WARNING;
+}
+
+/** Aviso quando o pacote traz música mas a 0009 ainda não foi colada (a música não é guardada; o post sai sem ela). */
+export const MUSIC_COLUMN_MISSING_WARNING = "Falta colar a atualização 0009 no Supabase: a música não foi guardada.";
+
+/**
+ * Avisos da música do Instagram depois de salvar: 0009 faltando, ou Reel com música agendado numa conta sem a conexão
+ * pelo Facebook (na hora de publicar ele vira "Com erro" com a mesma frase, sem sair sem música).
+ */
+export async function musicWarning(input: { music?: unknown }, post: ContentPost | null): Promise<string | undefined> {
+  if (input.music && !(await hasMusicColumns())) return MUSIC_COLUMN_MISSING_WARNING;
+  if (!post?.musica_audio_id || !isReelType(post.publish_type)) return undefined;
+  if (post.status !== "scheduled" && post.status !== "draft") return undefined;
+  const connection = await getFacebookConnection(post.account_id);
+  if (!connection) return MUSIC_NEEDS_FACEBOOK;
+  return facebookAccessToken(connection) ? undefined : MUSIC_FACEBOOK_EXPIRED;
+}
+
+/** Todos os avisos do pacote salvo (IA e música), numa frase só. */
+export async function packageWarning(input: { aiGenerated?: boolean; music?: unknown }, post: ContentPost | null): Promise<string | undefined> {
+  const warnings = [await aiColumnWarning(input), await musicWarning(input, post)].filter(Boolean);
+  return warnings.length ? warnings.join(" ") : undefined;
 }
 
 export async function savePostPackage(input: PostPackage, publishNow: boolean): Promise<{ post: ContentPost | null; created: boolean }> {
@@ -66,6 +92,7 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean): 
 export async function editPost(id: string, input: Partial<PostPackage>, publishNow: boolean) {
   const current = await getContentPost(id);
   if (!current) throw new ContentError("Post não encontrado.", 404);
+  if (input.music && !isReelType(input.publishType ?? current.publish_type)) throw new ContentError("Música do Instagram só vale para Reel.");
   if ((publishNow || input.scheduledAt) && current.account_id) {
     const config = await getConfig(current.account_id);
     if (!config.instagram_user_id || !config.instagram_access_token) throw new ContentError("Instagram não conectado para este perfil.");

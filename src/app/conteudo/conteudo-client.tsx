@@ -14,8 +14,10 @@ import {
   List,
   Loader2,
   MessageCircle,
+  Music,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Sparkles,
   Trash2,
@@ -32,12 +34,16 @@ type Props = {
   username: string | null;
   initialPosts: ContentPost[];
   initialMonth: string; // "2026-10"
+  /** A conta ativa também está conectada pelo Facebook (só isso libera a música do Instagram). */
+  facebookConnected?: boolean;
 };
 
 type Notice = { tone: "success" | "error" | "warn"; text: string } | null;
 type View = "calendar" | "list";
 type When = "now" | "schedule" | "draft";
 type DraftItem = { type: "image" | "video"; url: string; coverUrl: string; key?: string };
+type DraftMusic = { audioId: string; titulo: string; volumeMusica: number; volumeVideo: number };
+type AudioResult = { id: string; titulo: string; artista: string | null; duracao: string; previaUrl: string | null };
 type Draft = {
   id?: string;
   publishType: ContentPublishType;
@@ -54,6 +60,8 @@ type Draft = {
   linkLabel: string;
   publicReply: string;
   aiGenerated: boolean;
+  /** Música do Instagram (só Reel). null = sem música. */
+  music: DraftMusic | null;
   when: When;
   date: string;
   time: string;
@@ -70,7 +78,7 @@ const TYPES: Array<{ value: ContentPublishType; label: string; icon: "video" | "
 const WEEKDAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 const EDITABLE = new Set<ContentPost["status"]>(["draft", "scheduled", "failed", "canceled"]);
 
-export function ConteudoClient({ activeAccountId, connected, username, initialPosts, initialMonth }: Props) {
+export function ConteudoClient({ activeAccountId, connected, username, initialPosts, initialMonth, facebookConnected = false }: Props) {
   const [posts, setPosts] = useState<Map<string, ContentPost>>(() => new Map(initialPosts.map((post) => [post.id, post])));
   const [view, setView] = useState<View>("calendar");
   const [month, setMonth] = useState(initialMonth);
@@ -229,6 +237,7 @@ export function ConteudoClient({ activeAccountId, connected, username, initialPo
             initial={draft}
             accountId={activeAccountId}
             username={username}
+            facebookConnected={facebookConnected}
             onClose={() => setDraft(null)}
             onSaved={onSaved}
             onRemoved={onRemoved}
@@ -379,10 +388,11 @@ export function PostList({ posts, onOpenPost }: { posts: ContentPost[]; onOpenPo
 
 /* ---------------- Compositor (novo / editar) ---------------- */
 
-export function Composer({ initial, accountId, username, onClose, onSaved, onRemoved }: {
+export function Composer({ initial, accountId, username, facebookConnected = false, onClose, onSaved, onRemoved }: {
   initial: Draft;
   accountId: string | null;
   username: string | null;
+  facebookConnected?: boolean;
   onClose: () => void;
   onSaved: (post: ContentPost | null, notice: Notice) => void;
   onRemoved: (id: string) => void;
@@ -395,6 +405,7 @@ export function Composer({ initial, accountId, username, onClose, onSaved, onRem
   const isCarousel = draft.publishType === "carousel";
   const wantsVideo = draft.publishType === "reel_video" || draft.publishType === "story_video" || draft.publishType === "feed_video";
   const isStory = draft.publishType.startsWith("story");
+  const isReel = draft.publishType === "reel_video" || draft.publishType === "feed_video";
 
   async function save() {
     setSaving(true);
@@ -419,6 +430,8 @@ export function Composer({ initial, accountId, username, onClose, onSaved, onRem
         linkLabel: draft.linkLabel,
         publicReply: draft.publicReply,
         aiGenerated: draft.aiGenerated,
+        // música só no Reel (null = sem música); em outro tipo o servidor tira sozinho
+        musica: isReel ? (draft.music ? { audioId: draft.music.audioId, titulo: draft.music.titulo, volumeMusica: draft.music.volumeMusica, volumeVideo: draft.music.volumeVideo } : null) : undefined,
         scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
         when: draft.when,
         publishNow: draft.when === "now",
@@ -503,6 +516,15 @@ export function Composer({ initial, accountId, username, onClose, onSaved, onRem
             </div>
           )}
 
+          {isReel ? (
+            <MusicPicker
+              accountId={accountId}
+              facebookConnected={facebookConnected}
+              value={draft.music}
+              onChange={(music) => set({ music })}
+            />
+          ) : null}
+
           <label className="check justify-start">
             <input aria-label="Feito com IA" checked={draft.aiGenerated} className="h-5 w-5 shrink-0" onChange={(event) => set({ aiGenerated: event.target.checked })} type="checkbox" />
             <span>Feito com IA (o Instagram mostra o aviso)</span>
@@ -577,6 +599,121 @@ export function Composer({ initial, accountId, username, onClose, onSaved, onRem
         </aside>
       </div>
     </section>
+  );
+}
+
+/**
+ * Música da biblioteca do Instagram para o Reel (Audio API da Meta, pela conexão do Facebook da conta).
+ * A Meta não mostra prévia do Reel com a música: ele sai com os volumes escolhidos aqui.
+ */
+function MusicPicker({ accountId, facebookConnected, value, onChange }: { accountId: string | null; facebookConnected: boolean; value: DraftMusic | null; onChange: (music: DraftMusic | null) => void }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<AudioResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const connectHref = accountId
+    ? `/api/oauth/facebook/login?conta=${encodeURIComponent(accountId)}&next=${encodeURIComponent(`/conteudo?accountId=${accountId}`)}`
+    : "/perfis";
+
+  async function search(term: string) {
+    if (!accountId) return;
+    setSearching(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ conta: accountId, tipo: "music" });
+      if (term.trim()) params.set("q", term.trim());
+      const response = await fetch(`/api/instagram/audio?${params}`);
+      const result = (await response.json().catch(() => null)) as { data?: { musicas: AudioResult[] }; error?: string } | null;
+      if (!result?.data) throw new Error(result?.error || "Não consegui buscar as músicas.");
+      setResults(result.data.musicas);
+    } catch (caught) {
+      setResults(null);
+      setError(caught instanceof Error ? caught.message : "Não consegui buscar as músicas.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function choose(item: AudioResult) {
+    const titulo = [item.titulo, item.artista].filter(Boolean).join(" · ");
+    onChange({ audioId: item.id, titulo, volumeMusica: value?.volumeMusica ?? 20, volumeVideo: value?.volumeVideo ?? 100 });
+  }
+
+  return (
+    <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] p-3" aria-label="Música do Instagram">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-sm font-bold"><Music size={15} className="text-[var(--ms-primary)]" /> Música do Instagram</span>
+        <span className="text-xs text-[var(--ms-muted)]">{value ? "escolhida" : "opcional"}</span>
+      </div>
+
+      {!facebookConnected ? (
+        <div className="grid gap-2">
+          <p className="text-xs leading-5 text-[var(--ms-muted)]">Para pôr música do Instagram, conecte esta conta também pelo Facebook (a Meta só libera a música por esse caminho). Salve o rascunho antes: a conexão abre outra página.</p>
+          {value ? <p className="text-xs text-amber-600 dark:text-amber-300">Este Reel já tem a música «{value.titulo || value.audioId}», mas sem a conexão pelo Facebook ele não vai ao ar.</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <a className="btn-secondary w-fit" href={connectHref}><ExternalLink size={15} /> Conectar pelo Facebook</a>
+            {value ? <button className="btn-secondary w-fit" onClick={() => onChange(null)} type="button"><X size={15} /> Tirar a música</button> : null}
+          </div>
+        </div>
+      ) : (
+        <>
+          {value ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-[var(--ms-surface-soft)] p-2">
+              <span className="min-w-0 truncate text-sm font-semibold"><Music className="mr-1 inline" size={13} /> {value.titulo || value.audioId}</span>
+              <button className="btn-secondary h-8" onClick={() => onChange(null)} type="button"><X size={14} /> Tirar a música</button>
+            </div>
+          ) : null}
+
+          <div className="flex gap-2">
+            <input
+              aria-label="Buscar música"
+              className="input min-w-0 flex-1"
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); search(query).catch(() => null); } }}
+              placeholder="Nome da música ou artista (vazio = em alta)"
+              value={query}
+            />
+            <button className="btn-secondary shrink-0" disabled={searching} onClick={() => search(query)} type="button">
+              {searching ? <Loader2 className="animate-spin" size={15} /> : <Search size={15} />} Buscar
+            </button>
+          </div>
+          {error ? <span className="text-xs text-red-500">{error}</span> : null}
+          {results ? (
+            results.length ? (
+              <ul className="grid max-h-56 gap-1 overflow-y-auto">
+                {results.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      aria-pressed={value?.audioId === item.id}
+                      className={`flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition ${value?.audioId === item.id ? "border-[var(--ms-primary)] bg-[var(--ms-surface-soft)]" : "border-[var(--ms-border)] hover:bg-[var(--ms-surface-soft)]"}`}
+                      onClick={() => choose(item)}
+                      type="button"
+                    >
+                      <Music className="shrink-0" size={13} />
+                      <span className="min-w-0 flex-1 truncate"><b>{item.titulo}</b>{item.artista ? ` · ${item.artista}` : ""}{item.duracao ? ` · ${item.duracao}` : ""}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="text-xs text-[var(--ms-muted)]">Nenhuma música encontrada. Tente outro nome.</p>
+          ) : null}
+
+          {value ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="field">
+                <span>Volume da música <small className="tabular-nums text-[var(--ms-muted)]">{value.volumeMusica}</small></span>
+                <input aria-label="Volume da música" max={100} min={0} onChange={(event) => onChange({ ...value, volumeMusica: Number(event.target.value) })} step={1} type="range" value={value.volumeMusica} />
+              </label>
+              <label className="field">
+                <span>Volume da voz/vídeo <small className="tabular-nums text-[var(--ms-muted)]">{value.volumeVideo}</small></span>
+                <input aria-label="Volume da voz/vídeo" max={100} min={0} onChange={(event) => onChange({ ...value, volumeVideo: Number(event.target.value) })} step={1} type="range" value={value.volumeVideo} />
+              </label>
+            </div>
+          ) : null}
+          <p className="text-xs leading-5 text-[var(--ms-muted)]">O Instagram não mostra prévia: o Reel sai com estes volumes. Sugestão: música 15–20, voz 100.</p>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -813,6 +950,7 @@ export function emptyDraft(date?: string): Draft {
     linkLabel: "",
     publicReply: "",
     aiGenerated: false, // post feito à mão começa sem o aviso; quem vem do Molde mostra o que veio
+    music: null,
     when: "schedule",
     date: date ?? dayKey(next),
     time: date ? "18:00" : `${String(next.getHours()).padStart(2, "0")}:00`,
@@ -840,6 +978,9 @@ export function draftFromPost(post: ContentPost): Draft {
     linkLabel: post.link_label ?? "",
     publicReply: post.public_reply ?? "",
     aiGenerated: Boolean(post.ai_generated),
+    music: post.musica_audio_id
+      ? { audioId: post.musica_audio_id, titulo: post.musica_titulo ?? "", volumeMusica: post.musica_volume ?? 20, volumeVideo: post.video_volume ?? 100 }
+      : null,
     when: post.status === "draft" || post.status === "canceled" ? "draft" : "schedule",
     date: dayKey(at),
     time: timeLabel(at),

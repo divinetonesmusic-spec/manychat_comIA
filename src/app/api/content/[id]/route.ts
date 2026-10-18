@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getContentPost } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
-import { aiColumnWarning, cancelPost, ContentError, editPost, removePost } from "@/lib/content/service";
+import { packageWarning, cancelPost, ContentError, editPost, removePost } from "@/lib/content/service";
 import { translateError } from "@/lib/content/scheduler";
 
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (!parsed.ok) throw new ContentError(parsed.error);
     const publishNow = parsed.publishNow || body.action === "publish_now" || body.action === "retry";
     const post = await editPost(id, parsed.value, publishNow);
-    warning = await aiColumnWarning(parsed.value); // aiGenerated:true sem a 0006 no Supabase não é guardado
+    warning = await packageWarning(parsed.value, post); // aiGenerated:true sem a 0006 (ou música sem a 0009 / sem a conexão pelo Facebook)
     return post;
   }, () => warning);
 }

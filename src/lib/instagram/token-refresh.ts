@@ -1,5 +1,7 @@
 import { listInstagramAccounts, updateToken } from "@/lib/db/repositories";
 import { refreshLongLivedToken } from "@/lib/instagram/client";
+import { listFacebookConnections, updateFacebookTokens } from "@/lib/db/facebook-connections";
+import { exchangeForLongLivedUserToken, getFacebookPageToken } from "@/lib/facebook/client";
 
 /** Avisar quando faltar menos que isto para o token vencer. */
 export const TOKEN_ALERT_DAYS = 10;
@@ -35,6 +37,36 @@ export async function refreshAllInstagramTokens(): Promise<TokenRefreshResult[]>
       results.push({ ...base, ok: true, expiresAt: expiresAt.toISOString() });
     } catch (error) {
       results.push({ ...base, ok: false, error: safeErrorMessage(error), tokenExpiresAt: toIso(account.token_expires_at) });
+    }
+  }
+  return results;
+}
+
+/**
+ * Renova a conexão pelo Facebook (música do Instagram) de cada conta que tem: troca o token de longa duração da pessoa
+ * por um novo (60 dias) e busca de novo o token da Página com ele (o da Página não vence). Cada conta tem a sua tentativa;
+ * renovada há menos de 24 h fica para o dia seguinte. Sem a 0009 ou sem FACEBOOK_APP_ID/SECRET: lista vazia. Nunca devolve token.
+ */
+export async function refreshAllFacebookTokens(now = new Date()): Promise<TokenRefreshResult[]> {
+  if (!process.env.FACEBOOK_APP_ID || !process.env.FACEBOOK_APP_SECRET) return [];
+  const [connections, accounts] = await Promise.all([listFacebookConnections(), listInstagramAccounts()]);
+  const usernames = new Map(accounts.map((account) => [account.id, account.instagram_username]));
+  const results: TokenRefreshResult[] = [];
+  for (const connection of connections) {
+    const base = { accountId: connection.account_id, username: `${usernames.get(connection.account_id) ?? connection.instagram_user_id} (Facebook)` };
+    const last = connection.last_token_refresh_at ? new Date(connection.last_token_refresh_at).getTime() : Number.NaN;
+    if (Number.isFinite(last) && now.getTime() - last < TOKEN_MIN_AGE_MS) {
+      results.push({ ...base, ok: true, skipped: true, expiresAt: toIso(connection.user_token_expires_at) });
+      continue;
+    }
+    try {
+      const token = await exchangeForLongLivedUserToken(connection.user_access_token);
+      const expiresAt = token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : null;
+      const page = await getFacebookPageToken(connection.page_id, token.access_token).catch(() => null);
+      await updateFacebookTokens({ accountId: connection.account_id, userAccessToken: token.access_token, userTokenExpiresAt: expiresAt, pageAccessToken: page?.access_token ?? null });
+      results.push({ ...base, ok: true, expiresAt: expiresAt ? expiresAt.toISOString() : null });
+    } catch (error) {
+      results.push({ ...base, ok: false, error: safeErrorMessage(error), tokenExpiresAt: toIso(connection.user_token_expires_at) });
     }
   }
   return results;
@@ -85,7 +117,11 @@ export function tokenRefreshAlerts(results: TokenRefreshResult[], now = new Date
 /** Mensagem de erro sem nenhum pedaço de token (o endereço da renovação leva o token na URL). */
 function safeErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "Erro desconhecido.");
-  return message.replace(/access_token=[^&\s]+/gi, "access_token=***").replace(/IG[A-Za-z0-9_-]{20,}/g, "***").slice(0, 300);
+  return message
+    .replace(/(access_token|fb_exchange_token|client_secret)=[^&\s]+/gi, "$1=***")
+    .replace(/IG[A-Za-z0-9_-]{20,}/g, "***")
+    .replace(/EAA[A-Za-z0-9_-]{20,}/g, "***")
+    .slice(0, 300);
 }
 
 function toIso(value: string | Date | null | undefined) {

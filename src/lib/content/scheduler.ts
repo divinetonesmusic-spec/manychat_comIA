@@ -38,7 +38,11 @@ import {
   listRecentInstagramMedia,
   publishInstagramMediaContainer,
   type InstagramPublishType,
+  type ReelAudio,
 } from "@/lib/instagram/client";
+import { FACEBOOK_GRAPH_BASE_URL } from "@/lib/env";
+import { facebookAccessToken, getFacebookConnection } from "@/lib/db/facebook-connections";
+import { MUSIC_FACEBOOK_EXPIRED, MUSIC_NEEDS_FACEBOOK } from "@/lib/facebook/audio";
 import { deleteR2Object, getR2Config, isProtectedKey, keyFromPublicUrl } from "@/lib/content/r2";
 import { findMatchingMedia, parseMetaTimestamp, type FeedMedia } from "@/lib/content/publish-check";
 import { notifyPostFailed, TELEGRAM_TIMEOUT_MS } from "@/lib/notify";
@@ -177,6 +181,12 @@ async function runCycleSteps(
           out.failed += 1;
           continue;
         }
+        if (error instanceof MusicPublishError) {
+          // Reel com música e a conexão pelo Facebook sumiu (ou venceu) no meio: não publica sem a música.
+          await markPostFailed(post, error.message, { containerId: post.container_id, pending });
+          out.failed += 1;
+          continue;
+        }
         await touchContentPost(post.id, translateError(error));
         out.waiting += 1;
       }
@@ -276,6 +286,40 @@ async function startOrDefer(post: ContentPost, config: Config, deadline: number)
   return "started";
 }
 
+/**
+ * Erro de um Reel com música do Instagram que não pode seguir (conta sem a conexão pelo Facebook, ou ela venceu).
+ * O post vira "Com erro" com a frase, sem publicar: nunca sai sem a música escolhida.
+ */
+export class MusicPublishError extends Error {}
+
+/** Por onde o post fala com a Meta: o de sempre (Instagram Login) ou, no Reel com música, o Facebook Login. */
+type PublishRoute = { instagramUserId: string; accessToken: string; graphBaseUrl?: string; audio: ReelAudio | null };
+
+/** Reel com música do Instagram escolhida (vídeo no feed também sai como Reel). */
+export function postWantsMusic(post: Pick<ContentPost, "musica_audio_id" | "publish_type">) {
+  return Boolean(post.musica_audio_id) && toInstagramPublishType(post.publish_type) === "reel_video";
+}
+
+/**
+ * Sem música: o caminho de sempre (graph.instagram.com, token da conta). Com música: graph.facebook.com com o token da
+ * conexão pelo Facebook, do começo ao fim (criar o container, conferir o status e publicar usam o mesmo endereço e token).
+ */
+async function publishRoute(post: ContentPost, config: Config): Promise<PublishRoute> {
+  if (!postWantsMusic(post)) {
+    return { instagramUserId: config.instagram_user_id as string, accessToken: config.instagram_access_token as string, audio: null };
+  }
+  const connection = await getFacebookConnection(post.account_id ?? config.account_id);
+  if (!connection) throw new MusicPublishError(MUSIC_NEEDS_FACEBOOK);
+  const accessToken = facebookAccessToken(connection);
+  if (!accessToken) throw new MusicPublishError(MUSIC_FACEBOOK_EXPIRED);
+  return {
+    instagramUserId: connection.instagram_user_id,
+    accessToken,
+    graphBaseUrl: FACEBOOK_GRAPH_BASE_URL,
+    audio: { audioId: post.musica_audio_id as string, audioVolume: post.musica_volume, videoVolume: post.video_volume },
+  };
+}
+
 export async function startPost(post: ContentPost, config: Config, deadline = Date.now() + 8000) {
   assertConnected(config);
   if (post.publish_type === "carousel") {
@@ -298,14 +342,16 @@ export async function startPost(post: ContentPost, config: Config, deadline = Da
     return;
   }
 
+  const route = await publishRoute(post, config); // Reel com música e sem a conexão pelo Facebook: para aqui, sem publicar
   const container = await createInstagramMediaContainer({
-    instagramUserId: config.instagram_user_id as string,
-    accessToken: config.instagram_access_token as string,
+    instagramUserId: route.instagramUserId,
+    accessToken: route.accessToken,
     publishType: toInstagramPublishType(post.publish_type),
     mediaUrl: post.media_url,
     coverUrl: post.cover_url,
     caption: post.caption,
     aiGenerated: post.ai_generated === true,
+    ...(route.audio ? { audio: route.audio, graphBaseUrl: route.graphBaseUrl } : {}),
   });
   await updateContentPostStatus({ id: post.id, status: "publishing", containerId: container.id, lastError: "A Meta está processando a mídia." });
 }
@@ -372,9 +418,11 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     return "waiting";
   }
 
+  // O container do Reel com música nasceu no graph.facebook.com: status e publicação seguem por lá, com o mesmo token.
+  const route = await publishRoute(post, config);
   let status: Awaited<ReturnType<typeof getInstagramMediaContainerStatus>>;
   try {
-    status = await getInstagramMediaContainerStatus(post.container_id as string, config.instagram_access_token as string);
+    status = await getInstagramMediaContainerStatus(post.container_id as string, route.accessToken, route.graphBaseUrl);
   } catch (error) {
     if (tooOld) return failTooOld(post, pending);
     throw error;
@@ -426,11 +474,12 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
     // Grava o pedido ANTES de chamar a Meta: se a função cair no meio, a próxima rodada confere em vez de repetir.
     await markPublishRequested(post.id);
     const published = await publishInstagramMediaContainer({
-      instagramUserId: config.instagram_user_id as string,
-      accessToken: config.instagram_access_token as string,
+      instagramUserId: route.instagramUserId,
+      accessToken: route.accessToken,
       containerId: post.container_id as string,
+      ...(route.graphBaseUrl ? { graphBaseUrl: route.graphBaseUrl } : {}),
     });
-    const media = await getPublishedInstagramMedia(published.id, config.instagram_access_token as string).catch(() => null);
+    const media = await getPublishedInstagramMedia(published.id, route.accessToken, route.graphBaseUrl).catch(() => null);
     await finishPublished(post, config, { id: published.id, permalink: media?.permalink ?? null }, { locked: true });
     return "published";
   }
@@ -547,7 +596,8 @@ export async function confirmEarlierPublish(post: ContentPost): Promise<EarlierP
   let containerUnknown = false;
   if (post.container_id) {
     try {
-      containerStatus = (await getInstagramMediaContainerStatus(post.container_id, config.instagram_access_token)).status_code ?? null;
+      const route = await publishRoute(post, config); // Reel com música: o container está no graph.facebook.com
+      containerStatus = (await getInstagramMediaContainerStatus(post.container_id, route.accessToken, route.graphBaseUrl)).status_code ?? null;
     } catch {
       containerUnknown = true;
     }
@@ -650,8 +700,12 @@ function isAiRefusal(error: unknown) {
 
 export function translateError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "Erro desconhecido.");
+  // Frase pronta do Reel com música sem a conexão pelo Facebook: vai como está.
+  if (error instanceof MusicPublishError) return error.message;
   // Antes das outras regras: a Meta recusou o aviso de IA. O post falha; o aviso nunca sai calado.
   if (isAiRefusal(error)) return AI_REFUSED_MESSAGE;
+  // A Meta recusou a música escolhida (id inválido, música indisponível para a conta ou região).
+  if (/audio_configuration|audio_id|\bmusic\b/i.test(message)) return `A Meta recusou a música do Instagram escolhida. Escolha outra música (ou tire a música) e tente de novo. (${message.replace(/^Instagram Graph v\d+\.\d+:\s*/i, "").slice(0, 200)})`;
   if (/content_publish|permission/i.test(message)) return "Falta a permissão de publicar. Reconecte o perfil aceitando instagram_business_content_publish.";
   if (/Media ID is not available|not ready/i.test(message)) return "A mídia ainda não terminou de processar na Meta.";
   if (/aspect ratio|resolution|duration|codec/i.test(message)) return "A Meta recusou o vídeo (formato, duração ou resolução). Reels: MP4 H.264, 9:16, de 3 s a 15 min.";

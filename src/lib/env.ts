@@ -2,6 +2,12 @@
 export const GRAPH_BASE_URL = `https://graph.instagram.com/${META_API_VERSION}`;
 export const IG_OAUTH_AUTHORIZE_URL = "https://www.instagram.com/oauth/authorize";
 export const IG_OAUTH_TOKEN_URL = "https://api.instagram.com/oauth/access_token";
+/**
+ * "Instagram API with Facebook Login" (graph.facebook.com): só ela tem a Audio API (música do Instagram nos Reels).
+ * O resto do UaiFlow usa o "Instagram API with Instagram Login" (graph.instagram.com, acima).
+ */
+export const FACEBOOK_GRAPH_BASE_URL = `https://graph.facebook.com/${META_API_VERSION}`;
+export const FB_OAUTH_AUTHORIZE_URL = `https://www.facebook.com/${META_API_VERSION}/dialog/oauth`;
 
 export function requireEnv(name: string): string {
   const value = process.env[name];

@@ -7,6 +7,7 @@ import { getCurrentWorkspaceContext } from "@/lib/workspace";
 import { getSelectedAccountId, hrefWithAccount, type AccountRouteSearchParams } from "@/lib/account-routing";
 import { toPublicConfig } from "@/lib/instagram/public-account";
 import { createLoginLinkToken } from "@/lib/oauth-state";
+import { listFacebookConnectedAccountIds } from "@/lib/db/facebook-connections";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +22,12 @@ export default async function PerfisPage({ searchParams }: Props) {
     listPublicInstagramAccounts(),
   ]);
   const activeAccountId = getSelectedAccountId(params, accounts);
-  const [config, settings, automations] = await Promise.all([
+  const [config, settings, automations, facebookAccountIds] = await Promise.all([
     getConfig(activeAccountId),
     getProfileSettings(activeAccountId),
     listAutomations(activeAccountId),
+    // só os ids das contas com a conexão pelo Facebook (nunca o token)
+    listFacebookConnectedAccountIds().catch(() => [] as string[]),
   ]);
   const connected = Boolean(config.instagram_user_id);
   const next = encodeURIComponent(hrefWithAccount("/perfis", activeAccountId));
@@ -48,7 +51,7 @@ export default async function PerfisPage({ searchParams }: Props) {
         }
       />
 
-      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={toPublicConfig(config)} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} connectPath={connectPath} />
+      <PerfisClient key={activeAccountId ?? "sem-perfil"} accounts={accounts} automations={automations} config={toPublicConfig(config)} settings={settings} activeAccountId={activeAccountId} metaDeveloperUrl={metaDeveloperUrl} connectPath={connectPath} facebookAccountIds={facebookAccountIds} />
     </AppFrame>
   );
 }

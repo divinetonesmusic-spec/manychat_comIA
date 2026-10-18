@@ -197,6 +197,32 @@ export type InstagramCarouselMediaItem = {
   coverUrl?: string | null;
 };
 
+/** Volume aceito pela Meta: inteiro de 0 a 100. Fora disso (ou inválido) vira o padrão. */
+export function clampVolume(value: unknown, fallback: number) {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(100, Math.max(0, Math.round(number)));
+}
+
+/** Padrões da música do Instagram: música baixa (20) e a voz/vídeo cheia (100). */
+export const DEFAULT_MUSIC_VOLUME = 20;
+export const DEFAULT_VIDEO_VOLUME = 100;
+
+export type ReelAudio = { audioId: string; audioVolume?: number | null; videoVolume?: number | null };
+
+/**
+ * audio_configuration da Audio API (só no "Instagram API with Facebook Login"): id da música e os dois volumes (0 a 100).
+ * should_loop_audio = false, como no exemplo da Meta: a música não recomeça se o vídeo for mais longo.
+ */
+export function buildAudioConfiguration(audio: ReelAudio) {
+  return {
+    audio_id: audio.audioId,
+    audio_volume: clampVolume(audio.audioVolume, DEFAULT_MUSIC_VOLUME),
+    video_volume: clampVolume(audio.videoVolume, DEFAULT_VIDEO_VOLUME),
+    should_loop_audio: false,
+  };
+}
+
 export async function createInstagramMediaContainer(input: {
   instagramUserId: string;
   accessToken: string;
@@ -206,8 +232,15 @@ export async function createInstagramMediaContainer(input: {
   coverUrl?: string | null;
   /** Aviso "feito com IA". Só vai quando for verdadeiro; falso ou ausente deixa o corpo como sempre foi. */
   aiGenerated?: boolean;
+  /**
+   * Música do Instagram (só Reel). Exige o token e o endereço do "Facebook Login" (graphBaseUrl = graph.facebook.com);
+   * sem ela o corpo fica como sempre foi.
+   */
+  audio?: ReelAudio | null;
+  /** Endereço da Graph API. Padrão: graph.instagram.com (Instagram Login), o de sempre. */
+  graphBaseUrl?: string;
 }) {
-  const url = new URL(`${GRAPH_BASE_URL}/${input.instagramUserId}/media`);
+  const url = new URL(`${input.graphBaseUrl ?? GRAPH_BASE_URL}/${input.instagramUserId}/media`);
   const body: Record<string, unknown> = {
     caption: input.caption || "",
   };
@@ -218,6 +251,7 @@ export async function createInstagramMediaContainer(input: {
     body.video_url = input.mediaUrl;
     body.share_to_feed = true;
     if (input.coverUrl) body.cover_url = input.coverUrl;
+    if (input.audio?.audioId) body.audio_configuration = JSON.stringify(buildAudioConfiguration(input.audio));
   } else if (input.publishType === "story_video") {
     body.media_type = "STORIES";
     body.video_url = input.mediaUrl;
@@ -279,8 +313,8 @@ export async function createInstagramCarouselContainer(input: {
   });
 }
 
-export async function getInstagramMediaContainerStatus(containerId: string, accessToken: string) {
-  const url = new URL(`${GRAPH_BASE_URL}/${containerId}`);
+export async function getInstagramMediaContainerStatus(containerId: string, accessToken: string, graphBaseUrl: string = GRAPH_BASE_URL) {
+  const url = new URL(`${graphBaseUrl}/${containerId}`);
   url.searchParams.set("fields", "id,status_code,status");
   return graphFetch<{ id: string; status_code?: string; status?: string }>(url, accessToken);
 }
@@ -289,16 +323,18 @@ export async function publishInstagramMediaContainer(input: {
   instagramUserId: string;
   accessToken: string;
   containerId: string;
+  /** O mesmo endereço em que o container foi criado (graph.facebook.com quando o Reel leva música). */
+  graphBaseUrl?: string;
 }) {
-  const url = new URL(`${GRAPH_BASE_URL}/${input.instagramUserId}/media_publish`);
+  const url = new URL(`${input.graphBaseUrl ?? GRAPH_BASE_URL}/${input.instagramUserId}/media_publish`);
   return graphFetch<{ id: string }>(url, input.accessToken, {
     method: "POST",
     body: JSON.stringify({ creation_id: input.containerId }),
   });
 }
 
-export async function getPublishedInstagramMedia(mediaId: string, accessToken: string) {
-  const url = new URL(`${GRAPH_BASE_URL}/${mediaId}`);
+export async function getPublishedInstagramMedia(mediaId: string, accessToken: string, graphBaseUrl: string = GRAPH_BASE_URL) {
+  const url = new URL(`${graphBaseUrl}/${mediaId}`);
   url.searchParams.set("fields", "id,permalink,media_type,timestamp");
   return graphFetch<{ id: string; permalink?: string }>(url, accessToken);
 }
@@ -567,7 +603,7 @@ function metaTimeoutMs() {
 }
 
 /** fetch com prazo de 8 s. Estourou: MetaApiError do tipo "timeout" (erro temporário). */
-async function metaFetch(input: URL | string, init: RequestInit = {}) {
+export async function metaFetch(input: URL | string, init: RequestInit = {}) {
   const timeoutMs = metaTimeoutMs();
   try {
     return await fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) });
@@ -580,7 +616,7 @@ async function metaFetch(input: URL | string, init: RequestInit = {}) {
   }
 }
 
-async function graphFetch<T>(url: URL, accessToken: string, init: RequestInit = {}) {
+export async function graphFetch<T>(url: URL, accessToken: string, init: RequestInit = {}) {
   const response = await metaFetch(url, {
     ...init,
     headers: {
@@ -593,7 +629,7 @@ async function graphFetch<T>(url: URL, accessToken: string, init: RequestInit = 
   return readGraphResponse<T>(response);
 }
 
-async function readGraphResponse<T>(response: Response): Promise<T> {
+export async function readGraphResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as GraphResponse<T>;
 
   if (!response.ok || payload.error) {

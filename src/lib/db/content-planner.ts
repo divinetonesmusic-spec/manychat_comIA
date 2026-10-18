@@ -23,9 +23,19 @@ export type PostPackage = {
   automationOptions?: AutomationOptions;
   /** "Feito com IA": o Instagram mostra o aviso no post. Ausente = não mexe (post novo começa sem aviso). */
   aiGenerated?: boolean;
+  /** Música do Instagram (só Reel). Objeto = escolhe/troca; null = tira; ausente = não mexe (post novo começa sem). */
+  music?: MusicChoice | null;
   source?: string;
   externalRef?: string | null;
 };
+
+/** Música da biblioteca do Instagram escolhida para o Reel (volumes de 0 a 100). */
+export type MusicChoice = { audioId: string; titulo: string | null; volumeMusica: number; volumeVideo: number };
+
+/** Só Reel (e vídeo no feed, que sai como Reel) leva música do Instagram. */
+function reelType(type: ContentPublishType) {
+  return type === "reel_video" || type === "feed_video";
+}
 
 export type AutomationOptions = {
   quickReplyLabel?: string;
@@ -42,12 +52,16 @@ export async function createPlannedPost(input: PostPackage): Promise<ContentPost
   const status = input.scheduledAt ? "scheduled" : "draft";
   // A coluna ai_generated vem da migração 0006; sem ela, grava como antes (e o aviso de IA não vai).
   const withAi = await hasAiGeneratedColumn();
+  // Colunas da música vêm da 0009; sem ela (ou sem música, ou se não for Reel) grava como antes.
+  const music = input.music && reelType(input.publishType) && (await hasMusicColumns()) ? input.music : null;
+  const extraColumns = [...(withAi ? ["ai_generated"] : []), ...(music ? ["musica_audio_id", "musica_titulo", "musica_volume", "video_volume"] : [])];
+  const extraValues = [...(withAi ? [input.aiGenerated === true] : []), ...(music ? [music.audioId, music.titulo, music.volumeMusica, music.volumeVideo] : [])];
   const { rows } = await query<ContentPost>(
     `insert into public.content_posts (
        account_id, publish_type, title, caption, media_url, cover_url, media_items, media_keys, status,
        scheduled_at, first_comment, keyword, dm_text, link_url, link_label, public_reply, source, external_ref,
-       automation_options${withAi ? ", ai_generated" : ""}
-     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19${withAi ? ",$20" : ""})
+       automation_options${extraColumns.map((column) => `, ${column}`).join("")}
+     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19${extraColumns.map((_, index) => `,$${20 + index}`).join("")})
      returning *`,
     [
       accountId,
@@ -69,7 +83,7 @@ export async function createPlannedPost(input: PostPackage): Promise<ContentPost
       input.source ?? "manual",
       input.externalRef ?? null,
       JSON.stringify(input.automationOptions ?? {}),
-      ...(withAi ? [input.aiGenerated === true] : []),
+      ...extraValues,
     ],
   );
   return rows[0];
@@ -136,13 +150,23 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
   // Só mexe no aviso de IA quando a edição traz o campo (e a coluna da 0006 existe); sem o campo, mantém o que está.
   const setAi = input.aiGenerated !== undefined && (await hasAiGeneratedColumn());
   const aiClause = setAi ? ", ai_generated = $19" : "";
+  // Música (0009): troca quando a edição traz o campo; e some se o post deixou de ser Reel (só Reel leva música).
+  const withMusic = await hasMusicColumns();
+  const musicValues: unknown[] = [];
+  let musicClause = "";
+  if (withMusic && (input.music !== undefined || (current.musica_audio_id && !reelType(next.publish_type)))) {
+    const music = input.music && reelType(next.publish_type) ? input.music : null;
+    const base = 19 + (setAi ? 1 : 0);
+    musicClause = `, musica_audio_id = $${base}, musica_titulo = $${base + 1}, musica_volume = $${base + 2}, video_volume = $${base + 3}`;
+    musicValues.push(music?.audioId ?? null, music?.titulo ?? null, music?.volumeMusica ?? 20, music?.volumeVideo ?? 100);
+  }
   const { rows } = await query<ContentPost>(
     `update public.content_posts set
        publish_type = $2, title = $3, caption = $4, media_url = $5, cover_url = $6, media_items = $7,
        media_keys = $8, scheduled_at = $9, first_comment = $10, keyword = $11, dm_text = $12,
        link_url = $13, link_label = $14, public_reply = $15, status = $16, last_error = null,
        container_id = null, attempts = 0, automation_options = $17, publishing_started_at = null, lock_until = null,
-       media_deleted_at = case when $18 then null else media_deleted_at end${aiClause}${resetRequest}
+       media_deleted_at = case when $18 then null else media_deleted_at end${aiClause}${musicClause}${resetRequest}
      where id = $1
      returning *`,
     [
@@ -150,6 +174,7 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
       next.media_keys, next.scheduled_at, next.first_comment, next.keyword, next.dm_text, next.link_url,
       next.link_label, next.public_reply, status, JSON.stringify(next.automation_options), newMedia,
       ...(setAi ? [input.aiGenerated === true] : []),
+      ...musicValues,
     ],
   );
   return rows[0] ?? null;
@@ -227,6 +252,8 @@ function columnProbe(column: string) {
 export const hasPublishRequestedColumn = columnProbe("publish_requested_at");
 export const hasAiGeneratedColumn = columnProbe("ai_generated");
 export const hasMetaLimitWaitsColumn = columnProbe("meta_limit_waits");
+/** Música do Instagram (0009): musica_audio_id, musica_titulo, musica_volume e video_volume chegam juntas. */
+export const hasMusicColumns = columnProbe("video_volume");
 
 /** Grava a hora do pedido de publicação ANTES de chamar o media_publish. Sem a 0003, não faz nada. */
 export async function markPublishRequested(id: string) {

@@ -7,6 +7,9 @@ const falsas: Record<string, string> = {
   INSTAGRAM_APP_ID: "123456789",
   INSTAGRAM_APP_SECRET: "segredo-falso-do-app-da-meta",
   INSTAGRAM_REDIRECT_URI: "https://uaiflow.teste/api/oauth/callback",
+  // App da Meta do Login do Facebook (música do Instagram). Falso.
+  FACEBOOK_APP_ID: "987654321",
+  FACEBOOK_APP_SECRET: "segredo-falso-do-app-do-facebook",
   WORKER_SECRET: "segredo-falso-do-relogio-com-mais-de-32-caracteres",
   ADMIN_SESSION_SECRET: "segredo-falso-da-sessao-com-mais-de-32-caracteres",
   MOLDE_API_TOKEN: "token-falso-do-molde-0123456789abcdef",

@@ -53,3 +53,7 @@ A verificacao GET do webhook compara `hub.verify_token` com `WEBHOOK_VERIFY_TOKE
 3. Confirme que o perfil aparece na tela.
 4. Crie uma automacao com uma palavra-chave simples.
 5. Comente essa palavra em um post/reel da conta conectada ou envie uma DM de teste.
+
+## Música do Instagram (opcional)
+
+Para publicar Reels com música da biblioteca do Instagram, cada conta precisa também de uma conexão pelo **Login do Facebook** (a Audio API da Meta só existe nesse caminho). Passo a passo, permissões, variáveis (`FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`) e a migração 0009: [musica-instagram.md](musica-instagram.md).

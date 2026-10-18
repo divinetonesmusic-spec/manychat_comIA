@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listPostsBySource } from "@/lib/db/content-planner";
 import { parsePostPackage } from "@/lib/content/package";
-import { aiColumnWarning, ContentError, savePostPackage } from "@/lib/content/service";
+import { packageWarning, ContentError, savePostPackage } from "@/lib/content/service";
 import { PUBLISH_NOW_NOTICE, translateError } from "@/lib/content/scheduler";
 import { checkMoldeToken, publicView } from "@/lib/content/molde-auth";
 
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // "notice" é campo novo (só acréscimo): o "Publicar agora" não publica na hora, o relógio termina em até 2 min.
     // "warning" (campo novo, só acréscimo): aiGenerated:true sem a 0006 no Supabase não é guardado; o Molde trata como bloqueio.
     // Vai também dentro de "data" porque o robô do Mac (0.9.1) devolve só o "data" à página.
-    const warning = await aiColumnWarning(parsed.value);
+    const warning = await packageWarning(parsed.value, post);
     const data = post ? { ...publicView(post), ...(parsed.publishNow && post.status === "publishing" ? { notice: PUBLISH_NOW_NOTICE } : {}), ...(warning ? { warning } : {}) } : null;
     return NextResponse.json({ data, created, ...(warning ? { warning } : {}) }, { status: created ? 201 : 200 });
   } catch (error) {

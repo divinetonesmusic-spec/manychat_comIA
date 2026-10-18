@@ -18,7 +18,7 @@ const semBuild = existsSync(path.join(ROOT, ".next", "BUILD_ID")) ? false : "sem
 const motivo = semBanco || semBuild;
 const PORT = 3400 + (process.pid % 400);
 const BASE = `http://127.0.0.1:${PORT}`;
-const TOKEN = /IGAA-TESTE/;
+const TOKEN = /IGAA-TESTE|FB-TESTE/; // FB-TESTE: tokens da conexão pelo Facebook (música do Instagram)
 
 describe("depois do build: nenhum token no HTML e link de conexão funcionando", { skip: motivo }, () => {
   let db: TestDatabase;
@@ -34,6 +34,12 @@ describe("depois do build: nenhum token no HTML e link de conexão funcionando",
     secondAccountId = await seedAccount(db, { username: "payoff_teste", userId: "2002", token: "IGAA-TESTE-VAZOU-PAYOFF", isDefault: false });
     await db.sql(
       `update public.config set instagram_access_token = 'IGAA-TESTE-VAZOU-CONFIG', instagram_user_id = '2001', instagram_username = 'ruthie_teste' where id = true`,
+    );
+    // conexão pelo Facebook (0009) do segundo perfil: os tokens dela também não podem ir para o navegador
+    await db.sql(
+      `insert into public.instagram_facebook_connections (account_id, instagram_user_id, page_id, page_name, user_access_token, page_access_token)
+       values ($1, '2002', 'page-teste', 'Página teste', 'FB-TESTE-VAZOU-USUARIO', 'FB-TESTE-VAZOU-PAGINA')`,
+      [secondAccountId],
     );
     [{ id: automationId }] = await db.sql<{ id: string }>("insert into public.automations (account_id, name, keywords) values ($1, 'Fluxo de teste', array['EBOOK']) returning id", [secondAccountId]);
 

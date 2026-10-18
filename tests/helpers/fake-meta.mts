@@ -4,7 +4,7 @@
  * Baseado no simulador da auditoria (fetch-mock.cjs), com estado em memória por teste.
  */
 
-export type FakeCall = { method: string; host: string; path: string; search: URLSearchParams; body: Record<string, unknown> };
+export type FakeCall = { method: string; host: string; path: string; search: URLSearchParams; body: Record<string, unknown>; auth: string | null };
 
 export type FakeMedia = { id: string; caption: string; timestamp: string; permalink: string };
 
@@ -51,6 +51,14 @@ export type FakeMeta = {
   r2Fails: number | null;
   /** Baldes do R2 que receberam alguma chamada (o primeiro pedaço do caminho). */
   r2Buckets: Set<string>;
+  /** Login do Facebook (graph.facebook.com): Páginas devolvidas em GET /me/accounts. */
+  facebookPages: Array<{ id: string; name?: string; access_token?: string; instagram_business_account?: { id: string; username?: string } }>;
+  /** Músicas devolvidas em GET /ig_audio (Audio API). */
+  igAudio: Array<Record<string, unknown>>;
+  /** Se definido, GET /ig_audio responde este erro da Meta. */
+  igAudioError: string | null;
+  /** Tokens do Facebook cuja troca (fb_exchange_token) a Meta recusa. */
+  facebookRefreshFails: Set<string>;
   reset: () => void;
   restore: () => void;
 };
@@ -85,6 +93,10 @@ export function installFakeMeta(): FakeMeta {
     r2: new Map(),
     r2Fails: null,
     r2Buckets: new Set(),
+    facebookPages: [],
+    igAudio: [],
+    igAudioError: null,
+    facebookRefreshFails: new Set(),
     reset: () => {
       fake.calls.length = 0;
       fake.containerStatus.clear();
@@ -106,6 +118,10 @@ export function installFakeMeta(): FakeMeta {
       fake.r2.clear();
       fake.r2Fails = null;
       fake.r2Buckets.clear();
+      fake.facebookPages = [];
+      fake.igAudio = [];
+      fake.igAudioError = null;
+      fake.facebookRefreshFails.clear();
       containerCaption.clear();
     },
     restore: () => {
@@ -123,7 +139,8 @@ export function installFakeMeta(): FakeMeta {
 
     const body = await readBody(init.body);
     const path = url.pathname.replace(/^\/v\d+\.\d+/, "");
-    fake.calls.push({ method, host: url.hostname, path, search: url.searchParams, body });
+    const auth = new Headers(init.headers ?? request?.headers ?? undefined).get("authorization");
+    fake.calls.push({ method, host: url.hostname, path, search: url.searchParams, body, auth });
     const id = path.split("/").filter(Boolean)[0] ?? "";
     const fields = url.searchParams.get("fields") || "";
 
@@ -152,6 +169,26 @@ export function installFakeMeta(): FakeMeta {
       }
       fake.telegram.push({ token: match[1], body });
       return json({ ok: true, result: { message_id: fake.telegram.length } });
+    }
+
+    // Login do Facebook e Audio API (graph.facebook.com). Criar container, status e media_publish caem nas regras comuns abaixo.
+    if (url.hostname === "graph.facebook.com") {
+      if (path === "/oauth/access_token") {
+        const old = url.searchParams.get("fb_exchange_token");
+        if (old !== null) {
+          if (fake.facebookRefreshFails.has(old)) return json({ error: { message: "Error validating access token: Session has expired", code: 190 } }, 400);
+          return json({ access_token: `FB-TESTE-LONGO-${++seq}`, token_type: "bearer", expires_in: 5_184_000 });
+        }
+        if (!url.searchParams.get("code")) return json({ error: { message: "Missing code" } }, 400);
+        return json({ access_token: "FB-TESTE-CURTO", token_type: "bearer" });
+      }
+      if (path === "/me") return json({ id: "fb-user-1", name: "Pessoa Teste" });
+      if (path === "/me/accounts") return json({ data: fake.facebookPages });
+      if (path === "/ig_audio") {
+        if (fake.igAudioError) return json({ error: { message: fake.igAudioError, code: 100 } }, 400);
+        return json({ audio: fake.igAudio });
+      }
+      if (method === "GET" && fields === "access_token") return json({ id, access_token: `FB-TESTE-PAGINA-${++seq}` });
     }
 
     // Login do Instagram (troca do código por token curto e longo)

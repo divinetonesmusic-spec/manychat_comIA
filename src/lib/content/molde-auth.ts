@@ -39,10 +39,23 @@ export function publicView(post: ContentPost) {
     mediaDeleted: Boolean(post.media_deleted_at),
     keyword: post.keyword,
     aiGenerated: Boolean(post.ai_generated),
+    /** Música do Instagram do Reel (null = sem música). Precisa da 0009. */
+    musica: musicView(post),
     automationId: post.automation_id,
     firstCommentDone: Boolean(post.first_comment_id),
     insights: post.insights ?? {},
     insightsAt: post.insights_at,
+  };
+}
+
+/** A música do post no formato que o Molde manda: { audioId, titulo, volumeMusica, volumeVideo } ou null. */
+export function musicView(post: ContentPost) {
+  if (!post.musica_audio_id) return null;
+  return {
+    audioId: post.musica_audio_id,
+    titulo: post.musica_titulo ?? null,
+    volumeMusica: post.musica_volume ?? 20,
+    volumeVideo: post.video_volume ?? 100,
   };
 }
 

@@ -37,6 +37,8 @@ type Props = {
   metaDeveloperUrl: string;
   /** Link de conexão com token assinado (30 min), gerado no servidor. */
   connectPath: string;
+  /** Contas que também estão conectadas pelo Facebook (libera a música do Instagram nos Reels). Só ids, nunca token. */
+  facebookAccountIds?: string[];
 };
 
 type Notice = { tone: "success" | "error"; text: string } | null;
@@ -60,7 +62,7 @@ type BusyAction = "save" | "load_menu" | "sync_menu" | "delete_menu" | "load_ice
 const emptyMenuItem: PersistentMenuItem = { title: "", type: "postback", payload: "" };
 const emptyIceBreaker: IceBreakerItem = { question: "", payload: "" };
 
-export function PerfisClient({ accounts, automations, config, settings, activeAccountId = null, metaDeveloperUrl, connectPath }: Props) {
+export function PerfisClient({ accounts, automations, config, settings, activeAccountId = null, metaDeveloperUrl, connectPath, facebookAccountIds = [] }: Props) {
   const [draft, setDraft] = useState(settings);
   const [notice, setNotice] = useState<Notice>(null);
   const [busy, setBusy] = useState<BusyAction>(null);
@@ -370,6 +372,15 @@ export function PerfisClient({ accounts, automations, config, settings, activeAc
                     {diagnosticBusyId === account.id ? <Loader2 className="animate-spin" size={15} /> : <Activity size={15} />}
                     Testar conexão
                   </button>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--ms-border)] pt-3">
+                  {facebookAccountIds.includes(account.id)
+                    ? <span className="status-pill status-pill-green" title="Já dá para pôr música do Instagram nos Reels desta conta">Facebook conectado (música)</span>
+                    : <span className="text-xs text-[var(--ms-muted)]">Música do Instagram nos Reels pede a conexão pelo Facebook.</span>}
+                  <a className="btn-secondary h-9" href={`/api/oauth/facebook/login?conta=${encodeURIComponent(account.id)}&next=${encodeURIComponent(hrefWithAccount("/perfis", account.id))}`}>
+                    <ExternalLink size={15} />
+                    {facebookAccountIds.includes(account.id) ? "Reconectar pelo Facebook" : "Conectar pelo Facebook"}
+                  </a>
                 </div>
                 {diagnostic ? <DiagnosticPanel result={diagnostic} /> : null}
               </article>

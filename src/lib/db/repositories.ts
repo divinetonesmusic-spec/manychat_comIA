@@ -264,6 +264,13 @@ export type ContentPost = {
   ai_generated?: boolean;
   /** Esperas seguidas por limite de uso da Meta (0007). */
   meta_limit_waits?: number;
+  /** Música do Instagram (0009; ausente sem ela). Vazio = sem música (o post sai como sempre). Só Reel. */
+  musica_audio_id?: string | null;
+  musica_titulo?: string | null;
+  /** Volume da música, 0 a 100 (padrão 20). */
+  musica_volume?: number;
+  /** Volume da voz/vídeo original, 0 a 100 (padrão 100). */
+  video_volume?: number;
 };
 export type InboxConversationMessage = {
   id: string;

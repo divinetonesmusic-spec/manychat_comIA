@@ -48,6 +48,15 @@ if (!r2Set.length) warnings.push("R2 nao configurado: o planner aceita so links 
 if (process.env.MOLDE_API_TOKEN && process.env.MOLDE_API_TOKEN.length < 24) warnings.push("MOLDE_API_TOKEN deve ter pelo menos 24 caracteres.");
 if (!process.env.MOLDE_API_TOKEN) warnings.push("MOLDE_API_TOKEN vazio: o Molde do Avatar nao consegue mandar posts para o planner.");
 
+// Música do Instagram (opcional): FACEBOOK_APP_ID e FACEBOOK_APP_SECRET juntas, ou nenhuma.
+const facebookKeys = ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"];
+const facebookSet = facebookKeys.filter((key) => process.env[key]);
+if (facebookSet.length === 1) warnings.push(`Login do Facebook incompleto (falta ${facebookKeys.filter((key) => !process.env[key]).join(", ")}). Sem as duas, não dá para pôr música do Instagram nos Reels (veja docs/musica-instagram.md).`);
+if (process.env.APP_BASE_URL && process.env.FACEBOOK_REDIRECT_URI) {
+  const expectedFacebook = `${process.env.APP_BASE_URL.replace(/\/$/, "")}/api/oauth/facebook/callback`;
+  if (process.env.FACEBOOK_REDIRECT_URI !== expectedFacebook) warnings.push(`FACEBOOK_REDIRECT_URI diferente de ${expectedFacebook}: confira se é o mesmo endereço cadastrado no Login do Facebook.`);
+}
+
 // Avisos pelo Telegram (opcional): as duas variáveis juntas, ou nenhuma.
 const telegramKeys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
 const telegramSet = telegramKeys.filter((key) => process.env[key]);

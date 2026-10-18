@@ -99,3 +99,39 @@ describe("nota do post agendado esperando vaga (limite de 100 por dia)", () => {
     assert.match(lastErrorClass("draft"), /text-red-500/);
   });
 });
+
+describe("bloco 'Música do Instagram' no formulário do Reel", () => {
+  const base = { account_id: "a", account_username: "c", publish_type: "reel_video", caption: "x", media_url: "https://midia.teste.invalid/a.mp4", cover_url: null, media_items: [], container_id: null, published_media_id: null, permalink: null, published_at: null, created_at: "2026-10-07T12:00:00Z", updated_at: "2026-10-07T12:00:00Z", scheduled_at: "2026-10-09T12:00:00Z", id: "p1", title: "Um", status: "scheduled", last_error: null };
+
+  async function formulario(initial: unknown, facebookConnected: boolean) {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { Composer } = await import("@/app/conteudo/conteudo-client");
+    return renderToStaticMarkup(createElement(Composer, { initial: initial as never, accountId: "conta-1", username: "conta", facebookConnected, onClose: () => undefined, onSaved: () => undefined, onRemoved: () => undefined }));
+  }
+
+  test("conta sem a conexão pelo Facebook: botão 'Conectar pelo Facebook' para a conta certa", async () => {
+    const { emptyDraft } = await import("@/app/conteudo/conteudo-client");
+    const html = await formulario(emptyDraft(), false);
+    assert.match(html, /Música do Instagram/);
+    assert.match(html, /href="\/api\/oauth\/facebook\/login\?conta=conta-1&amp;next=[^"]+"[^>]*>.*Conectar pelo Facebook/);
+    assert.doesNotMatch(html, /aria-label="Buscar música"/);
+  });
+
+  test("conta conectada com música escolhida: busca, os dois volumes, 'Tirar a música' e a nota", async () => {
+    const { draftFromPost } = await import("@/app/conteudo/conteudo-client");
+    const html = await formulario(draftFromPost({ ...base, musica_audio_id: "777", musica_titulo: "Lua · Banda", musica_volume: 15, video_volume: 100 } as never), true);
+    assert.match(html, /aria-label="Buscar música"/);
+    assert.match(html, /Lua · Banda/);
+    assert.match(html, /<input[^>]*aria-label="Volume da música"[^>]*value="15"/);
+    assert.match(html, /<input[^>]*aria-label="Volume da voz\/vídeo"[^>]*value="100"/);
+    assert.match(html, /Tirar a música/);
+    assert.match(html, /O Instagram não mostra prévia: o Reel sai com estes volumes\. Sugestão: música 15–20, voz 100\./);
+  });
+
+  test("só no Reel: carrossel e story não mostram o bloco", async () => {
+    const { draftFromPost } = await import("@/app/conteudo/conteudo-client");
+    assert.doesNotMatch(await formulario(draftFromPost({ ...base, publish_type: "story_video" } as never), true), /Música do Instagram/);
+    assert.doesNotMatch(await formulario(draftFromPost({ ...base, publish_type: "carousel" } as never), true), /Música do Instagram/);
+  });
+});
