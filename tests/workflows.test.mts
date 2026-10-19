@@ -31,8 +31,11 @@ describe("CI (.github/workflows/ci.yml)", () => {
     assert.match(passo?.run ?? "", /SKIP/, "confere que nada foi pulado");
     const pgDump = job.steps.findIndex((step) => /pg_dump --version/.test(step.run ?? ""));
     assert.ok(pgDump >= 0 && pgDump < job.steps.indexOf(passo!), "garante o pg_dump (teste da cópia do banco) antes do npm test");
-    const setupNode = job.steps.find((step) => step.uses?.startsWith("actions/setup-node"));
-    assert.ok(Number(setupNode?.with?.["node-version"]) >= 20, "Node 20 ou mais novo (--import tsx)");
+    // @supabase/supabase-js 2.110+ exige Node 22+ (WebSocket nativo); o Node 20 saiu de suporte em abril/2026.
+    for (const nome of ["quality", "testes"]) {
+      const setupNode = workflow.jobs[nome].steps.find((step) => step.uses?.startsWith("actions/setup-node"));
+      assert.ok(Number(setupNode?.with?.["node-version"]) >= 22, `${nome}: Node 22 ou mais novo (supabase-js exige)`);
+    }
   });
 
   test("scripts com sintaxe válida", () => assertBashSyntax("ci.yml", steps));
