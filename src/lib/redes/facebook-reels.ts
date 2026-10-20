@@ -91,3 +91,37 @@ export function readFbReelStatus(status: FbVideoStatus | undefined): { state: "e
   if (status.uploading_phase?.status === "complete" || status.video_status === "ready" || status.video_status === "upload_complete") return { state: "uploaded" };
   return { state: "waiting" };
 }
+
+/* ---------------- Foto na Página (imagem estática) ---------------- */
+
+/**
+ * Foto do feed na Página do Facebook (Pages API: POST /{page-id}/photos com url + caption, published=true). A Meta
+ * baixa a imagem do R2. Mesmo token e permissões do Reel da Página (pages_manage_posts).
+ */
+export function buildFbPhotoBody(input: { url: string; caption?: string | null }) {
+  const body: Record<string, string | boolean> = { url: input.url, published: true };
+  const caption = (input.caption ?? "").trim().slice(0, MAX_DESCRIPTION);
+  if (caption) body.caption = caption;
+  return body;
+}
+
+export async function publishFbPagePhoto(pageId: string, pageToken: string, input: { url: string; caption?: string | null }) {
+  return graphFetch<{ id: string; post_id?: string }>(new URL(`${FACEBOOK_GRAPH_BASE_URL}/${pageId}/photos`), pageToken, {
+    method: "POST",
+    body: JSON.stringify(buildFbPhotoBody(input)),
+  });
+}
+
+export async function getFbPostPermalink(postId: string, pageToken: string) {
+  const url = new URL(`${FACEBOOK_GRAPH_BASE_URL}/${postId}`);
+  url.searchParams.set("fields", "permalink_url");
+  const result = await graphFetch<{ permalink_url?: string }>(url, pageToken);
+  const link = result.permalink_url ?? "";
+  if (!link) return null;
+  return link.startsWith("http") ? link : `https://www.facebook.com${link.startsWith("/") ? "" : "/"}${link}`;
+}
+
+/** Link de reserva da foto/post quando a Meta não devolve o permalink_url. */
+export function fbPostFallbackLink(postId: string) {
+  return `https://www.facebook.com/${postId}`;
+}

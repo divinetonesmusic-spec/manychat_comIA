@@ -138,7 +138,7 @@ describe("botões que não faziam nada saíram; menu agrupado", () => {
     const rotulos = (trecho: string) => [...trecho.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]);
     const principal = shell.match(/const navigation = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
     const avancado = shell.match(/const advancedNavigation = \[([\s\S]*?)\] as const;/)?.[1] ?? "";
-    assert.deepEqual(rotulos(principal), ["Início", "Perfis", "Contatos", "Configurações"]);
+    assert.deepEqual(rotulos(principal), ["Início", "Perfis", "Contatos", "Vendas", "Configurações"]);
     assert.deepEqual(rotulos(avancado), ["Conteúdo", "Caixa de entrada", "Automações", "Fluxos"]);
     assert.ok(/<SidebarGroupLabel>Avançado<\/SidebarGroupLabel>/.test(shell));
   });

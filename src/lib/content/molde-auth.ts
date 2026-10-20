@@ -47,6 +47,8 @@ export function publicView(post: ContentPost) {
     redesStatus: redesStatusView(post),
     youtubePrivacidade: post.youtube_privacidade ?? "public",
     youtubeTitulo: post.youtube_titulo ?? null,
+    /** Destino do post (0011): { tipo, link } ou null. */
+    destino: post.destino_tipo ? { tipo: post.destino_tipo, link: post.destino_link ?? null } : null,
     automationId: post.automation_id,
     firstCommentDone: Boolean(post.first_comment_id),
     insights: post.insights ?? {},

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Activity, Contact, GitBranch, ImageIcon, Inbox, Settings, UserCircle, Workflow } from "lucide-react";
+import { Activity, Contact, GitBranch, ImageIcon, Inbox, Settings, ShoppingBag, UserCircle, Workflow } from "lucide-react";
 import { AppFrame, type AppSection } from "./app-frame";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -38,6 +38,12 @@ const labels: Record<AppSection, { eyebrow: string; title: string; description: 
     title: "Carregando contatos",
     description: "Organizando as pessoas e as últimas interações.",
     icon: <Contact size={20} />,
+  },
+  vendas: {
+    eyebrow: "Vendas",
+    title: "Carregando vendas",
+    description: "Somando o valor médio por comprador, a lista própria e os depoimentos.",
+    icon: <ShoppingBag size={20} />,
   },
   inbox: {
     eyebrow: "Caixa de entrada",

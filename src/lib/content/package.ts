@@ -2,7 +2,8 @@ import { isProtectedKey } from "@/lib/content/r2";
 import type { ContentMediaItem, ContentPublishType } from "@/lib/db/repositories";
 import type { AutomationOptions, MusicChoice, PostPackage } from "@/lib/db/content-planner";
 import { clampVolume, DEFAULT_MUSIC_VOLUME, DEFAULT_VIDEO_VOLUME } from "@/lib/instagram/client";
-import { isYoutubePrivacidade, parseRedes, REDES_INVALIDAS, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
+import { isYoutubePrivacidade, parseRedes, redesCompativeis, REDES_INVALIDAS, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
+import { parseDestino } from "@/lib/content/destino";
 
 /**
  * Lê e confere o "pacote" de um post vindo da tela de Conteúdo ou do Molde do Avatar:
@@ -58,9 +59,12 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
 
   const redes = parseRedes(body.redes);
   if (redes === "invalid") return { ok: false, error: REDES_INVALIDAS };
-  if (redes && redesExtras(redes.redes).length && publishType && !isReelType(publishType)) return { ok: false, error: REDES_SO_REEL };
+  if (redes && publishType && !redesCompativeis(publishType, redesExtras(redes.redes))) return { ok: false, error: REDES_SO_REEL };
   if (body.youtubePrivacidade !== undefined && !isYoutubePrivacidade(body.youtubePrivacidade)) return { ok: false, error: YOUTUBE_PRIVACIDADE_INVALIDA };
   const youtubeTitulo = body.youtubeTitulo === null ? null : optionalText(body.youtubeTitulo, 100)?.trim();
+
+  const destino = parseDestino(body);
+  if (destino && "erro" in destino) return { ok: false, error: destino.erro };
 
   const keyword = optionalText(body.keyword, 120);
   const dmText = optionalText(body.dmText, 1000);
@@ -93,6 +97,9 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
     redes: redes ? redes.redes : undefined,
     youtubePrivacidade: isYoutubePrivacidade(body.youtubePrivacidade) ? body.youtubePrivacidade : undefined,
     youtubeTitulo: youtubeTitulo === "" ? null : youtubeTitulo,
+    // destino (0011): objeto/campos = troca; null = tira; ausente = não mexe
+    destinoTipo: destino ? destino.tipo : undefined,
+    destinoLink: destino ? destino.link : undefined,
     source: optionalString(body.source)?.slice(0, 40),
     externalRef: optionalString(body.externalRef)?.slice(0, 200) ?? null,
   };

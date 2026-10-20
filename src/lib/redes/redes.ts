@@ -40,7 +40,23 @@ export function isRedeExtra(value: unknown): value is RedeExtra {
 }
 
 export const REDES_INVALIDAS = "redes inválidas: mande uma lista com instagram, facebook, threads e/ou youtube.";
-export const REDES_SO_REEL = "Facebook, Threads e YouTube só valem para Reel (vídeo).";
+export const REDES_SO_REEL = "Threads e YouTube só valem para Reel (vídeo). O Facebook (Página) aceita Reel ou foto do feed.";
+
+/** Tipos que saem como Reel na Meta (Reel e vídeo no feed): vão para todas as redes. */
+const TIPOS_REEL = new Set(["reel_video", "feed_video"]);
+
+/** Redes extras que aceitam este tipo de post: Reel = todas; foto do feed = só a Página do Facebook; o resto = nenhuma. */
+export function redesAceitas(publishType: string): RedeExtra[] {
+  if (TIPOS_REEL.has(publishType)) return [...REDES_EXTRAS];
+  if (publishType === "feed_image") return ["facebook"];
+  return [];
+}
+
+/** Todas as redes extras pedidas aceitam este tipo de post? */
+export function redesCompativeis(publishType: string, extras: readonly RedeExtra[]) {
+  const aceitas = redesAceitas(publishType);
+  return extras.every((rede) => aceitas.includes(rede));
+}
 
 /**
  * Lê o campo `redes`: undefined = ausente (não mexe); lista válida = as redes, sem repetir e sempre com o Instagram

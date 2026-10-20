@@ -1,10 +1,9 @@
 import type { ContentPost } from "@/lib/db/repositories";
 import { facebookCanPublish, claimDueRedes, getRedeRow, getThreadsConnection, getYoutubeConnection, saveRede, setYoutubeChannel, threadsAccessToken, updateYoutubeAccessToken, type RedeRow, type YoutubeConnection } from "@/lib/db/redes";
 import { getFacebookConnection } from "@/lib/db/facebook-connections";
-import { isMetaRateLimit } from "@/lib/instagram/client";
-import { isReelType } from "@/lib/content/package";
-import { isYoutubePrivacidade, REDE_NOME, type RedeExtra } from "@/lib/redes/redes";
-import { fbReelFallbackLink, finishFbReel, getFbReelPermalink, getFbReelStatus, readFbReelStatus, startFbReel, uploadFbReelByUrl } from "@/lib/redes/facebook-reels";
+import { isMetaRateLimit, MetaApiError } from "@/lib/instagram/client";
+import { isYoutubePrivacidade, REDE_NOME, redesAceitas, type RedeExtra } from "@/lib/redes/redes";
+import { fbPostFallbackLink, fbReelFallbackLink, finishFbReel, getFbPostPermalink, getFbReelPermalink, getFbReelStatus, publishFbPagePhoto, readFbReelStatus, startFbReel, uploadFbReelByUrl } from "@/lib/redes/facebook-reels";
 import { createThreadsVideoContainer, getThreadsContainerStatus, getThreadsPermalink, publishThreadsContainer } from "@/lib/redes/threads";
 import {
   buildYoutubeVideoResource,
@@ -65,13 +64,15 @@ export async function runRedesCycle(deadline: number): Promise<RedesCycleResult>
 /** Avança uma rede de um post (a linha já vem travada). Nunca joga erro para fora. */
 export async function advanceRede(row: RedeRow, post: ContentPost, deadline: number): Promise<Outcome> {
   try {
-    if (!isReelType(post.publish_type)) throw new RedeFatalError(`${REDE_NOME[row.rede]} só recebe Reel (vídeo).`);
-    if (post.media_deleted_at || !/^https?:\/\//i.test(post.media_url || "")) throw new RedeFatalError("A mídia do post não está mais no armazenamento. Envie o vídeo de novo.");
+    if (!redesAceitas(post.publish_type).includes(row.rede)) {
+      throw new RedeFatalError(row.rede === "facebook" ? "A Página do Facebook recebe Reel ou foto do feed." : `${REDE_NOME[row.rede]} só recebe Reel (vídeo).`);
+    }
+    if (post.media_deleted_at || !/^https?:\/\//i.test(post.media_url || "")) throw new RedeFatalError("A mídia do post não está mais no armazenamento. Envie a mídia de novo.");
     const startedAt = typeof row.estado?.inicio === "string" ? new Date(row.estado.inicio).getTime() : Number.NaN;
     if (Number.isFinite(startedAt) && Date.now() - startedAt > REDE_MAX_HORAS * 3600_000) {
       throw new RedeFatalError(`${REDE_NOME[row.rede]} não terminou de processar em ${REDE_MAX_HORAS} h. Toque em «Tentar de novo».`);
     }
-    if (row.rede === "facebook") return await advanceFacebook(row, post);
+    if (row.rede === "facebook") return post.publish_type === "feed_image" ? await advanceFacebookPhoto(row, post) : await advanceFacebook(row, post);
     if (row.rede === "threads") return await advanceThreads(row, post);
     return await advanceYoutube(row, post, deadline);
   } catch (error) {
@@ -180,6 +181,35 @@ async function advanceFacebook(row: RedeRow, post: ContentPost): Promise<Outcome
 async function finishedFacebook(row: RedeRow, videoId: string, pageToken: string) {
   const permalink = await getFbReelPermalink(videoId, pageToken).catch(() => null);
   return publishedRede(row, videoId, permalink ?? fbReelFallbackLink(videoId));
+}
+
+/**
+ * Foto do feed na Página: um pedido só. Grava "photo_requested" antes de chamar; se a Meta responder com erro, volta
+ * ao início (não saiu). Se a função cair no meio (sem resposta), a próxima rodada não repete às cegas: fica "Com erro"
+ * pedindo para conferir a Página (assim a foto nunca sai duas vezes).
+ */
+async function advanceFacebookPhoto(row: RedeRow, post: ContentPost): Promise<Outcome> {
+  const connection = await getFacebookConnection(post.account_id);
+  if (!connection || !facebookCanPublish(connection) || !connection.page_access_token) {
+    throw new RedeFatalError("Para publicar na Página do Facebook, conecte (ou reconecte) esta conta pelo Facebook em Perfis.");
+  }
+  if (row.etapa === "photo_requested") {
+    throw new RedeFatalError("A rodada anterior caiu no meio do envio da foto. Confira na Página se ela saiu; se não saiu, toque em «Tentar de novo».");
+  }
+  const pageToken = connection.page_access_token;
+  const estado: Record<string, unknown> = { ...(row.estado ?? {}), inicio: inicio(row) };
+  await saveRede(row.post_id, row.rede, { status: "processing", etapa: "photo_requested", estado, keepLock: true });
+  let result: { id: string; post_id?: string };
+  try {
+    result = await publishFbPagePhoto(connection.page_id, pageToken, { url: post.media_url, caption: post.caption });
+  } catch (error) {
+    // A Meta respondeu com erro (não publicou): volta ao início. Sem resposta (tempo esgotado): fica como pedido.
+    if (error instanceof MetaApiError && error.kind !== "timeout") await saveRede(row.post_id, row.rede, { etapa: null, keepLock: true });
+    throw error;
+  }
+  const postId = result.post_id || result.id;
+  const permalink = await getFbPostPermalink(postId, pageToken).catch(() => null);
+  return publishedRede(row, postId, permalink ?? fbPostFallbackLink(postId));
 }
 
 /* ---------------- Threads ---------------- */

@@ -75,6 +75,9 @@ if (chunkMb && !(Number(chunkMb.replace(",", ".")) > 0)) warnings.push("YOUTUBE_
 if (process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.startsWith("whsec_")) warnings.push("STRIPE_WEBHOOK_SECRET normalmente começa com whsec_ (o segredo de assinatura do endpoint, não a chave da API).");
 if (process.env.GUMROAD_WEBHOOK_KEY && process.env.GUMROAD_WEBHOOK_KEY.length < 24) warnings.push("GUMROAD_WEBHOOK_KEY deve ter pelo menos 24 caracteres (vai no endereço do ping).");
 if (process.env.CAKTO_WEBHOOK_SECRET && process.env.CAKTO_WEBHOOK_SECRET.length < 8) warnings.push("CAKTO_WEBHOOK_SECRET parece curto: copie o segredo exato do webhook na Cakto.");
+// E-mail do pedido de depoimento (opcional): as duas juntas, ou nenhuma.
+if (Boolean(process.env.RESEND_API_KEY) !== Boolean(process.env.EMAIL_REMETENTE)) warnings.push("E-mail incompleto: RESEND_API_KEY e EMAIL_REMETENTE vão juntas. Sem as duas, o pedido de depoimento não sai por e-mail (o painel Vendas mostra o link para mandar à mão).");
+if (process.env.EMAIL_REMETENTE && !/@/.test(process.env.EMAIL_REMETENTE)) warnings.push("EMAIL_REMETENTE precisa ter um e-mail, ex.: Nicolas <oi@seu-dominio.com>.");
 
 // Avisos pelo Telegram (opcional): as duas variáveis juntas, ou nenhuma.
 const telegramKeys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];

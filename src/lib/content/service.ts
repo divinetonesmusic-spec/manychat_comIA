@@ -6,6 +6,7 @@ import {
   findPostByExternalRef,
   getContentPost,
   hasAiGeneratedColumn,
+  hasDestinoColumns,
   hasMusicColumns,
   MEDIA_REMOVED_NOTE,
   updatePlannedPost,
@@ -18,7 +19,7 @@ import { facebookAccessToken, getFacebookConnection } from "@/lib/db/facebook-co
 import { MUSIC_FACEBOOK_EXPIRED, MUSIC_NEEDS_FACEBOOK } from "@/lib/facebook/audio";
 import { attachRedesOne, connectedRedesByAccount, hasRedesTables, retryRede, syncPostRedes } from "@/lib/db/redes";
 import { getInstagramAccountById } from "@/lib/db/repositories";
-import { isRedeExtra, REDE_NOME, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
+import { isRedeExtra, REDE_NOME, redesCompativeis, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
 
 /** Regras comuns da tela de Conteúdo e do Molde: criar/atualizar, publicar agora, cancelar e apagar. */
 export class ContentError extends Error {
@@ -71,9 +72,17 @@ export async function redesWarning(input: { redes?: unknown }, post: ContentPost
   return `Não conectado nesta conta: ${faltando.map((rede) => REDE_NOME[rede]).join(", ")}. Conecte em Perfis antes do horário; o Instagram sai normalmente.`;
 }
 
-/** Todos os avisos do pacote salvo (IA, música e redes), numa frase só. */
-export async function packageWarning(input: { aiGenerated?: boolean; music?: unknown; redes?: unknown }, post: ContentPost | null, avisos: string[] = []): Promise<string | undefined> {
-  const warnings = [...avisos, await aiColumnWarning(input), await musicWarning(input, post), await redesWarning(input, post)].filter(Boolean);
+/** Aviso quando o pacote traz o destino do post mas a 0011 ainda não foi colada (o destino não é guardado). */
+export const DESTINO_COLUMN_MISSING_WARNING = "Falta colar a atualização 0011 no Supabase: o destino do post não foi guardado.";
+
+export async function destinoWarning(input: { destinoTipo?: unknown }): Promise<string | undefined> {
+  if (input.destinoTipo === undefined) return undefined;
+  return (await hasDestinoColumns()) ? undefined : DESTINO_COLUMN_MISSING_WARNING;
+}
+
+/** Todos os avisos do pacote salvo (IA, música, redes e destino), numa frase só. */
+export async function packageWarning(input: { aiGenerated?: boolean; music?: unknown; redes?: unknown; destinoTipo?: unknown }, post: ContentPost | null, avisos: string[] = []): Promise<string | undefined> {
+  const warnings = [...avisos, await aiColumnWarning(input), await musicWarning(input, post), await redesWarning(input, post), await destinoWarning(input)].filter(Boolean);
   return warnings.length ? warnings.join(" ") : undefined;
 }
 
@@ -127,7 +136,7 @@ export async function editPost(id: string, input: Partial<PostPackage>, publishN
   const current = await getContentPost(id);
   if (!current) throw new ContentError("Post não encontrado.", 404);
   if (input.music && !isReelType(input.publishType ?? current.publish_type)) throw new ContentError("Música do Instagram só vale para Reel.");
-  if (redesExtras(input.redes ?? current.redes).length && !isReelType(input.publishType ?? current.publish_type) && (input.redes !== undefined || input.publishType !== undefined)) {
+  if (!redesCompativeis(input.publishType ?? current.publish_type, redesExtras(input.redes ?? current.redes)) && (input.redes !== undefined || input.publishType !== undefined)) {
     throw new ContentError(REDES_SO_REEL);
   }
   if ((publishNow || input.scheduledAt) && current.account_id) {
