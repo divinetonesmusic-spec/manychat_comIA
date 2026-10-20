@@ -27,6 +27,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { ContentMediaItem, ContentPost, ContentPublishType } from "@/lib/db/repositories";
+import { DESTINO_NOME, DESTINO_PEDE_LINK, DESTINOS, isDestino, type DestinoTipo } from "@/lib/content/destino";
 
 type Props = {
   activeAccountId: string | null;
@@ -79,6 +80,11 @@ type Draft = {
   youtubePrivacidade: YoutubePrivacidade;
   /** Resultado de cada rede (só leitura, do post salvo). */
   redesResultado: RedeResultado[];
+  /** Destino do post (0011): para onde leva quem viu, e o link. "" = sem destino. */
+  destinoTipo: DestinoTipo | "";
+  destinoLink: string;
+  /** O post salvo já tinha destino (para tirar, manda null). */
+  tinhaDestino?: boolean;
   when: When;
   date: string;
   time: string;
@@ -425,6 +431,8 @@ export function Composer({ initial, accountId, username, facebookConnected = fal
   const wantsVideo = draft.publishType === "reel_video" || draft.publishType === "story_video" || draft.publishType === "feed_video";
   const isStory = draft.publishType.startsWith("story");
   const isReel = draft.publishType === "reel_video" || draft.publishType === "feed_video";
+  // Foto do feed também pode sair na Página do Facebook (só ela).
+  const redesDoTipo: RedeExtra[] = isReel ? ["facebook", "threads", "youtube"] : draft.publishType === "feed_image" ? ["facebook"] : [];
 
   async function save() {
     setSaving(true);
@@ -451,7 +459,9 @@ export function Composer({ initial, accountId, username, facebookConnected = fal
         aiGenerated: draft.aiGenerated,
         // música só no Reel (null = sem música); em outro tipo o servidor tira sozinho
         // outras redes só no Reel; o Instagram é sempre a principal
-        redes: ["instagram", ...(isReel ? draft.redes : [])],
+        redes: ["instagram", ...draft.redes.filter((rede) => redesDoTipo.includes(rede))],
+        // destino (0011): só manda quando há destino (ou para tirar o que o post já tinha)
+        ...(draft.destinoTipo ? { destinoTipo: draft.destinoTipo, destinoLink: DESTINO_PEDE_LINK[draft.destinoTipo] ? draft.destinoLink.trim() : "" } : draft.tinhaDestino ? { destinoTipo: null } : {}),
         youtubePrivacidade: draft.youtubePrivacidade,
         musica: isReel ? (draft.music ? { audioId: draft.music.audioId, titulo: draft.music.titulo, volumeMusica: draft.music.volumeMusica, volumeVideo: draft.music.volumeVideo } : null) : undefined,
         scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
@@ -547,8 +557,9 @@ export function Composer({ initial, accountId, username, facebookConnected = fal
             />
           ) : null}
 
-          {isReel ? (
+          {redesDoTipo.length ? (
             <RedesPicker
+              apenas={redesDoTipo}
               conectadas={redesConectadas}
               value={draft.redes}
               privacidade={draft.youtubePrivacidade}
@@ -557,6 +568,21 @@ export function Composer({ initial, accountId, username, facebookConnected = fal
               onPrivacidade={(youtubePrivacidade) => set({ youtubePrivacidade })}
             />
           ) : null}
+
+          <div className="grid gap-3 rounded-lg border border-[var(--ms-border)] p-3 sm:grid-cols-[220px_1fr]">
+            <label className="field">
+              <span>Destino do post</span>
+              <select className="input" onChange={(event) => set({ destinoTipo: isDestino(event.target.value) ? event.target.value : "" })} value={draft.destinoTipo}>
+                <option value="">Sem destino definido</option>
+                {DESTINOS.map((tipo) => <option key={tipo} value={tipo}>{DESTINO_NOME[tipo]}</option>)}
+              </select>
+            </label>
+            {draft.destinoTipo && DESTINO_PEDE_LINK[draft.destinoTipo] ? (
+              <label className="field"><span>Link do destino</span><input className="input" onChange={(event) => set({ destinoLink: event.target.value })} placeholder="https://..." type="url" value={draft.destinoLink} /></label>
+            ) : draft.destinoTipo === "palavra_chave_dm" ? (
+              <p className="self-end text-xs text-[var(--ms-muted)]">Use o funil do comentário → DM abaixo (palavra-chave, mensagem e link).</p>
+            ) : draft.destinoTipo === "so_valor" ? <p className="self-end text-xs text-[var(--ms-muted)]">Post só de valor: sem link.</p> : null}
+          </div>
 
           <label className="check justify-start">
             <input aria-label="Feito com IA" checked={draft.aiGenerated} className="h-5 w-5 shrink-0" onChange={(event) => set({ aiGenerated: event.target.checked })} type="checkbox" />
@@ -848,8 +874,9 @@ function PostDetail({ post, notice, onClose, onSaved, onRemoved }: { post: Conte
   );
 }
 
-/** Onde mais o Reel sai: só as redes conectadas nesta conta podem ser marcadas. */
-function RedesPicker({ conectadas, value, privacidade, resultados, onChange, onPrivacidade }: {
+/** Onde mais o post sai (Reel: todas; foto do feed: só a Página): só as redes conectadas nesta conta podem ser marcadas. */
+function RedesPicker({ apenas, conectadas, value, privacidade, resultados, onChange, onPrivacidade }: {
+  apenas: RedeExtra[];
   conectadas: RedesConectadas;
   value: RedeExtra[];
   privacidade: YoutubePrivacidade;
@@ -861,9 +888,9 @@ function RedesPicker({ conectadas, value, privacidade, resultados, onChange, onP
   return (
     <div className="grid gap-2 rounded-lg border border-[var(--ms-border)] p-3" aria-label="Redes">
       <span className="text-sm font-bold">Publicar também em</span>
-      <p className="text-xs text-[var(--ms-muted)]">O Instagram sai primeiro; depois o mesmo vídeo vai para as redes marcadas. Uma rede com erro não atrapalha as outras.</p>
+      <p className="text-xs text-[var(--ms-muted)]">O Instagram sai primeiro; depois a mesma mídia vai para as redes marcadas. Uma rede com erro não atrapalha as outras.</p>
       <div className="flex flex-wrap gap-3">
-        {REDES_EXTRAS.map((rede) => {
+        {REDES_EXTRAS.filter((rede) => apenas.includes(rede.value)).map((rede) => {
           const checked = value.includes(rede.value);
           const enabled = conectadas[rede.value] || checked;
           const resultado = byRede.get(rede.value);
@@ -1081,6 +1108,8 @@ export function emptyDraft(date?: string): Draft {
     redes: [],
     youtubePrivacidade: "public",
     redesResultado: [],
+    destinoTipo: "",
+    destinoLink: "",
     when: "schedule",
     date: date ?? dayKey(next),
     time: date ? "18:00" : `${String(next.getHours()).padStart(2, "0")}:00`,
@@ -1114,6 +1143,9 @@ export function draftFromPost(post: ContentPost): Draft {
     redes: (post.redes ?? []).filter((rede): rede is RedeExtra => rede === "facebook" || rede === "threads" || rede === "youtube"),
     youtubePrivacidade: post.youtube_privacidade === "unlisted" || post.youtube_privacidade === "private" ? post.youtube_privacidade : "public",
     redesResultado: post.redes_resultado ?? [],
+    destinoTipo: isDestino(post.destino_tipo) ? post.destino_tipo : "",
+    destinoLink: post.destino_link ?? "",
+    tinhaDestino: Boolean(post.destino_tipo),
     when: post.status === "draft" || post.status === "canceled" ? "draft" : "schedule",
     date: dayKey(at),
     time: timeLabel(at),

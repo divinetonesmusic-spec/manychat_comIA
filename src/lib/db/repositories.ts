@@ -277,6 +277,10 @@ export type ContentPost = {
   youtube_privacidade?: string | null;
   /** Título do vídeo no YouTube (0010). Vazio = o título do post ou a 1ª linha da legenda. */
   youtube_titulo?: string | null;
+  /** Destino do post (0011): quiz, pagina_venda, isca_email, palavra_chave_dm ou so_valor. */
+  destino_tipo?: string | null;
+  /** Link do destino (0011). */
+  destino_link?: string | null;
   /** Resultado de cada rede extra (não é coluna: juntado por attachRedes, sem nada interno). */
   redes_resultado?: Array<{ rede: "facebook" | "threads" | "youtube"; status: "pending" | "processing" | "published" | "failed"; externalId: string | null; permalink: string | null; erro: string | null; publishedAt: string | null; tentativas: number }>;
 };

@@ -14,7 +14,7 @@ Sem as variáveis de uma rede ou plataforma, nada muda: o botão dela em Perfis 
 - **Uma rede com erro não segura nem desfaz as outras.** Cada rede tem a sua situação: na fila, publicando, publicado ou com erro.
 - Cada rede tenta **3 vezes** (5 e 10 minutos depois; se a Meta pedir para esperar, 30 minutos). Depois fica "Com erro" e aparece o botão **«Tentar de novo»** daquela rede (na tela Conteúdo e pela API do Molde).
 - Falta de conexão (rede não conectada, conexão vencida) dá erro na hora, sem ficar tentando.
-- Só **Reel** (vídeo) vai para as outras redes. Foto, carrossel e story continuam só no Instagram.
+- **Reel** (vídeo) vai para todas as outras redes. A **foto do feed** também pode ir para a **Página do Facebook** (0011, veja [vendas-escada.md](vendas-escada.md)). Carrossel e story continuam só no Instagram.
 - A mídia só sai do armazenamento (R2) depois que todas as redes terminaram.
 
 ### Limites de cada rede

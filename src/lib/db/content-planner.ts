@@ -3,6 +3,7 @@ import { getDefaultInstagramAccount, type ContentMediaItem, type ContentPost, ty
 import { formatSaoPauloTime } from "@/lib/time";
 import { hasRedesTables } from "@/lib/db/redes";
 import type { Rede, YoutubePrivacidade } from "@/lib/redes/redes";
+import type { DestinoTipo } from "@/lib/content/destino";
 
 /** Tudo o que um post leva: mídia, legenda, horário e o funil (palavra → DM → link). */
 export type PostPackage = {
@@ -33,6 +34,9 @@ export type PostPackage = {
   youtubePrivacidade?: YoutubePrivacidade;
   /** Título no YouTube (0010). null = tira; ausente = não mexe. */
   youtubeTitulo?: string | null;
+  /** Destino do post (0011). null = tira; ausente = não mexe. */
+  destinoTipo?: DestinoTipo | null;
+  destinoLink?: string | null;
   source?: string;
   externalRef?: string | null;
 };
@@ -64,15 +68,19 @@ export async function createPlannedPost(input: PostPackage): Promise<ContentPost
   const music = input.music && reelType(input.publishType) && (await hasMusicColumns()) ? input.music : null;
   // Redes e YouTube vêm da 0010; sem ela o post sai só no Instagram (como antes).
   const withRedes = await hasRedesTables();
+  // Destino do post vem da 0011; sem ela não é guardado.
+  const withDestino = input.destinoTipo !== undefined && (await hasDestinoColumns());
   const extraColumns = [
     ...(withAi ? ["ai_generated"] : []),
     ...(music ? ["musica_audio_id", "musica_titulo", "musica_volume", "video_volume"] : []),
     ...(withRedes ? ["redes", "youtube_privacidade", "youtube_titulo"] : []),
+    ...(withDestino ? ["destino_tipo", "destino_link"] : []),
   ];
   const extraValues = [
     ...(withAi ? [input.aiGenerated === true] : []),
     ...(music ? [music.audioId, music.titulo, music.volumeMusica, music.volumeVideo] : []),
     ...(withRedes ? [input.redes?.length ? input.redes : ["instagram"], input.youtubePrivacidade ?? "public", input.youtubeTitulo ?? null] : []),
+    ...(withDestino ? [input.destinoTipo ?? null, input.destinoTipo ? input.destinoLink ?? null : null] : []),
   ];
   const { rows } = await query<ContentPost>(
     `insert into public.content_posts (
@@ -189,13 +197,21 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
     if (input.youtubeTitulo !== undefined) { redesValues.push(input.youtubeTitulo); parts.push(`youtube_titulo = $${base + redesValues.length - 1}`); }
     redesClause = parts.map((part) => `, ${part}`).join("");
   }
+  // Destino (0011): troca quando a edição traz o campo.
+  const destinoValues: unknown[] = [];
+  let destinoClause = "";
+  if (input.destinoTipo !== undefined && (await hasDestinoColumns())) {
+    const base = 19 + (setAi ? 1 : 0) + musicValues.length + redesValues.length;
+    destinoValues.push(input.destinoTipo, input.destinoTipo ? input.destinoLink ?? null : null);
+    destinoClause = `, destino_tipo = $${base}, destino_link = $${base + 1}`;
+  }
   const { rows } = await query<ContentPost>(
     `update public.content_posts set
        publish_type = $2, title = $3, caption = $4, media_url = $5, cover_url = $6, media_items = $7,
        media_keys = $8, scheduled_at = $9, first_comment = $10, keyword = $11, dm_text = $12,
        link_url = $13, link_label = $14, public_reply = $15, status = $16, last_error = null,
        container_id = null, attempts = 0, automation_options = $17, publishing_started_at = null, lock_until = null,
-       media_deleted_at = case when $18 then null else media_deleted_at end${aiClause}${musicClause}${redesClause}${resetRequest}
+       media_deleted_at = case when $18 then null else media_deleted_at end${aiClause}${musicClause}${redesClause}${destinoClause}${resetRequest}
      where id = $1
      returning *`,
     [
@@ -205,6 +221,7 @@ export async function updatePlannedPost(id: string, input: Partial<PostPackage>)
       ...(setAi ? [input.aiGenerated === true] : []),
       ...musicValues,
       ...redesValues,
+      ...destinoValues,
     ],
   );
   return rows[0] ?? null;
@@ -284,6 +301,8 @@ export const hasAiGeneratedColumn = columnProbe("ai_generated");
 export const hasMetaLimitWaitsColumn = columnProbe("meta_limit_waits");
 /** Música do Instagram (0009): musica_audio_id, musica_titulo, musica_volume e video_volume chegam juntas. */
 export const hasMusicColumns = columnProbe("video_volume");
+/** Destino do post (0011): destino_tipo e destino_link chegam juntas. */
+export const hasDestinoColumns = columnProbe("destino_tipo");
 
 /** Grava a hora do pedido de publicação ANTES de chamar o media_publish. Sem a 0003, não faz nada. */
 export async function markPublishRequested(id: string) {

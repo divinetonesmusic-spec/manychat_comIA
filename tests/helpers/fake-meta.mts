@@ -327,6 +327,12 @@ export function installFakeMeta(): FakeMeta {
           return json({ success: true });
         }
       }
+      // Foto na Página (imagem estática): POST /{page-id}/photos com url + caption
+      if (path.endsWith("/photos") && method === "POST") {
+        if (!body.url) return json({ error: { message: "url ausente", code: 100 } }, 400);
+        const n = ++seq;
+        return json({ id: `fbphoto-${n}`, post_id: `page-1_${n}` });
+      }
       if (method === "GET" && fields === "status") return json({ id, status: fake.fbReelStatus });
       if (method === "GET" && fields === "permalink_url") return json({ id, permalink_url: `/reel/${id}` });
       if (path === "/me/accounts") return json({ data: fake.facebookPages });
