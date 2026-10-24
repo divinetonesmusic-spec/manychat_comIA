@@ -75,6 +75,17 @@ if (chunkMb && !(Number(chunkMb.replace(",", ".")) > 0)) warnings.push("YOUTUBE_
 if (process.env.STRIPE_WEBHOOK_SECRET && !process.env.STRIPE_WEBHOOK_SECRET.startsWith("whsec_")) warnings.push("STRIPE_WEBHOOK_SECRET normalmente começa com whsec_ (o segredo de assinatura do endpoint, não a chave da API).");
 if (process.env.GUMROAD_WEBHOOK_KEY && process.env.GUMROAD_WEBHOOK_KEY.length < 24) warnings.push("GUMROAD_WEBHOOK_KEY deve ter pelo menos 24 caracteres (vai no endereço do ping).");
 if (process.env.CAKTO_WEBHOOK_SECRET && process.env.CAKTO_WEBHOOK_SECRET.length < 8) warnings.push("CAKTO_WEBHOOK_SECRET parece curto: copie o segredo exato do webhook na Cakto.");
+// As 10 plataformas da 0012 (docs/ATUALIZACAO_0012.md): cada uma só liga com o seu segredo, copiado da plataforma.
+for (const [key, nome] of [
+  ["HOTMART_HOTTOK", "Hotmart"], ["KIWIFY_WEBHOOK_TOKEN", "Kiwify"], ["EDUZZ_WEBHOOK_SECRET", "Eduzz"], ["MONETIZZE_CHAVE_UNICA", "Monetizze"],
+  ["BRAIP_AUTH_KEY", "Braip"], ["TICTO_WEBHOOK_TOKEN", "Ticto"], ["PERFECTPAY_WEBHOOK_TOKEN", "Perfect Pay"], ["DIGISTORE24_IPN_PASSPHRASE", "Digistore24"],
+  ["CLICKBANK_SECRET_KEY", "ClickBank"], ["LEMONSQUEEZY_WEBHOOK_SECRET", "Lemon Squeezy"],
+]) {
+  const value = process.env[key] || "";
+  if (value && value.trim() !== value) warnings.push(`${key} tem espaço no começo ou no fim: copie o segredo da ${nome} sem espaços.`);
+  else if (value && value.length < 8) warnings.push(`${key} parece curto: copie o segredo exato do aviso de venda na ${nome}.`);
+}
+if (process.env.CLICKBANK_SECRET_KEY && !/^[A-Z0-9]{1,16}$/.test(process.env.CLICKBANK_SECRET_KEY)) warnings.push("CLICKBANK_SECRET_KEY normalmente tem até 16 letras maiúsculas e números (a Secret Key de Settings → My Site).");
 // E-mail do pedido de depoimento (opcional): as duas juntas, ou nenhuma.
 if (Boolean(process.env.RESEND_API_KEY) !== Boolean(process.env.EMAIL_REMETENTE)) warnings.push("E-mail incompleto: RESEND_API_KEY e EMAIL_REMETENTE vão juntas. Sem as duas, o pedido de depoimento não sai por e-mail (o painel Vendas mostra o link para mandar à mão).");
 if (process.env.EMAIL_REMETENTE && !/@/.test(process.env.EMAIL_REMETENTE)) warnings.push("EMAIL_REMETENTE precisa ter um e-mail, ex.: Nicolas <oi@seu-dominio.com>.");

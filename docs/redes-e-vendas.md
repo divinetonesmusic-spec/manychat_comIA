@@ -160,6 +160,12 @@ O Gumroad não assina os avisos ("Ping"). Por isso o segredo vai no próprio end
 3. Eventos: `purchase_approved` (compra aprovada), `refund` (reembolso) e `chargeback`.
 4. Copie o **segredo** do webhook para `CAKTO_WEBHOOK_SECRET`. A Cakto manda esse segredo no corpo do aviso (campo `secret`) e o UaiFlow compara.
 
+### Hotmart, Kiwify, Eduzz, Monetizze, Braip, Ticto, Perfect Pay, Digistore24, ClickBank e Lemon Squeezy (0012)
+
+Precisam da migração 0012. O passo a passo, o segredo e o endereço de cada uma estão em [ATUALIZACAO_0012.md](ATUALIZACAO_0012.md).
+Com a 0012, toda venda (também nas 5 plataformas acima) guarda o código do post (`mo…`) que voltou do checkout, e o Molde vê
+quais Reels vendem (`GET /api/molde/vendas?refs=&desde=`).
+
 ### Variáveis das vendas
 
 | Variável | Plataforma |
@@ -170,6 +176,16 @@ O Gumroad não assina os avisos ("Ping"). Por isso o segredo vai no próprio end
 | `GUMROAD_ACCESS_TOKEN` | Gumroad, opcional (confere a venda na API) |
 | `PAYHIP_API_KEY` | Payhip |
 | `CAKTO_WEBHOOK_SECRET` | Cakto |
+| `HOTMART_HOTTOK` | Hotmart (0012) |
+| `KIWIFY_WEBHOOK_TOKEN` | Kiwify (0012) |
+| `EDUZZ_WEBHOOK_SECRET` | Eduzz (0012) |
+| `MONETIZZE_CHAVE_UNICA` | Monetizze (0012) |
+| `BRAIP_AUTH_KEY` | Braip (0012) |
+| `TICTO_WEBHOOK_TOKEN` | Ticto (0012) |
+| `PERFECTPAY_WEBHOOK_TOKEN` | Perfect Pay (0012) |
+| `DIGISTORE24_IPN_PASSPHRASE` | Digistore24 (0012) |
+| `CLICKBANK_SECRET_KEY` | ClickBank (0012) |
+| `LEMONSQUEEZY_WEBHOOK_SECRET` | Lemon Squeezy (0012) |
 
 ## 6 · Para o Molde (API)
 

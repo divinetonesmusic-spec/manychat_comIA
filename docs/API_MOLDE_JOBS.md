@@ -213,3 +213,36 @@ a cada 30–60 s, se estiver livre:
   no fim: POST …/concluir {worker, posse, resultado}
   se falhar: POST …/erro {worker, posse, erro, tentarDeNovo}
 ```
+
+## Vendas por post, contagem das DMs e sequência de DM (0012, página v131/v132)
+
+Precisa da migração 0012 (`docs/ATUALIZACAO_0012.md`). Sem ela as rotas respondem como antes (com `aviso`/`warning`), nunca quebram.
+O detalhe campo por campo para a página está em `docs/MOLDE_V132_PAGINA.md`.
+
+- `POST /api/molde/links` aceita também `origem` (`mo` + até 7 letras/números) e `destinoComOrigem` (o checkout com o código; mesmo
+  endereço do `destino`). O `/l/<código>` leva ao `destinoComOrigem`. `?de=story` conta em `porOrigem.story`.
+- `GET /api/molde/vendas?refs=<a>,<b>&desde=<ISO>` → `{"vendas": [{ref, plataforma, produto, valor, moeda, status, em, origem}],
+  "totais": {aprovadas, reembolsadas, chargebacks, receita: {BRL: 97}}}`. `status`: `aprovada`, `reembolsada` ou `chargeback` (o
+  reembolso muda a mesma venda). Venda sem origem conhecida: `ref: ""`. Vendas de teste ficam de fora. `?dias=` continua igual.
+- `GET /api/molde/dms/contagem?refs=<a>,<b>` → `{"data": [{ref, disparadas, botao, responderam?, clicaram?}]}`.
+- Avisos de venda (públicos, cada um com o seu segredo): `POST /api/webhooks/<plataforma>` para `stripe`, `whop`, `gumroad`, `payhip`,
+  `cakto`, `hotmart`, `kiwify`, `eduzz`, `monetizze`, `braip`, `ticto`, `perfectpay`, `digistore24`, `clickbank`, `lemonsqueezy`.
+
+### Sequência de DM do post (`automationOptions.sequencia` no `POST /api/molde/posts`)
+
+```json
+"automationOptions": { "quickReplyLabel": "Quero", "sequencia": {
+  "mensagem2": "…", "mensagem3": "…", "linkUrl": "https://<site>/l/abc1234?de=dm", "linkLabel": "Abrir",
+  "linkAposSegundos": 60, "lembrete": "…", "lembreteHoras": 22 } }
+```
+
+Como roda, respeitando a janela de 24 h da Meta:
+
+1. Comentou a palavra → a resposta privada ao comentário (`dmText`, sem link, com o botão `quickReplyLabel`). É a única mensagem que a
+   Meta deixa mandar para quem só comentou. A pessoa fica «aguardando resposta» por até 7 dias.
+2. A pessoa respondeu (tocou no botão ou escreveu) → abre a janela de 24 h: `mensagem2` na hora, `mensagem3` com o botão do link
+   `linkAposSegundos` depois, e o `lembrete` `lembreteHoras` depois (no máximo 23 h). A mesma resposta repetida não manda de novo.
+3. O lembrete sai da fila se a pessoa tocar no link do passo 3 (o UaiFlow põe `&s=<chave>` no link `/l/…`) ou escrever de novo (a
+   mensagem nova vai para as «DMs sem resposta», para o rascunho do Molde).
+4. Quem não respondeu não recebe mais nada. Quem pediu para parar não recebe o resto. Tudo passa pela fila normal (limite de 200 por
+   hora, pausa humana, prazo de 24 h: o que passar do prazo é pulado).

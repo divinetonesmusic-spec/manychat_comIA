@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { countClick, resolveLink } from "@/lib/links/redirect";
+import { countClick, destinoComClique, resolveLink } from "@/lib/links/redirect";
+import { marcarCliqueSequencia } from "@/lib/db/dm-sequencias";
 import type { ClickOrigin } from "@/lib/db/tracked-links";
 
 export const runtime = "nodejs";
@@ -27,7 +28,7 @@ function unavailable() {
 
 function originOf(request: NextRequest): ClickOrigin {
   const from = request.nextUrl.searchParams.get("de");
-  return from === "bio" || from === "dm" || from === "comentario" ? from : "outro";
+  return from === "bio" || from === "dm" || from === "comentario" || from === "story" ? from : "outro";
 }
 
 async function handle(request: NextRequest, { params }: Params, counts: boolean) {
@@ -38,9 +39,15 @@ async function handle(request: NextRequest, { params }: Params, counts: boolean)
   if (lookup.kind === "not-found") return notFound();
   if (lookup.kind === "unavailable") return unavailable();
 
-  if (counts && !PREVIEW_BOT.test(request.headers.get("user-agent") ?? "")) await countClick(lookup.link.id, originOf(request));
+  const origin = originOf(request);
+  if (counts && !PREVIEW_BOT.test(request.headers.get("user-agent") ?? "")) {
+    await countClick(lookup.link.id, origin);
+    // O link do passo 3 da sequência de DM leva &s=<código da pessoa>: o toque pula o lembrete (nunca segura o redirecionamento).
+    const sequencia = request.nextUrl.searchParams.get("s");
+    if (sequencia && /^[a-z0-9]{6,24}$/.test(sequencia)) await marcarCliqueSequencia(sequencia).catch(() => undefined);
+  }
 
-  return NextResponse.redirect(lookup.link.destino, { status: 302, headers: { "cache-control": "no-store" } });
+  return NextResponse.redirect(destinoComClique(lookup.link.destino, lookup.link.origem, origin), { status: 302, headers: { "cache-control": "no-store" } });
 }
 
 export async function GET(request: NextRequest, context: Params) {

@@ -15,6 +15,7 @@ import {
   type AutomationTrigger,
 } from "@/lib/db/repositories";
 import { closePendingForOptOutSafely, recordPendingDmSafely } from "@/lib/db/dm-pending";
+import { avancarSequencia, iniciarSequencia, marcarRespostaDepois, sequenciaAguardando, sequenciaDaAutomacao } from "@/lib/db/dm-sequencias";
 import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_PREFIX, hasExecutableFlow } from "@/lib/flow-executor";
 import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
 import { safeEqualSecret } from "@/lib/secrets";
@@ -196,6 +197,8 @@ async function processComment(entry: WebhookEntry, change: WebhookChange) {
       commentId,
       textOverride: automation.require_follower ? buildFollowerConfirmationText(automation.follower_confirmation_text, automation.follower_confirmation_greetings) : undefined,
     });
+    // Sequência de DM do post (0012): a pessoa fica esperando a resposta dela para receber os passos 2, 3 e o lembrete.
+    if (sequenciaDaAutomacao(automation)) await iniciarSequencia({ accountId: account.id, automationId: automation.id, contactId });
   }
 
   return matches.length;
@@ -307,6 +310,13 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
   if (payload?.startsWith("automation:")) {
     const automationId = payload.replace("automation:", "");
     const automation = await getAutomation(automationId, account.id);
+    // Toque no botão da 1ª mensagem de um post com sequência (0012): abre a janela de 24 h e a sequência segue (passos 2, 3
+    // e o lembrete). Toque repetido não manda de novo.
+    if (automation?.active && sequenciaDaAutomacao(automation)) {
+      await iniciarSequencia({ accountId: account.id, automationId: automation.id, contactId }); // quem comentou antes da 0012
+      await avancarSequenciaSafely({ automation, contactId, instagramRecipientId: senderId, eventId });
+      return 1;
+    }
     if (automation?.active && hasExecutableFlow(automation)) {
       const profile = automation.require_follower ? await safeGetInstagramUserProfile(senderId, account.instagram_access_token) : null;
       if (profile) {
@@ -376,6 +386,18 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
     return 1;
   }
 
+  // Sequência de DM do post (0012): a 1ª resposta escrita de quem comentou a palavra segue a sequência (passos 2, 3 e o
+  // lembrete). Depois disso, cada mensagem nova da pessoa tira o lembrete da fila (a conversa seguiu) e segue o caminho normal.
+  if (trigger === "dm" && !payload) {
+    const aguardando = await sequenciaAguardandoSafely(contactId);
+    if (aguardando) {
+      const automation = await getAutomation(aguardando.automation_id, account.id);
+      if (automation && (await avancarSequenciaSafely({ automation, contactId, instagramRecipientId: senderId, eventId }))) return 1;
+    } else {
+      await marcarRespostaDepois(contactId);
+    }
+  }
+
   const matches = await findMatchingAutomations({ accountId: account.id, trigger, text });
   for (const automation of matches) {
     if (hasExecutableFlow(automation)) {
@@ -440,6 +462,25 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
   }
 
   return matches.length;
+}
+
+/** A sequência nunca derruba o webhook: um erro dela só vai para o log (e a mensagem segue o caminho normal). */
+async function avancarSequenciaSafely(input: Parameters<typeof avancarSequencia>[0]) {
+  try {
+    return await avancarSequencia(input);
+  } catch (error) {
+    console.error("[sequência] não consegui seguir:", error instanceof Error ? error.message : error);
+    return false;
+  }
+}
+
+async function sequenciaAguardandoSafely(contactId: string) {
+  try {
+    return await sequenciaAguardando(contactId);
+  } catch (error) {
+    console.error("[sequência] não consegui ler:", error instanceof Error ? error.message : error);
+    return null;
+  }
 }
 
 /** Hora da mensagem (a Meta manda em milissegundos); se vier estranha, vale o momento em que chegou. */
