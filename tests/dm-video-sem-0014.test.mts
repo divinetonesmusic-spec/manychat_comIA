@@ -57,11 +57,11 @@ describe("sem a 0014", { skip: semBanco }, () => {
     const erro = (await cadastro.json()) as { error: string; codigo: string };
     assert.equal(erro.codigo, "falta_0014");
     assert.match(erro.error, /0014/);
-    const lista = (await (await rota.GET(request(`/api/molde/dmvideo?ref=${encodeURIComponent(REF)}`, { headers: MOLDE }))).json()) as { data: { videos: unknown[] }; aviso: string };
-    assert.deepEqual(lista.data.videos, []);
+    const lista = ((await (await rota.GET(request(`/api/molde/dmvideo?ref=${encodeURIComponent(REF)}`, { headers: MOLDE }))).json()) as { data: { videos: unknown[]; aviso: string } }).data;
+    assert.deepEqual(lista.videos, []);
     assert.match(lista.aviso, /0014/);
-    const f = (await (await funil.GET(request(`/api/molde/dmvideo/funil?refs=${encodeURIComponent(REF)}`, { headers: MOLDE }))).json()) as { data: Array<{ comentarios: number; responderam: number; videos: number }>; aviso: string };
+    const f = ((await (await funil.GET(request(`/api/molde/dmvideo/funil?refs=${encodeURIComponent(REF)}`, { headers: MOLDE }))).json()) as { data: { posts: Array<{ comentarios: number; responderam: number; videos: number }>; aviso: string } }).data;
     assert.match(f.aviso, /0014/);
-    assert.deepEqual([f.data[0].comentarios, f.data[0].responderam, f.data[0].videos], [1, 1, 0]);
+    assert.deepEqual([f.posts[0].comentarios, f.posts[0].responderam, f.posts[0].videos], [1, 1, 0]);
   });
 });

@@ -46,20 +46,22 @@ conta a partir do vídeo (sugestão: 150, o tempo de assistir). O resto é o da 
 - A lista **troca** a de antes (o que saiu é apagado). 1 a 6 vídeos; no máximo 1 `geral`; cada um com palavras ou `geral`.
 - As palavras casam sem acento e sem maiúsculas, pela raiz (`dorm` → «dormir», «dormindo»); uma expressão (2+ palavras) vale 2.
 - Respostas: 200 `{data:{escopo, videos}}`; 400 com a frase; 503 `{codigo:"falta_0014"}`.
-- `GET /api/molde/dmvideo?ref=<externalRef>` (ou `?keyword=`) devolve a lista (sem a 0014: `videos: []` e `aviso`).
+- `GET /api/molde/dmvideo?ref=<externalRef>` (ou `?keyword=`) devolve a lista (sem a 0014: `data.videos: []` e `data.aviso`).
 
 ## 3. O funil por post — `GET /api/molde/dmvideo/funil?refs=a,b&views=1200,300`
 
+Tudo vem dentro de `data` (o robô do Mac entrega à página só o `data`):
+
 ```json
-{
-  "data": [{
+{ "data": {
+  "posts": [{
     "ref": "…", "comentarios": 40, "responderam": 18, "videos": 17, "cliques": 6, "compras": 1, "views": 1200,
     "comSinalDeVisto": 7, "porVideo": [{ "chave": "acorda-de-madrugada", "enviados": 9, "cliques": 4 }],
     "gargalo": { "etapa": "clique", "tipo": "conversa", "frase": "Só 35 % …", "taxas": { "resposta": 0.45, "video": 0.94, "clique": 0.35, "compra": 0.17 } }
   }],
   "referencias": { "resposta": 0.35, "video": 0.9, "clique": 0.25, "compra": 0.05, "comentariosPorMilViews": 3, "minimoComentarios": 20, "minimoBase": 10 },
   "nota": "A Meta não informa se a pessoa assistiu ao vídeo na DM. …"
-}
+} }
 ```
 
 - `comentarios` = pessoas que comentaram a palavra e receberam a 1ª DM; `responderam` = responderam a pergunta; `videos` = o envio

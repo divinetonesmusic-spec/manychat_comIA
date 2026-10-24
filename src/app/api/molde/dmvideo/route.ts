@@ -10,7 +10,7 @@ export const maxDuration = 30;
  *
  * GET  /api/molde/dmvideo?ref=<externalRef>  (ou ?keyword=SONO; &accountId=<uuid> opcional)
  *      → {data: {escopo, videos: [{chave, titulo, palavras, geral, texto, videoUrl, tamanho, duracaoSeg, ordem}]}}
- *        Sem a 0014: {data: {escopo, videos: []}, aviso}.
+ *        Sem a 0014: {data: {escopo, videos: [], aviso}} (tudo dentro de `data`: o robô do Mac entrega à página só o `data`).
  * POST /api/molde/dmvideo  {accountId?, externalRef? | keyword?, videos: [{chave, titulo, palavras[], geral?, texto?, videoUrl, tamanho?, duracaoSeg?}]}
  *      → troca os vídeos do post (ou da palavra) pelos da lista; os que saíram são apagados. {data: {escopo, videos}}.
  *        O vídeo sobe antes pelo /api/molde/upload com folder "dmvideos" (pasta protegida do R2). Até 25 MB por vídeo (limite da Meta).
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   if ("erro" in escopo) return NextResponse.json({ error: escopo.erro }, { status: 400 });
   try {
     const videos = await listarVideos(escopo);
-    if (videos === null) return NextResponse.json({ data: { escopo, videos: [] }, aviso: MIGRATION_0014_DMVIDEO });
+    if (videos === null) return NextResponse.json({ data: { escopo, videos: [], aviso: MIGRATION_0014_DMVIDEO } });
     return NextResponse.json({ data: { escopo, videos } });
   } catch (error) {
     console.error("[dm-video] não consegui ler os vídeos:", error instanceof Error ? error.message : error);

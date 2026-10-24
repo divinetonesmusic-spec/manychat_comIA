@@ -276,10 +276,10 @@ describe("DM com vídeo (com banco)", { skip: semBanco }, () => {
     assert.equal((await funil.GET(request(`/api/molde/dmvideo/funil?refs=${encodeURIComponent(REF)}`))).status, 401);
     const resposta = await funil.GET(request(`/api/molde/dmvideo/funil?refs=${encodeURIComponent(REF)},sem-post&views=1000`, { headers: MOLDE }));
     assert.equal(resposta.status, 200);
-    const corpo = (await resposta.json()) as { data: Array<Record<string, unknown>>; nota: string; aviso?: string };
+    const corpo = ((await resposta.json()) as { data: { posts: Array<Record<string, unknown>>; nota: string; aviso?: string } }).data;
     assert.equal(corpo.aviso, undefined);
     assert.match(corpo.nota, /não informa se a pessoa assistiu/);
-    const [x, vazio] = corpo.data as Array<{ comentarios: number; responderam: number; videos: number; cliques: number; compras: number; views: number; comSinalDeVisto: number; porVideo: Array<{ chave: string; enviados: number; cliques: number }>; gargalo: { tipo: string } }>;
+    const [x, vazio] = corpo.posts as Array<{ comentarios: number; responderam: number; videos: number; cliques: number; compras: number; views: number; comSinalDeVisto: number; porVideo: Array<{ chave: string; enviados: number; cliques: number }>; gargalo: { tipo: string } }>;
     assert.deepEqual([x.comentarios, x.responderam, x.videos, x.cliques, x.compras, x.views], [3, 2, 2, 1, 1, 1000]);
     assert.equal(x.comSinalDeVisto, 1, "tocou no link depois do vídeo");
     assert.deepEqual(x.porVideo.sort((a, b) => a.chave.localeCompare(b.chave)), [{ chave: "acorda-de-madrugada", enviados: 1, cliques: 1 }, { chave: "geral", enviados: 1, cliques: 0 }]);
