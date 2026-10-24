@@ -249,7 +249,7 @@ export type ContentPost = {
   link_url?: string;
   link_label?: string;
   public_reply?: string;
-  automation_options?: { quickReplyLabel?: string; linkText?: string; reminderText?: string; publicReplies?: string[]; requireFollower?: boolean; sequencia?: unknown };
+  automation_options?: { quickReplyLabel?: string; linkText?: string; reminderText?: string; publicReplies?: string[]; requireFollower?: boolean; sequencia?: unknown; quizDm?: unknown };
   automation_id?: string | null;
   source?: string;
   external_ref?: string | null;

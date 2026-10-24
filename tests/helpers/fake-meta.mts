@@ -460,6 +460,11 @@ async function fakeR2(fake: FakeMeta, method: string, url: URL, init: RequestIni
     if (!obj) return new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 });
     return new Response(new Uint8Array(obj.body), { status: 200, headers: { "content-type": obj.contentType } });
   }
+  if (method === "HEAD") {
+    const obj = fake.r2.get(key);
+    if (!obj) return new Response(null, { status: 404 });
+    return new Response(null, { status: 200, headers: { "content-length": String(obj.body.length), "content-type": obj.contentType } });
+  }
   if (method === "DELETE") {
     fake.r2.delete(key);
     return new Response(null, { status: 204 });

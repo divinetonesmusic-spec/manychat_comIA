@@ -1,0 +1,124 @@
+/* Páginas públicas do funil do Molde (0013): o quiz (/q/) e a entrega do material grátis (/e/), no visual da marca do avatar.
+   As cores vêm de variáveis (--f-*) que a página põe no <main> (lib/funil/marca.ts, com o contraste já conferido). Celular
+   primeiro; alvos de toque de 48 px; movimento curto e só com prefers-reduced-motion: no-preference. */
+.fu {
+  min-height: 100dvh;
+  background: var(--f-fundo);
+  color: var(--f-texto);
+  font-family: var(--f-fonte-corpo);
+  font-size: 17px;
+  line-height: 1.55;
+  padding: 16px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.fu *, .fu *::before, .fu *::after { box-sizing: border-box; }
+.fu-col { width: 100%; max-width: 560px; display: grid; gap: 16px; }
+.fu-topo { display: flex; align-items: center; gap: 12px; min-height: 48px; }
+.fu-topo .fu-marca { font-weight: 700; font-size: 15px; color: var(--f-suave); overflow-wrap: anywhere; }
+.fu-cartao {
+  background: var(--f-sup);
+  border: 1px solid var(--f-linha);
+  border-radius: 20px;
+  padding: 24px 20px;
+  display: grid;
+  gap: 16px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+}
+@media (min-width: 640px) { .fu { padding-top: 40px; } .fu-cartao { padding: 32px; } }
+.fu h1, .fu h2, .fu h3 { font-family: var(--f-fonte-titulo); line-height: 1.15; margin: 0; overflow-wrap: anywhere; }
+.fu h1 { font-size: clamp(28px, 7vw, 40px); }
+.fu h2 { font-size: clamp(24px, 6vw, 32px); }
+.fu h3 { font-size: 20px; font-weight: 700; }
+.fu p { margin: 0; overflow-wrap: anywhere; }
+.fu-suave { color: var(--f-suave); }
+.fu-pequeno { font-size: 14px; color: var(--f-suave); }
+.fu-foto { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid var(--f-sup); box-shadow: 0 0 0 2px var(--f-prim); }
+
+/* botões */
+.fu-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 12px 24px; border-radius: 14px; border: 0;
+  background: var(--f-prim); color: var(--f-prim-texto);
+  font: 700 17px/1.2 var(--f-fonte-corpo); text-decoration: none; cursor: pointer; width: 100%;
+}
+.fu-btn:focus-visible, .fu-op:focus-visible, .fu-link:focus-visible, .fu-campo input:focus-visible, .fu-ck input:focus-visible { outline: 3px solid var(--f-prim); outline-offset: 3px; }
+.fu-btn[disabled] { opacity: 0.6; cursor: wait; }
+.fu-link { display: inline-flex; align-items: center; min-height: 48px; padding: 0 4px; color: var(--f-texto); background: none; border: 0; font: 600 16px var(--f-fonte-corpo); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+
+/* progresso */
+.fu-prog { display: grid; gap: 8px; }
+.fu-prog-linha { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; color: var(--f-suave); }
+.fu-barra { height: 8px; border-radius: 99px; background: var(--f-linha); overflow: hidden; }
+.fu-barra > span { display: block; height: 100%; background: var(--f-prim); border-radius: inherit; width: 0; }
+
+/* opções */
+.fu-ops { display: grid; gap: 12px; }
+.fu-op {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 14px 16px; text-align: left;
+  background: var(--f-sup); color: var(--f-texto); border: 2px solid var(--f-linha); border-radius: 14px;
+  font: 600 17px/1.35 var(--f-fonte-corpo); cursor: pointer;
+}
+.fu-op .fu-bola { flex: 0 0 22px; height: 22px; border-radius: 50%; border: 2px solid var(--f-suave); }
+.fu-op[aria-pressed="true"] { border-color: var(--f-prim); box-shadow: inset 0 0 0 1px var(--f-prim); }
+.fu-op[aria-pressed="true"] .fu-bola { border-color: var(--f-prim); background: radial-gradient(circle, var(--f-prim) 45%, transparent 50%); }
+@media (hover: hover) { .fu-op:hover { border-color: var(--f-suave); } }
+.fu-ops-img { grid-template-columns: 1fr 1fr; }
+.fu-ops-img .fu-op { flex-direction: column; align-items: stretch; padding: 8px; text-align: center; }
+.fu-ops-img .fu-op img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: var(--f-linha); }
+.fu-ops-img .fu-op .fu-bola { display: none; }
+.fu-escala { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.fu-escala .fu-op { justify-content: center; text-align: center; padding: 8px; font-size: 16px; }
+.fu-escala .fu-op .fu-bola { display: none; }
+.fu-escala-rot { display: flex; justify-content: space-between; font-size: 14px; color: var(--f-suave); }
+
+/* prova, analisando */
+.fu-numero { font: 700 clamp(44px, 14vw, 64px)/1 var(--f-fonte-titulo); color: var(--f-texto); }
+.fu-passos { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.fu-passos li { display: flex; gap: 12px; align-items: flex-start; }
+.fu-passos .fu-n { flex: 0 0 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--f-prim); color: var(--f-prim-texto); font-weight: 700; font-size: 15px; }
+.fu-anel { width: 64px; height: 64px; border-radius: 50%; border: 6px solid var(--f-linha); border-top-color: var(--f-prim); }
+.fu-check { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.fu-check li { display: flex; gap: 10px; align-items: center; color: var(--f-suave); }
+.fu-check li[data-ok="1"] { color: var(--f-texto); }
+.fu-check li::before { content: ""; flex: 0 0 20px; height: 20px; border-radius: 50%; border: 2px solid var(--f-linha); }
+.fu-check li[data-ok="1"]::before { background: var(--f-prim); border-color: var(--f-prim); }
+
+/* formulário */
+.fu-form { display: grid; gap: 14px; }
+.fu-campo { display: grid; gap: 6px; font-weight: 600; font-size: 15px; }
+.fu-campo input { min-height: 52px; padding: 12px 14px; border-radius: 12px; border: 2px solid var(--f-linha); background: var(--f-sup); color: var(--f-texto); font: 400 17px var(--f-fonte-corpo); width: 100%; }
+.fu-ck { display: flex; gap: 12px; align-items: flex-start; font-size: 15px; min-height: 48px; cursor: pointer; }
+.fu-ck input { flex: 0 0 24px; width: 24px; height: 24px; margin: 2px 0 0; accent-color: var(--f-prim); }
+.fu-erro { border: 2px solid #B42318; background: #FFF4F2; color: #8A1C12; border-radius: 12px; padding: 12px 14px; font-size: 15px; }
+.fu-ok { border: 2px solid var(--f-prim); border-radius: 12px; padding: 12px 14px; font-size: 16px; font-weight: 600; }
+.fu-escondido { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+
+/* resultado */
+.fu-selo { display: inline-block; width: fit-content; padding: 4px 12px; border-radius: 99px; background: var(--f-prim); color: var(--f-prim-texto); font-size: 14px; font-weight: 700; letter-spacing: 0.02em; }
+.fu-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.fu-chips span { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--f-linha); font-size: 15px; }
+.fu-lista { margin: 0; padding-left: 22px; display: grid; gap: 8px; list-style: disc; }
+ol.fu-lista { list-style: decimal; }
+.fu-lista li::marker { color: var(--f-suave); font-weight: 700; }
+.fu-oferta { border: 2px solid var(--f-prim); }
+.fu-preco { font: 700 30px/1 var(--f-fonte-titulo); }
+.fu-rodape { text-align: center; font-size: 14px; color: var(--f-suave); }
+
+/* capa da entrega */
+.fu-capa { display: grid; place-items: center; padding: 8px 0; perspective: 900px; }
+.fu-capa img { width: min(64%, 260px); border-radius: 6px 10px 10px 6px; box-shadow: -6px 10px 24px rgb(0 0 0 / 0.22), inset 4px 0 0 rgb(255 255 255 / 0.2); transform: rotateY(-12deg); }
+.fu-livro { width: min(64%, 240px); aspect-ratio: 3 / 4; border-radius: 6px 12px 12px 6px; background: var(--f-prim); color: var(--f-prim-texto); display: grid; align-content: end; padding: 20px; font: 700 22px/1.15 var(--f-fonte-titulo); box-shadow: -6px 10px 24px rgb(0 0 0 / 0.22); transform: rotateY(-12deg); }
+
+/* movimento: curto e só para quem não pediu menos movimento */
+@media (prefers-reduced-motion: no-preference) {
+  .fu-tela { animation: fu-entra 240ms ease-out both; }
+  .fu-barra > span { transition: width 300ms ease-out; }
+  .fu-op { transition: border-color 150ms, box-shadow 150ms, transform 150ms; }
+  .fu-op:active { transform: scale(0.98); }
+  .fu-anel { animation: fu-gira 900ms linear infinite; }
+  .fu-check li::before { transition: background 200ms, border-color 200ms; }
+}
+@keyframes fu-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fu-gira { to { transform: rotate(360deg); } }

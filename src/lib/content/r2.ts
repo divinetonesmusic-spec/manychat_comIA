@@ -6,7 +6,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
  */
 
 type SignInput = {
-  method: "GET" | "PUT" | "DELETE";
+  method: "GET" | "PUT" | "DELETE" | "HEAD";
   host: string;
   path: string; // já começando com "/"
   region: string;
@@ -195,8 +195,11 @@ export async function deleteR2Object(key: string, timeoutMs = R2_DELETE_TIMEOUT_
 /** Prints mandados no formulário de depoimento (0011). Privados: o painel abre por link com prazo. */
 export const PASTA_PRINTS_DEPOIMENTO = "uaiflow/depoimentos";
 
-/** Prefixos do R2 que NÃO são mídia de post: cópias de segurança do Molde, prévias de aprovação e prints de depoimento. */
-const NOT_POST_MEDIA = ["uaiflow/molde-backups/", `uaiflow/${PREVIEW_FOLDER}/`, `${PASTA_PRINTS_DEPOIMENTO}/`];
+/** Materiais grátis da página de entrega (0013). Privados: a pessoa baixa por link com prazo, depois do e-mail. */
+export const PASTA_ENTREGAS_R2 = "uaiflow/entregas";
+
+/** Prefixos do R2 que NÃO são mídia de post: cópias do Molde, prévias de aprovação, prints de depoimento e materiais de entrega. */
+const NOT_POST_MEDIA = ["uaiflow/molde-backups/", `uaiflow/${PREVIEW_FOLDER}/`, `${PASTA_PRINTS_DEPOIMENTO}/`, `${PASTA_ENTREGAS_R2}/`];
 
 /** true = a chave é de cópia de segurança ou prévia: um post nunca apaga isto. */
 export function isProtectedKey(key: string) {
@@ -244,9 +247,32 @@ export async function getR2Object(key: string, options: R2Options = {}): Promise
   return Buffer.from(await response.arrayBuffer());
 }
 
-/** Link de leitura com prazo (para baixar no computador). */
-export function r2DownloadUrl(key: string, expiresSeconds: number, config?: R2Config) {
-  return r2Request(needConfig(config), "GET", key, expiresSeconds);
+/**
+ * Link de leitura com prazo (para baixar no computador). `opcoes.baixarComo` = o nome do arquivo (o navegador baixa em vez
+ * de abrir); `opcoes.tipo` = o content-type da resposta.
+ */
+export function r2DownloadUrl(key: string, expiresSeconds: number, config?: R2Config, opcoes: { baixarComo?: string; tipo?: string } = {}) {
+  const query: Record<string, string> = {};
+  if (opcoes.baixarComo) query["response-content-disposition"] = `attachment; filename="${opcoes.baixarComo.replace(/[^A-Za-z0-9._-]/g, "-")}"`;
+  if (opcoes.tipo) query["response-content-type"] = opcoes.tipo;
+  return r2Request(needConfig(config), "GET", key, expiresSeconds, undefined, Object.keys(query).length ? query : undefined);
+}
+
+/**
+ * Link de envio (PUT, 1 h) para uma chave privada escolhida pelo servidor (materiais de entrega, 0013). O tamanho vai
+ * assinado (content-length): o R2 só aceita um arquivo exatamente desse tamanho. O content-type vai no cabeçalho do envio.
+ */
+export function r2UploadPrivado(key: string, size: number, contentType: string, config?: R2Config) {
+  return { uploadUrl: r2Request(needConfig(config), "PUT", key, 3600, { "content-length": String(size) }), headers: { "content-type": contentType } };
+}
+
+/** O tamanho do arquivo no R2 (HEAD), ou null quando ele não existe. */
+export async function r2Tamanho(key: string, options: R2Options = {}): Promise<number | null> {
+  const config = needConfig(options.config);
+  const response = await fetch(r2Request(config, "HEAD", key, 300), { method: "HEAD", signal: AbortSignal.timeout(Math.max(100, options.timeoutMs ?? 10_000)) });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new R2Error(`O R2 não respondeu sobre o arquivo (${response.status}).`);
+  return Number(response.headers.get("content-length") ?? 0);
 }
 
 export type R2Listed = { key: string; size: number; lastModified: string };

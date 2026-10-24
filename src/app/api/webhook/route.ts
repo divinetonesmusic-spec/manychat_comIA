@@ -19,6 +19,7 @@ import { avancarSequencia, iniciarSequencia, marcarRespostaDepois, sequenciaAgua
 import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_PREFIX, hasExecutableFlow } from "@/lib/flow-executor";
 import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
 import { safeEqualSecret } from "@/lib/secrets";
+import { QUIZ_PAYLOAD, responderQuizDm } from "@/lib/funil/quiz-dm";
 
 export const runtime = "nodejs";
 
@@ -304,6 +305,16 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
       sendType: "dm",
       payload: buildFollowerGatePayload(automation, followUrl),
     });
+    return 1;
+  }
+
+  // A pergunta do quiz na DM (0013): o botão marca o perfil no contato e a resposta leva o link do quiz com o perfil.
+  if (payload?.startsWith(QUIZ_PAYLOAD)) {
+    try {
+      await responderQuizDm({ accountId: account.id, contactId, instagramRecipientId: senderId, eventId, payload });
+    } catch (error) {
+      console.error("[quiz] não consegui responder o botão da DM:", error instanceof Error ? error.message : error);
+    }
     return 1;
   }
 
