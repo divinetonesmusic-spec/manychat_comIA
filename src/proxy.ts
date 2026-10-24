@@ -20,7 +20,7 @@ const PUBLIC_PREFIXES = [
   "/api/oauth/login",
   "/api/oauth/callback",
   "/api/webhook",
-  "/api/webhooks", // vendas (Stripe, Whop, Gumroad, Payhip, Cakto): cada rota confere a assinatura/segredo da plataforma
+  "/api/webhooks", // vendas (Stripe, Whop, Gumroad, Payhip, Cakto e as 10 da 0012: Hotmart, Kiwify...): cada rota confere a assinatura/segredo da plataforma
   "/api/queue/drain",
   "/api/token/refresh",
   "/api/health", // saúde do relógio para o monitor; não mostra segredo nem @ de conta

@@ -1,3 +1,4 @@
+import { MIGRATION_0012_SEQUENCIA, salvarSequenciaNaAutomacao, sequenciaDaAutomacao } from "@/lib/db/dm-sequencias";
 import { createAutomation, getConfig, updateContentPostMediaItems, updateContentPostStatus, type Config, type ContentMediaItem, type ContentPost } from "@/lib/db/repositories";
 import {
   claimDueContentPosts,
@@ -684,6 +685,9 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
         require_follower: options.requireFollower ?? false,
       });
       if (automation?.id) {
+        // Sequência de DM do post (0012): passos 2, 3 (link) e o lembrete. Sem a 0012 a DM sai só com a 1ª mensagem.
+        const sequencia = sequenciaDaAutomacao({ sequencia: options.sequencia ?? null });
+        if (sequencia && !(await salvarSequenciaNaAutomacao(automation.id, sequencia))) await touchContentPost(post.id, MIGRATION_0012_SEQUENCIA);
         await setPostAutomation(post.id, automation.id);
         done.automation = true;
       }

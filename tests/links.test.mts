@@ -148,12 +148,12 @@ describe("links rastreados", { skip: semBanco }, () => {
       assert.equal(await cliques(), 1);
     });
 
-    test("?de=bio|dm|comentario marca a origem; qualquer outro valor vira outro", async () => {
+    test("?de=bio|dm|comentario|story marca a origem; qualquer outro valor vira outro", async () => {
       const link = await novoLink();
       for (const de of ["bio", "dm", "comentario", "bio", "story", "BIO", ""]) await clicar(link.slug, de ? `?de=${de}` : "");
       const linhas = await db.sql<{ origin: string; n: string }>("select origin, count(*) as n from public.link_clicks group by origin");
       const porOrigem = Object.fromEntries(linhas.map((l) => [l.origin, Number(l.n)]));
-      assert.deepEqual(porOrigem, { bio: 2, dm: 1, comentario: 1, outro: 3 });
+      assert.deepEqual(porOrigem, { bio: 2, dm: 1, comentario: 1, story: 1, outro: 2 });
     });
 
     test("robôs de prévia redirecionam mas não contam", async () => {
@@ -391,16 +391,16 @@ describe("links rastreados", { skip: semBanco }, () => {
       assert.equal(a.slug, um.slug);
       assert.equal(a.url, `https://uaiflow.teste/l/${um.slug}`);
       assert.equal(a.destino, DESTINO);
-      assert.deepEqual(a.cliques, { total: 14, d7: 5, d30: 9, porOrigem: { bio: 3, dm: 2, comentario: 4, outro: 5 } });
+      assert.deepEqual(a.cliques, { total: 14, d7: 5, d30: 9, porOrigem: { bio: 3, dm: 2, comentario: 4, story: 0, outro: 5 } });
       const b = data.find((l: { externalRef: string }) => l.externalRef === "reel-2");
-      assert.deepEqual(b.cliques, { total: 1, d7: 1, d30: 1, porOrigem: { bio: 0, dm: 1, comentario: 0, outro: 0 } });
+      assert.deepEqual(b.cliques, { total: 1, d7: 1, d30: 1, porOrigem: { bio: 0, dm: 1, comentario: 0, story: 0, outro: 0 } });
     });
 
     test("link sem cliques volta com zeros; ref sem link não aparece; sem refs, todos", async () => {
       await novoLink("reel-1");
       const { data } = await (await ler("?refs=reel-1,reel-sem-link")).json();
       assert.equal(data.length, 1);
-      assert.deepEqual(data[0].cliques, { total: 0, d7: 0, d30: 0, porOrigem: { bio: 0, dm: 0, comentario: 0, outro: 0 } });
+      assert.deepEqual(data[0].cliques, { total: 0, d7: 0, d30: 0, porOrigem: { bio: 0, dm: 0, comentario: 0, story: 0, outro: 0 } });
       await novoLink("reel-2");
       assert.equal((await (await ler()).json()).data.length, 2);
     });
@@ -420,7 +420,7 @@ describe("links rastreados", { skip: semBanco }, () => {
       await clicar(link.slug, "?de=bio");
       await clicar(link.slug, "?de=dm");
       const { data } = await (await ler("?refs=reel-1")).json();
-      assert.deepEqual(data[0].cliques.porOrigem, { bio: 1, dm: 1, comentario: 0, outro: 0 });
+      assert.deepEqual(data[0].cliques.porOrigem, { bio: 1, dm: 1, comentario: 0, story: 0, outro: 0 });
       assert.equal(data[0].cliques.total, 2);
     });
 

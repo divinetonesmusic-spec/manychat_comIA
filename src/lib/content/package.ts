@@ -4,6 +4,7 @@ import type { AutomationOptions, MusicChoice, PostPackage } from "@/lib/db/conte
 import { clampVolume, DEFAULT_MUSIC_VOLUME, DEFAULT_VIDEO_VOLUME } from "@/lib/instagram/client";
 import { isYoutubePrivacidade, parseRedes, redesCompativeis, REDES_INVALIDAS, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
 import { parseDestino } from "@/lib/content/destino";
+import { parseSequencia } from "@/lib/db/dm-sequencias";
 
 /**
  * Lê e confere o "pacote" de um post vindo da tela de Conteúdo ou do Molde do Avatar:
@@ -70,6 +71,13 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
   const dmText = optionalText(body.dmText, 1000);
   if (keyword && !dmText && !linkUrl) return { ok: false, error: "Com palavra-chave, preencha a mensagem da DM ou o link." };
 
+  // Sequência de DM (0012): automationOptions.sequencia = { mensagem2, mensagem3, linkUrl, linkLabel, linkAposSegundos,
+  // lembrete, lembreteHoras } (docs/MOLDE_V132_PAGINA.md). Formato errado → 400 com a frase.
+  const rawOptions = body.automationOptions && typeof body.automationOptions === "object" ? (body.automationOptions as Record<string, unknown>) : null;
+  const sequencia = parseSequencia(rawOptions?.sequencia);
+  if (sequencia && "erro" in sequencia) return { ok: false, error: sequencia.erro };
+  if (sequencia && !keyword && !partial) return { ok: false, error: "A sequência de DM precisa da palavra-chave (a 1ª mensagem é a resposta a quem comenta a palavra)." };
+
   const value: PostPackage = {
     accountId: optionalString(body.accountId) ?? null,
     publishType: (publishType ?? undefined) as ContentPublishType,
@@ -88,7 +96,7 @@ export function parsePostPackage(body: Record<string, unknown>, options: { parti
     linkUrl,
     linkLabel: optionalText(body.linkLabel, 20),
     publicReply: optionalText(body.publicReply, 300),
-    automationOptions: parseAutomationOptions(body.automationOptions),
+    automationOptions: withSequencia(parseAutomationOptions(body.automationOptions), sequencia),
     // "feito com IA": só vale boolean de verdade; qualquer outro tipo é ignorado
     aiGenerated: typeof body.aiGenerated === "boolean" ? body.aiGenerated : undefined,
     // música do Instagram: objeto = escolhe (ou troca); null = tira; ausente = não mexe
@@ -139,6 +147,11 @@ export function parseMusic(value: unknown): MusicChoice | null | undefined | "in
     volumeMusica: clampVolume(record.volumeMusica, DEFAULT_MUSIC_VOLUME),
     volumeVideo: clampVolume(record.volumeVideo, DEFAULT_VIDEO_VOLUME),
   };
+}
+
+function withSequencia(options: AutomationOptions | undefined, sequencia: ReturnType<typeof parseSequencia>) {
+  if (!options || sequencia === undefined || (sequencia && "erro" in sequencia)) return options;
+  return sequencia ? { ...options, sequencia } : options; // null = tirar: as opções vão sem a sequência
 }
 
 function parseAutomationOptions(value: unknown): AutomationOptions | undefined {

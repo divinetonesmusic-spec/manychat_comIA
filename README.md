@@ -60,7 +60,9 @@ npm run release:check # verifica o pacote antes de publicar
 - [Música do Instagram nos Reels (Login do Facebook, migração 0009)](docs/musica-instagram.md)
 - [Outras redes (Facebook/Página, Threads, YouTube Shorts) e vendas por webhook (migração 0010)](docs/redes-e-vendas.md)
 - [Escada de vendas: página do produto, upsell/downsell/assinatura, obrigado, depoimentos, pré-venda e destino do post (migração 0011)](docs/vendas-escada.md)
-- Atualizações do banco: [0003 e 0004](docs/ATUALIZACAO_0003_0004.md), [0005](docs/ATUALIZACAO_0005.md), [0006](docs/ATUALIZACAO_0006.md), [0007](docs/ATUALIZACAO_0007.md), [0008](docs/ATUALIZACAO_0008.md)
+- [Vendas por post, mais 10 plataformas de venda (Hotmart, Kiwify, Eduzz, Monetizze, Braip, Ticto, Perfect Pay, Digistore24, ClickBank, Lemon Squeezy) e a sequência de DM (migração 0012)](docs/ATUALIZACAO_0012.md)
+- O que a página do Molde v132 manda (sequência de DM, campo por campo): [docs/MOLDE_V132_PAGINA.md](docs/MOLDE_V132_PAGINA.md)
+- Atualizações do banco: [0003 e 0004](docs/ATUALIZACAO_0003_0004.md), [0005](docs/ATUALIZACAO_0005.md), [0006](docs/ATUALIZACAO_0006.md), [0007](docs/ATUALIZACAO_0007.md), [0008](docs/ATUALIZACAO_0008.md), [0012](docs/ATUALIZACAO_0012.md)
 - API da fila de trabalho do Molde (para o robô do Mac e a página): [docs/API_MOLDE_JOBS.md](docs/API_MOLDE_JOBS.md)
 
 ## Segredos

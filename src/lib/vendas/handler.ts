@@ -1,7 +1,32 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { hasVendasTable, MIGRATION_0010_MISSING } from "@/lib/db/redes";
-import { registrarEvento } from "@/lib/db/vendas";
+import { hasVendasOrigemColumn, MIGRATION_0012_MISSING, registrarEvento } from "@/lib/db/vendas";
+import { origemProfunda } from "@/lib/vendas/origem";
 import {
+  decryptClickbank,
+  formParaObjeto,
+  parseBraipEvent,
+  parseClickbankEvent,
+  parseDigistoreIpn,
+  parseEduzzEvent,
+  parseHotmartEvent,
+  parseKiwifyEvent,
+  parseLemonSqueezyEvent,
+  parseMonetizzeEvent,
+  parsePerfectPayEvent,
+  parseTictoEvent,
+  verifyBraip,
+  verifyDigistore,
+  verifyEduzz,
+  verifyHotmart,
+  verifyKiwify,
+  verifyLemonSqueezy,
+  verifyMonetizze,
+  verifyPerfectPay,
+  verifyTicto,
+} from "@/lib/vendas/webhooks-novas";
+import {
+  isPlataforma0012,
   parseCaktoEvent,
   parseGumroadPing,
   parsePayhipEvent,
@@ -19,12 +44,40 @@ import {
  * Recebe o aviso de venda de uma plataforma: confere o segredo (sem ele configurado, 503), lê o aviso e grava em
  * public.vendas (o mesmo aviso de novo não duplica). Responde rápido; nunca devolve dado da venda.
  */
-const SEGREDO: Record<Plataforma, string> = {
+export const SEGREDO: Record<Plataforma, string> = {
   stripe: "STRIPE_WEBHOOK_SECRET",
   whop: "WHOP_WEBHOOK_SECRET",
   gumroad: "GUMROAD_WEBHOOK_KEY",
   payhip: "PAYHIP_API_KEY",
   cakto: "CAKTO_WEBHOOK_SECRET",
+  hotmart: "HOTMART_HOTTOK",
+  kiwify: "KIWIFY_WEBHOOK_TOKEN",
+  eduzz: "EDUZZ_WEBHOOK_SECRET",
+  monetizze: "MONETIZZE_CHAVE_UNICA",
+  braip: "BRAIP_AUTH_KEY",
+  ticto: "TICTO_WEBHOOK_TOKEN",
+  perfectpay: "PERFECTPAY_WEBHOOK_TOKEN",
+  digistore24: "DIGISTORE24_IPN_PASSPHRASE",
+  clickbank: "CLICKBANK_SECRET_KEY",
+  lemonsqueezy: "LEMONSQUEEZY_WEBHOOK_SECRET",
+};
+
+export const NOME_PLATAFORMA: Record<Plataforma, string> = {
+  stripe: "Stripe",
+  whop: "Whop",
+  gumroad: "Gumroad",
+  payhip: "Payhip",
+  cakto: "Cakto",
+  hotmart: "Hotmart",
+  kiwify: "Kiwify",
+  eduzz: "Eduzz",
+  monetizze: "Monetizze",
+  braip: "Braip",
+  ticto: "Ticto",
+  perfectpay: "Perfect Pay",
+  digistore24: "Digistore24",
+  clickbank: "ClickBank",
+  lemonsqueezy: "Lemon Squeezy",
 };
 
 const MAX_BODY = 512 * 1024;
@@ -41,12 +94,16 @@ export async function handleVendaWebhook(plataforma: Plataforma, request: NextRe
   try {
     const checked = verifyAndParse(plataforma, request, raw, secret);
     if (!checked) return NextResponse.json({ error: "Assinatura inválida.", codigo: "assinatura_invalida" }, { status: 401 });
-    evento = checked;
+    evento = checked.evento;
+    // A origem do post (mo…): o campo conhecido de cada plataforma; senão, qualquer campo de rastreio do aviso.
+    if (evento.tipo !== "ignorar" && !evento.origem) evento = { ...evento, origem: origemProfunda(checked.corpo) };
   } catch {
     return NextResponse.json({ error: "Aviso em formato inválido.", codigo: "formato_invalido" }, { status: 400 });
   }
-  if (evento.tipo === "ignorar") return NextResponse.json({ ok: true, ignorado: evento.motivo });
+  if (evento.tipo === "ignorar") return ok(plataforma, { ok: true, ignorado: evento.motivo });
   if (!(await hasVendasTable())) return NextResponse.json({ error: MIGRATION_0010_MISSING, codigo: "falta_0010" }, { status: 503 });
+  // As plataformas novas só cabem no banco depois da 0012 (a plataforma tenta de novo mais tarde).
+  if (isPlataforma0012(plataforma) && !(await hasVendasOrigemColumn())) return NextResponse.json({ error: MIGRATION_0012_MISSING, codigo: "falta_0012" }, { status: 503 });
 
   if (plataforma === "gumroad" && process.env.GUMROAD_ACCESS_TOKEN) {
     const confirmada = await confirmGumroadSale(evento.rawId, process.env.GUMROAD_ACCESS_TOKEN);
@@ -55,18 +112,25 @@ export async function handleVendaWebhook(plataforma: Plataforma, request: NextRe
   }
 
   const resultado = await registrarEvento(plataforma, evento);
-  return NextResponse.json({ ok: true, resultado });
+  return ok(plataforma, { ok: true, resultado });
+}
+
+/** Resposta de sucesso. A Digistore24 espera o texto "OK" (senão repete o aviso); as outras recebem o JSON de sempre. */
+function ok(plataforma: Plataforma, body: Record<string, unknown>) {
+  if (plataforma === "digistore24") return new NextResponse("OK", { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+  return NextResponse.json(body);
 }
 
 function nome(plataforma: Plataforma) {
-  return { stripe: "Stripe", whop: "Whop", gumroad: "Gumroad", payhip: "Payhip", cakto: "Cakto" }[plataforma];
+  return NOME_PLATAFORMA[plataforma];
 }
 
-/** Confere a assinatura e lê o aviso. null = não confere. Erro de leitura sobe (400). */
-function verifyAndParse(plataforma: Plataforma, request: NextRequest, raw: string, secret: string): VendaEvento | null {
+/** Confere a assinatura e lê o aviso. null = não confere. Erro de leitura sobe (400). `corpo` serve à busca da origem. */
+function verifyAndParse(plataforma: Plataforma, request: NextRequest, raw: string, secret: string): { evento: VendaEvento; corpo: unknown } | null {
   if (plataforma === "stripe") {
     if (!verifyStripeSignature(raw, request.headers.get("stripe-signature"), secret)) return null;
-    return parseStripeEvent(JSON.parse(raw));
+    const corpo = JSON.parse(raw);
+    return { evento: parseStripeEvent(corpo), corpo };
   }
   if (plataforma === "whop") {
     const ok = verifyStandardWebhook(raw, {
@@ -75,24 +139,59 @@ function verifyAndParse(plataforma: Plataforma, request: NextRequest, raw: strin
       signature: request.headers.get("webhook-signature"),
     }, secret);
     if (!ok) return null;
-    return parseWhopEvent(JSON.parse(raw));
+    const corpo = JSON.parse(raw);
+    return { evento: parseWhopEvent(corpo), corpo };
   }
   if (plataforma === "gumroad") {
     // O Gumroad não assina o aviso: o segredo vai no próprio endereço cadastrado (?key=...).
     if (!safeEqualText(request.nextUrl.searchParams.get("key"), secret)) return null;
-    return parseGumroadPing(new URLSearchParams(raw));
+    const form = new URLSearchParams(raw);
+    return { evento: parseGumroadPing(form), corpo: Object.fromEntries(form) };
+  }
+  if (plataforma === "digistore24") {
+    const form = new URLSearchParams(raw);
+    if (!verifyDigistore(form, secret)) return null;
+    return { evento: parseDigistoreIpn(form), corpo: Object.fromEntries(form) };
+  }
+  // Os que conferem o corpo cru (HMAC) antes de ler.
+  if (plataforma === "kiwify") {
+    if (!verifyKiwify(raw, request.nextUrl.searchParams.get("signature"), secret)) return null;
+    const corpo = parseJsonOrForm(raw, request.headers.get("content-type"));
+    return { evento: parseKiwifyEvent(corpo), corpo };
+  }
+  if (plataforma === "eduzz") {
+    if (!verifyEduzz(raw, request.headers.get("x-signature"), secret)) return null;
+    const corpo = parseJsonOrForm(raw, request.headers.get("content-type"));
+    return { evento: parseEduzzEvent(corpo), corpo };
+  }
+  if (plataforma === "lemonsqueezy") {
+    if (!verifyLemonSqueezy(raw, request.headers.get("x-signature"), secret)) return null;
+    const corpo = parseJsonOrForm(raw, request.headers.get("content-type"));
+    return { evento: parseLemonSqueezyEvent(corpo), corpo };
   }
   const body = parseJsonOrForm(raw, request.headers.get("content-type"));
-  if (plataforma === "payhip") {
-    if (!verifyPayhipSignature(body.signature, secret)) return null;
-    return parsePayhipEvent(body);
+  if (plataforma === "clickbank") {
+    const aberto = decryptClickbank(body, secret);
+    if (!aberto) return null;
+    return { evento: parseClickbankEvent(aberto), corpo: aberto };
   }
-  if (!safeEqualText(typeof body.secret === "string" ? body.secret : null, secret)) return null;
-  return parseCaktoEvent(body);
+  const leitores: Partial<Record<Plataforma, [(corpo: Record<string, unknown>) => boolean, (corpo: Record<string, unknown>) => VendaEvento]>> = {
+    payhip: [(corpo) => verifyPayhipSignature(corpo.signature, secret), parsePayhipEvent],
+    cakto: [(corpo) => safeEqualText(typeof corpo.secret === "string" ? corpo.secret : null, secret), parseCaktoEvent],
+    hotmart: [(corpo) => verifyHotmart(request.headers.get("x-hotmart-hottok"), corpo, secret), parseHotmartEvent],
+    monetizze: [(corpo) => verifyMonetizze(corpo, secret), parseMonetizzeEvent],
+    braip: [(corpo) => verifyBraip(corpo, secret), parseBraipEvent],
+    ticto: [(corpo) => verifyTicto(corpo, secret), parseTictoEvent],
+    perfectpay: [(corpo) => verifyPerfectPay(corpo, secret), parsePerfectPayEvent],
+  };
+  const leitor = leitores[plataforma];
+  if (!leitor || !leitor[0](body)) return null;
+  return { evento: leitor[1](body), corpo: body };
 }
 
 function parseJsonOrForm(raw: string, contentType: string | null): Record<string, unknown> {
-  if (contentType?.includes("application/x-www-form-urlencoded")) return Object.fromEntries(new URLSearchParams(raw));
+  // Formulário: nomes com colchetes viram objeto (venda[codigo] → { venda: { codigo } }), como a Monetizze e a Braip mandam.
+  if (contentType?.includes("application/x-www-form-urlencoded")) return formParaObjeto(new URLSearchParams(raw));
   const parsed = JSON.parse(raw) as unknown;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("corpo inválido");
   return parsed as Record<string, unknown>;

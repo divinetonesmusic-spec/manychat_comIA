@@ -1,4 +1,5 @@
 import { getConfig, type ContentPost } from "@/lib/db/repositories";
+import { hasSequenciaTables, MIGRATION_0012_SEQUENCIA } from "@/lib/db/dm-sequencias";
 import {
   cancelPlannedPost,
   createPlannedPost,
@@ -80,9 +81,15 @@ export async function destinoWarning(input: { destinoTipo?: unknown }): Promise<
   return (await hasDestinoColumns()) ? undefined : DESTINO_COLUMN_MISSING_WARNING;
 }
 
-/** Todos os avisos do pacote salvo (IA, música, redes e destino), numa frase só. */
-export async function packageWarning(input: { aiGenerated?: boolean; music?: unknown; redes?: unknown; destinoTipo?: unknown }, post: ContentPost | null, avisos: string[] = []): Promise<string | undefined> {
-  const warnings = [...avisos, await aiColumnWarning(input), await musicWarning(input, post), await redesWarning(input, post), await destinoWarning(input)].filter(Boolean);
+/** Aviso quando o pacote traz a sequência de DM mas a 0012 ainda não foi colada (a DM sai só com a 1ª mensagem). */
+export async function sequenciaWarning(input: { automationOptions?: { sequencia?: unknown } }): Promise<string | undefined> {
+  if (!input.automationOptions?.sequencia) return undefined;
+  return (await hasSequenciaTables()) ? undefined : MIGRATION_0012_SEQUENCIA;
+}
+
+/** Todos os avisos do pacote salvo (IA, música, redes, destino e sequência de DM), numa frase só. */
+export async function packageWarning(input: { aiGenerated?: boolean; music?: unknown; redes?: unknown; destinoTipo?: unknown; automationOptions?: { sequencia?: unknown } }, post: ContentPost | null, avisos: string[] = []): Promise<string | undefined> {
+  const warnings = [...avisos, await aiColumnWarning(input), await musicWarning(input, post), await redesWarning(input, post), await destinoWarning(input), await sequenciaWarning(input)].filter(Boolean);
   return warnings.length ? warnings.join(" ") : undefined;
 }
 

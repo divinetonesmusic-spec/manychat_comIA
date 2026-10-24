@@ -9,16 +9,17 @@ export const CLICK_WAIT_MS = 300;
  * o link que já foi impresso na bio continua levando à loja. A busca normal sempre vai ao banco; nunca se adivinha um destino.
  */
 const CACHE_MAX = 5000;
-const seen = new Map<string, { id: string; destino: string }>();
+type Link = { id: string; destino: string; origem?: string | null };
+const seen = new Map<string, Link>();
 
-function remember(slug: string, link: { id: string; destino: string }) {
+function remember(slug: string, link: Link) {
   seen.delete(slug);
   seen.set(slug, link);
   if (seen.size > CACHE_MAX) seen.delete(seen.keys().next().value as string); // sai o mais antigo
 }
 
 export type LinkLookup =
-  | { kind: "found"; link: { id: string; destino: string }; fromCache: boolean }
+  | { kind: "found"; link: Link; fromCache: boolean }
   | { kind: "not-found" } // não existe (ou a 0006 ainda não foi colada)
   | { kind: "unavailable" }; // o banco falhou e este código nunca foi visto: não dá para saber o destino
 
@@ -61,5 +62,22 @@ function defaultSchedule(work: () => Promise<void>) {
     after(work);
   } catch {
     // Fora de uma requisição do Next (por exemplo, nos testes): a gravação segue em segundo plano do mesmo jeito.
+  }
+}
+
+/**
+ * Opcional do contrato v131: no parâmetro secundário da plataforma (sck, na Hotmart e na Kiwify), junta ao código da origem
+ * de onde veio o clique (sck=mo1x2y3z → sck=mo1x2y3z-story), para a venda dizer se veio da bio, da DM, do comentário ou do
+ * story. Só mexe quando o sck é exatamente o código da origem; o resto do endereço fica igual.
+ */
+export function destinoComClique(destino: string, origem: string | null | undefined, de: string) {
+  if (!origem || de === "outro") return destino;
+  try {
+    const url = new URL(destino);
+    if (url.searchParams.get("sck") !== origem) return destino;
+    url.searchParams.set("sck", `${origem}-${de}`);
+    return url.toString();
+  } catch {
+    return destino;
   }
 }

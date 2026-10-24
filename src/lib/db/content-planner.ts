@@ -4,6 +4,7 @@ import { formatSaoPauloTime } from "@/lib/time";
 import { hasRedesTables } from "@/lib/db/redes";
 import type { Rede, YoutubePrivacidade } from "@/lib/redes/redes";
 import type { DestinoTipo } from "@/lib/content/destino";
+import type { DmSequencia } from "@/lib/db/dm-sequencias";
 
 /** Tudo o que um post leva: mídia, legenda, horário e o funil (palavra → DM → link). */
 export type PostPackage = {
@@ -55,6 +56,8 @@ export type AutomationOptions = {
   reminderText?: string;
   publicReplies?: string[];
   requireFollower?: boolean;
+  /** Sequência de DM do post (0012): passos 2, 3 (link) e o lembrete antes de fechar as 24 h. */
+  sequencia?: DmSequencia;
 };
 
 const EDITABLE_STATUSES = ["draft", "scheduled", "failed", "canceled"];

@@ -1,11 +1,19 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { acharOrigem, codigoOrigem } from "@/lib/vendas/origem";
 
 /**
  * Vendas por webhook: conferência de cada plataforma e leitura do aviso. Guarda o mínimo (sem e-mail nem nome de
  * cliente). Cada plataforma só é aceita com o seu segredo nas variáveis do servidor.
  */
-export const PLATAFORMAS = ["stripe", "whop", "gumroad", "payhip", "cakto"] as const;
+export const PLATAFORMAS_0010 = ["stripe", "whop", "gumroad", "payhip", "cakto"] as const;
+/** As plataformas novas (0012): o banco só as aceita depois da atualização 0012 (antes disso o aviso responde 503). */
+export const PLATAFORMAS_0012 = ["hotmart", "kiwify", "eduzz", "monetizze", "braip", "ticto", "perfectpay", "digistore24", "clickbank", "lemonsqueezy"] as const;
+export const PLATAFORMAS = [...PLATAFORMAS_0010, ...PLATAFORMAS_0012] as const;
 export type Plataforma = (typeof PLATAFORMAS)[number];
+
+export function isPlataforma0012(plataforma: Plataforma) {
+  return (PLATAFORMAS_0012 as readonly string[]).includes(plataforma);
+}
 
 export type VendaEvento =
   | { tipo: "ignorar"; motivo: string }
@@ -23,6 +31,8 @@ export type VendaEvento =
       reembolsoTotal?: boolean;
       teste?: boolean;
       criadoEm?: Date | null;
+      /** O código da origem do post (mo…) que voltou no aviso (0012). null/ausente = venda sem origem conhecida. */
+      origem?: string | null;
     };
 
 /** Tolerância de horário das assinaturas (Stripe e Whop): 5 min. */
@@ -95,31 +105,41 @@ export function verifyPayhipSignature(signature: unknown, apiKey: string) {
 /** Moedas sem centavos na Stripe (o valor já vem inteiro). */
 const ZERO_DECIMAL = new Set(["BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF"]);
 
-function fromMinor(amount: unknown, currency: string) {
+export function fromMinor(amount: unknown, currency: string) {
   const value = Number(amount);
   if (!Number.isFinite(value)) return 0;
   return ZERO_DECIMAL.has(currency.toUpperCase()) ? value : Math.round(value) / 100;
 }
 
-function decimal(value: unknown) {
+export function decimal(value: unknown) {
   const number = typeof value === "string" ? Number(value.replace(",", ".")) : Number(value);
   return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
 }
 
-function text(value: unknown, max = 200) {
+export function text(value: unknown, max = 200) {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
 }
 
-function moeda(value: unknown, fallback = "USD") {
+export function moeda(value: unknown, fallback = "USD") {
   const code = typeof value === "string" ? value.trim().toUpperCase() : "";
   return /^[A-Z]{3}$/.test(code) ? code : fallback;
 }
 
-function dateFrom(value: unknown): Date | null {
+export function dateFrom(value: unknown): Date | null {
   if (value === null || value === undefined || value === "") return null;
   const date = typeof value === "number" || /^\d+$/.test(String(value)) ? new Date(Number(value) * (Number(value) < 1e12 ? 1000 : 1)) : new Date(String(value));
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Um parâmetro de um link (checkout), se houver. */
+function paramFromUrl(value: unknown, name: string) {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    return new URL(value).searchParams.get(name);
+  } catch {
+    return null;
+  }
 }
 
 /** ?ref= de um link (checkout), se houver. */
@@ -133,8 +153,8 @@ function refFromUrl(value: unknown) {
   }
 }
 
-type Json = Record<string, unknown>;
-const obj = (value: unknown): Json => (value && typeof value === "object" && !Array.isArray(value) ? (value as Json) : {});
+export type Json = Record<string, unknown>;
+export const obj = (value: unknown): Json => (value && typeof value === "object" && !Array.isArray(value) ? (value as Json) : {});
 
 export function parseStripeEvent(event: Json): VendaEvento {
   const type = String(event.type ?? "");
@@ -146,11 +166,15 @@ export function parseStripeEvent(event: Json): VendaEvento {
     const metadata = obj(data.metadata);
     const rawId = text(data.id);
     if (!rawId) return { tipo: "ignorar", motivo: "sem id" };
+    // client_reference_id: a origem do post (mo…, contrato v131) ou, como antes, a referência do produto.
+    const origem = acharOrigem([data.client_reference_id, metadata.molde_origem, metadata.origem]);
+    const clientRef = codigoOrigem(data.client_reference_id) ? null : text(data.client_reference_id, 120);
     return {
       tipo: "venda",
       rawId,
+      origem,
       pagamentoId: text(data.payment_intent),
-      produtoRef: text(metadata.produto_ref, 120) ?? text(metadata.ref, 120) ?? text(data.client_reference_id, 120) ?? text(data.payment_link),
+      produtoRef: text(metadata.produto_ref, 120) ?? text(metadata.ref, 120) ?? clientRef ?? text(data.payment_link),
       produtoId: text(data.payment_link) ?? text(metadata.product_id),
       produtoNome: text(metadata.produto_nome) ?? text(metadata.product_name),
       valor: fromMinor(data.amount_total, currency),
@@ -221,6 +245,7 @@ export function parseGumroadPing(form: URLSearchParams): VendaEvento {
   const currency = moeda(form.get("currency"));
   const base = {
     rawId,
+    origem: acharOrigem([form.get("url_params[utm_content]"), form.get("url_params[src]"), form.get("url_params[sck]"), form.get("url_params[molde_origem]")]),
     produtoRef: text(form.get("url_params[ref]"), 120) ?? text(form.get("url_params[produto_ref]"), 120) ?? text(form.get("product_permalink") ? lastPath(form.get("product_permalink") as string) : null) ?? text(form.get("short_product_id")) ?? text(form.get("product_id")),
     produtoId: text(form.get("product_id")),
     produtoNome: text(form.get("product_name")),
@@ -276,6 +301,7 @@ export function parseCaktoEvent(event: Json): VendaEvento {
   const product = obj(data.product);
   const base = {
     rawId,
+    origem: acharOrigem([paramFromUrl(data.checkoutUrl, "utm_content"), paramFromUrl(data.checkoutUrl, "src"), paramFromUrl(data.checkoutUrl, "sck"), data.utm_content, data.src, data.sck]),
     pagamentoId: text(data.refId),
     produtoRef: refFromUrl(data.checkoutUrl) ?? text(product.short_id) ?? text(product.id),
     produtoId: text(product.id),
