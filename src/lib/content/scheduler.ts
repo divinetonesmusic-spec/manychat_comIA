@@ -1,3 +1,4 @@
+import { parseQuizDm, quickRepliesDoQuiz } from "@/lib/funil/quiz-dm";
 import { MIGRATION_0012_SEQUENCIA, salvarSequenciaNaAutomacao, sequenciaDaAutomacao } from "@/lib/db/dm-sequencias";
 import { createAutomation, getConfig, updateContentPostMediaItems, updateContentPostStatus, type Config, type ContentMediaItem, type ContentPost } from "@/lib/db/repositories";
 import {
@@ -666,6 +667,7 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
   if (post.keyword && (post.dm_text || post.link_url) && !post.automation_id) {
     try {
       const options = post.automation_options ?? {};
+      const quizDm = parseQuizDm(options.quizDm); // 0013: relida do banco (um pacote velho ou mexido não quebra a automação)
       const publicReplies = [post.public_reply, ...(options.publicReplies ?? [])].map((text) => (text || "").trim()).filter(Boolean);
       const automation = await createAutomation({
         account_id: post.account_id,
@@ -676,7 +678,9 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
         match_type: "contains",
         post_id: mediaId,
         public_replies: Array.from(new Set(publicReplies)).slice(0, 8),
-        welcome_dm: post.dm_text || "Oi! Toque no botão abaixo para receber.",
+        // «Começar pela pergunta do quiz» (0013): a 1ª mensagem é a pergunta, com um botão por perfil (respostas rápidas)
+        welcome_dm: quizDm?.texto || post.dm_text || "Oi! Toque no botão abaixo para receber.",
+        quick_replies: quizDm ? quickRepliesDoQuiz(quizDm) : undefined,
         quick_reply_label: (options.quickReplyLabel || "").slice(0, 20) || undefined,
         link_text: options.linkText || undefined,
         link_url: post.link_url || "",

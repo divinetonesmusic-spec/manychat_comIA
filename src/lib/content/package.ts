@@ -5,6 +5,7 @@ import { clampVolume, DEFAULT_MUSIC_VOLUME, DEFAULT_VIDEO_VOLUME } from "@/lib/i
 import { isYoutubePrivacidade, parseRedes, redesCompativeis, REDES_INVALIDAS, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
 import { parseDestino } from "@/lib/content/destino";
 import { parseSequencia } from "@/lib/db/dm-sequencias";
+import { parseQuizDm } from "@/lib/funil/quiz-dm";
 
 /**
  * Lê e confere o "pacote" de um post vindo da tela de Conteúdo ou do Molde do Avatar:
@@ -165,6 +166,7 @@ function parseAutomationOptions(value: unknown): AutomationOptions | undefined {
       ? record.publicReplies.filter((text): text is string => typeof text === "string" && Boolean(text.trim())).map((text) => text.trim().slice(0, 300)).slice(0, 8)
       : undefined,
     requireFollower: typeof record.requireFollower === "boolean" ? record.requireFollower : undefined,
+    quizDm: parseQuizDm(record.quizDm),
   };
 }
 

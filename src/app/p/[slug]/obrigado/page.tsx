@@ -48,6 +48,7 @@ export default async function ObrigadoPage({ params, searchParams }: Props) {
         ) : (
           <form action={`/p/${produto.slug}/obrigado/email`} className="grid gap-3" method="post">
             {erro === "email" ? <Aviso tom="erro">Confira o e-mail: parece que falta alguma coisa.</Aviso> : null}
+            {erro === "limite" ? <Aviso tom="erro">Muitas tentativas seguidas. Espere alguns minutos e tente de novo.</Aviso> : null}
             <label className="field"><span>Seu e-mail</span><input autoComplete="email" className="input" name="email" required type="email" /></label>
             <label className="field"><span>Seu nome (opcional)</span><input autoComplete="given-name" className="input" maxLength={120} name="nome" /></label>
             {/* campo escondido contra robôs: pessoa não preenche */}
