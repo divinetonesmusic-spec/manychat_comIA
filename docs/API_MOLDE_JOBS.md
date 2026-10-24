@@ -246,3 +246,10 @@ Como roda, respeitando a janela de 24 h da Meta:
    mensagem nova vai para as «DMs sem resposta», para o rascunho do Molde).
 4. Quem não respondeu não recebe mais nada. Quem pediu para parar não recebe o resto. Tudo passa pela fila normal (limite de 200 por
    hora, pausa humana, prazo de 24 h: o que passar do prazo é pulado).
+
+## DM com o vídeo do avatar (0014, página v133)
+
+O roteiro de DM em modo vídeo (`automationOptions.sequencia.modo = "video"`), o cadastro dos vídeos de resposta
+(`GET`/`POST /api/molde/dmvideo`) e o funil por post com o gargalo (`GET /api/molde/dmvideo/funil`) estão em
+`docs/MOLDE_V133_DMVIDEO.md`. Os vídeos sobem pelo `POST /api/molde/upload` com `folder: "dmvideos"` (até 25 MB, o limite da
+Meta para vídeo na DM). Sem a 0014 (`docs/ATUALIZACAO_0014.md`): o cadastro responde 503 `falta_0014` e a DM segue a sequência da 0012.

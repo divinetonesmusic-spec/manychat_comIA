@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { query } from "@/lib/db/client";
 import { enqueueJob } from "@/lib/db/repositories";
+import { escolherVideo, hasDmVideoTables, PASSO_VIDEO, VIDEO_APOS_MAX_MIN, VIDEO_APOS_PADRAO_MIN, videosDaAutomacao } from "@/lib/db/dm-videos";
 
 /**
  * Sequência de DM por post (2-DM, 0012). A Meta só deixa mandar UMA mensagem privada para quem comentou (a resposta ao
@@ -11,6 +12,11 @@ import { enqueueJob } from "@/lib/db/repositories";
  *             tocou no link nem escreveu de novo.
  * Tudo passa pela fila normal de envios (limite de 200 por hora, pausa humana, prazo de 24 h da Meta, quem pediu para parar).
  * Sem a 0012 nada disto roda: a DM do post sai só com a 1ª mensagem, como antes.
+ *
+ * Modo «vídeo» (Molde v133, 0014; `modo: "video"`): a resposta da pessoa escolhe um dos vídeos do avatar do post
+ * (dm-videos.ts, pelas palavras dela; sem casar, o geral). Em vez do passo 2, sai o vídeo (com a frase dele, ou a
+ * `mensagem2`) `videoAposMinutos` depois da resposta (padrão 3, até 15) e só então o link (`mensagem3`), `linkAposSegundos`
+ * depois do vídeo. O lembrete não muda. Sem a 0014 ou sem vídeo que sirva: a sequência segue como no modo de sempre.
  */
 
 export type DmSequencia = {
@@ -21,6 +27,10 @@ export type DmSequencia = {
   linkAposSegundos: number;
   lembrete: string;
   lembreteHoras: number;
+  /** v133 · "link" (o de sempre) ou "video" (o vídeo do avatar escolhido pela resposta antes do link). */
+  modo: "link" | "video";
+  /** v133 · minutos entre a resposta da pessoa e o vídeo (0 a 15). */
+  videoAposMinutos: number;
 };
 
 export const SEQUENCIA_PADRAO = { linkLabel: "Abrir link", linkAposSegundos: 60, lembreteHoras: 22 } as const;
@@ -66,9 +76,12 @@ export function parseSequencia(value: unknown): DmSequencia | null | undefined |
     linkAposSegundos: inteiro(record.linkAposSegundos, 0, 3600, SEQUENCIA_PADRAO.linkAposSegundos),
     lembrete: texto(record.lembrete),
     lembreteHoras: inteiro(record.lembreteHoras, 1, 23, SEQUENCIA_PADRAO.lembreteHoras),
+    modo: record.modo === "video" ? "video" : "link",
+    videoAposMinutos: inteiro(record.videoAposMinutos, 0, VIDEO_APOS_MAX_MIN, VIDEO_APOS_PADRAO_MIN),
   };
+  if (record.modo !== undefined && record.modo !== "video" && record.modo !== "link") return { erro: "automationOptions.sequencia.modo precisa ser \"link\" ou \"video\"." };
   if (seq.linkUrl && !seq.mensagem3) return { erro: "automationOptions.sequencia: com linkUrl, mande a mensagem3 (o texto que vai com o botão do link)." };
-  if (!seq.mensagem2 && !seq.mensagem3 && !seq.lembrete) return null; // nada para mandar: como se não houvesse sequência
+  if (!seq.mensagem2 && !seq.mensagem3 && !seq.lembrete && seq.modo !== "video") return null; // nada para mandar: como se não houvesse sequência
   return seq;
 }
 
@@ -160,6 +173,8 @@ export async function avancarSequencia(input: {
   contactId: string;
   instagramRecipientId: string;
   eventId?: string | null;
+  /** v133 · o que a pessoa escreveu (ou o texto do botão): no modo vídeo, escolhe o vídeo. */
+  texto?: string | null;
 }): Promise<boolean> {
   const seq = sequenciaDaAutomacao(input.automation);
   if (!seq || !(await hasSequenciaTables())) return false;
@@ -181,6 +196,10 @@ export async function avancarSequencia(input: {
     sendType: "dm" as const,
   };
   const agora = Date.now();
+  if (seq.modo === "video" && (await enfileirarVideo({ seq, base, seqId: row.id, chave: row.chave, agora, automation: input.automation, texto: input.texto ?? "" }))) {
+    await enfileirarLembrete(seq, base, row.id, agora);
+    return true;
+  }
   if (seq.mensagem2) {
     await enqueueJob({ ...base, availableAt: new Date(agora), payload: { type: "text", text: seq.mensagem2, origem: ORIGEM_SEQUENCIA, seqId: row.id, passo: 2 } });
   }
@@ -191,14 +210,48 @@ export async function avancarSequencia(input: {
       : { type: "text", text: seq.mensagem3, origem: ORIGEM_SEQUENCIA, seqId: row.id, passo: 3 };
     await enqueueJob({ ...base, availableAt: new Date(agora + espera), payload });
   }
-  if (seq.lembrete) {
-    const lembreteId = await enqueueJob({
-      ...base,
-      availableAt: new Date(agora + seq.lembreteHoras * 3_600_000),
-      payload: { type: "reminder", text: seq.lembrete, origem: ORIGEM_SEQUENCIA, seqId: row.id, passo: 4 },
-    });
-    if (lembreteId) await query("update public.dm_sequencias set lembrete_queue_id = $2 where id = $1", [row.id, lembreteId]);
+  await enfileirarLembrete(seq, base, row.id, agora);
+  return true;
+}
+
+type BaseEnvio = Omit<Parameters<typeof enqueueJob>[0], "availableAt" | "payload">;
+
+async function enfileirarLembrete(seq: DmSequencia, base: BaseEnvio, seqId: string, agora: number) {
+  if (!seq.lembrete) return;
+  const lembreteId = await enqueueJob({
+    ...base,
+    availableAt: new Date(agora + seq.lembreteHoras * 3_600_000),
+    payload: { type: "reminder", text: seq.lembrete, origem: ORIGEM_SEQUENCIA, seqId, passo: 4 },
+  });
+  if (lembreteId) await query("update public.dm_sequencias set lembrete_queue_id = $2 where id = $1", [seqId, lembreteId]);
+}
+
+/**
+ * v133 · modo vídeo: escolhe o vídeo pela resposta e põe na fila o vídeo (com a frase dele) e, depois, o link. false = sem a
+ * 0014 ou sem vídeo que sirva (o chamador segue o modo de sempre). Nunca deixa a sequência sem andar.
+ */
+async function enfileirarVideo(input: { seq: DmSequencia; base: BaseEnvio; seqId: string; chave: string; agora: number; automation: { id: string; account_id: string | null }; texto: string }) {
+  const { seq, base, seqId } = input;
+  if (!(await hasDmVideoTables())) return false;
+  const escolha = escolherVideo(input.texto, await videosDaAutomacao(input.automation));
+  if (!escolha) return false;
+  const saiEm = new Date(input.agora + seq.videoAposMinutos * 60_000);
+  const videoId = await enqueueJob({
+    ...base,
+    availableAt: saiEm,
+    payload: { type: "media", mediaType: "video", mediaUrl: escolha.video.videoUrl, text: escolha.video.texto || seq.mensagem2, origem: ORIGEM_SEQUENCIA, seqId, passo: PASSO_VIDEO, videoChave: escolha.video.chave },
+  });
+  if (seq.mensagem3) {
+    const linkEm = new Date(saiEm.getTime() + seq.linkAposSegundos * 1000);
+    const payload = seq.linkUrl
+      ? { type: "link", text: seq.mensagem3, buttonLabel: seq.linkLabel, url: linkDaPessoa(seq.linkUrl, input.chave), origem: ORIGEM_SEQUENCIA, seqId, passo: 3 }
+      : { type: "text", text: seq.mensagem3, origem: ORIGEM_SEQUENCIA, seqId, passo: 3 };
+    await enqueueJob({ ...base, availableAt: linkEm, payload });
   }
+  await query(
+    "update public.dm_sequencias set resposta_texto = $2, video_chave = $3, video_sai_em = $4, video_queue_id = $5 where id = $1",
+    [seqId, String(input.texto ?? "").trim().slice(0, 500) || null, escolha.video.chave, saiEm, videoId ?? null],
+  );
   return true;
 }
 
