@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppBaseUrl } from "@/lib/env";
 import { saveInstagramConfig } from "@/lib/db/repositories";
-import { verifyOAuthState } from "@/lib/oauth-state";
+import { clearInstagramStateCookie, verifyInstagramCallbackState } from "@/lib/oauth-state";
+import { redactSecrets } from "@/lib/secrets";
 import { INVALID_STATE_MESSAGE } from "@/lib/instagram-retorno";
 import {
   exchangeCodeForLongToken,
@@ -13,13 +14,14 @@ export const runtime = "nodejs";
 
 /**
  * Volta do Instagram. Continua pública (o Instagram chama direto), mas só aceita `state` assinado pelo
- * UaiFlow e dentro da validade (30 min). Sem isso, não troca o código e volta para /perfis com o erro.
+ * UaiFlow, dentro da validade (30 min) e do MESMO navegador que começou o login (cookie httpOnly com o nonce).
+ * Sem isso, não troca o código e volta para /perfis com o erro. O cookie é apagado em qualquer resultado (uso único).
  */
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error_description") || request.nextUrl.searchParams.get("error");
   const appBaseUrl = getAppBaseUrl(request.url);
-  const state = verifyOAuthState(request.nextUrl.searchParams.get("state"));
+  const state = verifyInstagramCallbackState(request, request.nextUrl.searchParams.get("state"));
 
   if (!state) {
     return redirectBack(appBaseUrl, "/perfis", { instagram_error: INVALID_STATE_MESSAGE });
@@ -64,8 +66,9 @@ export async function GET(request: NextRequest) {
     return redirectBack(appBaseUrl, next, { instagram_connected: "1" });
   } catch (callbackError) {
     const message = callbackError instanceof Error ? callbackError.message : "Erro desconhecido ao conectar Instagram";
-    console.error("[oauth] Instagram callback failed", message);
-    return redirectBack(appBaseUrl, next, { instagram_error: message });
+    const safe = redactSecrets(message);
+    console.error("[oauth] Instagram callback failed", safe);
+    return redirectBack(appBaseUrl, next, { instagram_error: safe });
   }
 }
 
@@ -73,5 +76,5 @@ export async function GET(request: NextRequest) {
 function redirectBack(appBaseUrl: string, path: string, params: Record<string, string>) {
   const url = new URL(path, `${appBaseUrl}/`);
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-  return NextResponse.redirect(url);
+  return clearInstagramStateCookie(NextResponse.redirect(url));
 }

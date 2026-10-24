@@ -18,6 +18,15 @@ const callbackRoute = await import("@/app/api/oauth/callback/route");
 const adminCookie = (await (await import("@/lib/auth")).createAdminSessionValue()) as string;
 const MINUTOS = 60_000;
 
+/** Começa o login como o navegador faz (sessão de administrador) e devolve o state e o cookie que o servidor gravou. */
+async function iniciarLogin(next = "/perfis") {
+  const response = await loginRoute.GET(request(`/api/oauth/login?next=${encodeURIComponent(next)}`, { cookies: { admin_session: adminCookie } }));
+  const state = location(response).searchParams.get("state") as string;
+  const cookie = response.cookies.get(oauth.INSTAGRAM_STATE_COOKIE)?.value as string;
+  assert.ok(state && cookie, "o login não gravou o state no navegador");
+  return { state, cookies: { [oauth.INSTAGRAM_STATE_COOKIE]: cookie } };
+}
+
 function location(response: Response) {
   const value = response.headers.get("location");
   assert.ok(value, `sem redirecionamento (status ${response.status})`);
@@ -119,6 +128,55 @@ describe("U-SEG-02: /api/oauth/callback recusa state inválido", () => {
   }
 });
 
+describe("U-SEG-02b (v133): o state fica preso ao navegador que começou o login (cookie httpOnly)", () => {
+  beforeEach(() => meta.reset());
+
+  test("o login grava o cookie do state: httpOnly, SameSite=Lax, só em /api/oauth e com prazo de 30 min", async () => {
+    const response = await loginRoute.GET(request("/api/oauth/login?next=%2Fperfis", { cookies: { admin_session: adminCookie } }));
+    const header = response.headers.getSetCookie().find((linha) => linha.startsWith(`${oauth.INSTAGRAM_STATE_COOKIE}=`)) ?? "";
+    assert.match(header, /HttpOnly/i);
+    assert.match(header, /SameSite=lax/i);
+    assert.match(header, /Path=\/api\/oauth(;|$)/i);
+    assert.match(header, /Max-Age=1800/i);
+    const state = location(response).searchParams.get("state") as string;
+    assert.ok(!header.includes(state), "o cookie não leva o state inteiro (só o resumo do nonce)");
+  });
+
+  test("o link assinado (outro navegador) também grava o cookie nesse navegador", async () => {
+    const t = oauth.createLoginLinkToken("/perfis");
+    const response = await loginRoute.GET(request(`/api/oauth/login?t=${encodeURIComponent(t)}`));
+    assert.ok(response.cookies.get(oauth.INSTAGRAM_STATE_COOKIE)?.value);
+  });
+
+  test("state válido SEM o cookie (outro navegador, link pronto de um atacante): recusado sem chamar a Meta", async () => {
+    const { state } = await iniciarLogin();
+    const response = await callbackRoute.GET(request(`/api/oauth/callback?code=codigo-do-atacante&state=${encodeURIComponent(state)}`));
+    assert.match(location(response).searchParams.get("instagram_error") ?? "", /link de conexão/);
+    assert.equal(meta.calls.length, 0);
+  });
+
+  test("cookie de OUTRO login não serve: recusado", async () => {
+    const primeiro = await iniciarLogin();
+    const segundo = await iniciarLogin();
+    const response = await callbackRoute.GET(request(`/api/oauth/callback?code=x&state=${encodeURIComponent(primeiro.state)}`, { cookies: segundo.cookies }));
+    assert.match(location(response).searchParams.get("instagram_error") ?? "", /link de conexão/);
+    assert.equal(meta.calls.length, 0);
+  });
+
+  test("state vencido, mesmo com o cookie certo: recusado", async () => {
+    const { state, cookies } = await iniciarLogin();
+    const verificado = oauth.verifyOAuthState(state);
+    assert.ok(verificado);
+    assert.equal(oauth.verifyInstagramCallbackState(request("/api/oauth/callback", { cookies }), state, verificado.expiresAt + 1000), null);
+    assert.ok(oauth.verifyInstagramCallbackState(request("/api/oauth/callback", { cookies }), state));
+  });
+
+  test("a recusa também apaga o cookie", async () => {
+    const response = await callbackRoute.GET(request("/api/oauth/callback?code=x&state=lixo", { cookies: { [oauth.INSTAGRAM_STATE_COOKIE]: "qualquer" } }));
+    assert.equal(response.cookies.get(oauth.INSTAGRAM_STATE_COOKIE)?.value, "");
+  });
+});
+
 describe("U-SEG-02: conectar conta pelo callback (com banco)", { skip: semBanco }, () => {
   after(async () => {
     meta.restore();
@@ -132,8 +190,10 @@ describe("U-SEG-02: conectar conta pelo callback (com banco)", { skip: semBanco 
 
   test("state válido: troca o código, salva a conta e volta para o caminho certo", async () => {
     meta.profile = { user_id: "3001", username: "primeira_conta" };
-    const state = oauth.createOAuthState("/perfis?accountId=x");
-    const destino = location(await callbackRoute.GET(request(`/api/oauth/callback?code=ok&state=${encodeURIComponent(state)}`)));
+    const { state, cookies } = await iniciarLogin("/perfis?accountId=x");
+    const response = await callbackRoute.GET(request(`/api/oauth/callback?code=ok&state=${encodeURIComponent(state)}`, { cookies }));
+    const destino = location(response);
+    assert.equal(response.cookies.get(oauth.INSTAGRAM_STATE_COOKIE)?.value, "", "o cookie do state é apagado na volta (uso único)");
     assert.equal(destino.pathname, "/perfis");
     assert.equal(destino.searchParams.get("accountId"), "x");
     assert.equal(destino.searchParams.get("instagram_connected"), "1");
@@ -144,8 +204,8 @@ describe("U-SEG-02: conectar conta pelo callback (com banco)", { skip: semBanco 
   test("conectar a 2ª conta não tira a conta padrão atual", async () => {
     await seedAccount(db!, { username: "ruthie", userId: "1001", isDefault: true });
     meta.profile = { user_id: "1002", username: "payoff" };
-    const state = oauth.createOAuthState("/perfis");
-    await callbackRoute.GET(request(`/api/oauth/callback?code=ok&state=${encodeURIComponent(state)}`));
+    const { state, cookies } = await iniciarLogin();
+    await callbackRoute.GET(request(`/api/oauth/callback?code=ok&state=${encodeURIComponent(state)}`, { cookies }));
 
     const contas = await db!.sql<{ instagram_username: string; is_default: boolean }>("select instagram_username, is_default from public.instagram_accounts order by instagram_username");
     assert.deepEqual(contas, [
@@ -161,7 +221,8 @@ describe("U-SEG-02: conectar conta pelo callback (com banco)", { skip: semBanco 
     await seedAccount(db!, { username: "ruthie", userId: "1001", isDefault: true });
     await seedAccount(db!, { username: "payoff", userId: "1002", isDefault: false });
     meta.profile = { user_id: "1001", username: "ruthie" };
-    await callbackRoute.GET(request(`/api/oauth/callback?code=ok&state=${encodeURIComponent(oauth.createOAuthState("/perfis"))}`));
+    const { state, cookies } = await iniciarLogin();
+    await callbackRoute.GET(request(`/api/oauth/callback?code=ok&state=${encodeURIComponent(state)}`, { cookies }));
     const contas = await db!.sql<{ instagram_username: string; is_default: boolean; instagram_access_token: string }>(
       "select instagram_username, is_default, instagram_access_token from public.instagram_accounts order by instagram_username",
     );

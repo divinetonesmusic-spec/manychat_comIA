@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppBaseUrl, IG_OAUTH_AUTHORIZE_URL, requireEnv } from "@/lib/env";
 import { safeNextPath } from "@/lib/auth";
-import { createOAuthState, verifyLoginLinkToken } from "@/lib/oauth-state";
+import { createOAuthState, setInstagramStateCookie, verifyLoginLinkToken } from "@/lib/oauth-state";
 import { readUaiFlowSession } from "@/lib/session";
 
 /**
  * Começa o login do Instagram. Só para quem está logado no UaiFlow OU traz o link assinado (`t`) que a
  * tela Perfis gera (para conectar a conta em outro navegador/computador). Sem nenhum dos dois → /login.
- * O `state` mandado ao Instagram é assinado e vence em 30 min (o /api/oauth/callback confere).
+ * O `state` mandado ao Instagram é assinado, vence em 30 min e fica preso a este navegador por um cookie httpOnly
+ * (o /api/oauth/callback confere os dois).
  */
 export async function GET(request: NextRequest) {
   const appBaseUrl = getAppBaseUrl(request.url);
@@ -36,11 +37,12 @@ export async function GET(request: NextRequest) {
   url.searchParams.set("client_id", requireEnv("INSTAGRAM_APP_ID"));
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("state", createOAuthState(next));
+  const state = createOAuthState(next);
+  url.searchParams.set("state", state);
   url.searchParams.set(
     "scope",
     "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish,instagram_business_manage_insights",
   );
 
-  return applyCookies(NextResponse.redirect(url));
+  return applyCookies(setInstagramStateCookie(NextResponse.redirect(url), state));
 }

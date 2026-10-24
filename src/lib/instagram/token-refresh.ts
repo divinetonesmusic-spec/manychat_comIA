@@ -1,3 +1,4 @@
+import { redactSecrets } from "@/lib/secrets";
 import { listInstagramAccounts, updateToken } from "@/lib/db/repositories";
 import { refreshLongLivedToken } from "@/lib/instagram/client";
 import { listFacebookConnections, updateFacebookTokens } from "@/lib/db/facebook-connections";
@@ -146,13 +147,7 @@ export function tokenRefreshAlerts(results: TokenRefreshResult[], now = new Date
 
 /** Mensagem de erro sem nenhum pedaço de token (o endereço da renovação leva o token na URL). */
 function safeErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "Erro desconhecido.");
-  return message
-    .replace(/(access_token|fb_exchange_token|client_secret)=[^&\s]+/gi, "$1=***")
-    .replace(/IG[A-Za-z0-9_-]{20,}/g, "***")
-    .replace(/EAA[A-Za-z0-9_-]{20,}/g, "***")
-    .replace(/TH[A-Za-z0-9_-]{20,}/g, "***")
-    .slice(0, 300);
+  return redactSecrets(error instanceof Error ? error.message : String(error || "Erro desconhecido."));
 }
 
 function toIso(value: string | Date | null | undefined) {
