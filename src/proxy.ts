@@ -84,7 +84,9 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  // Ícones e imagens ficam de fora (a tela de login precisa deles), MENOS dentro de /api: antes, um endereço como
+  // /api/automations/<id>.png pulava a conferência de sessão (v133).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };
 
 function isPublicPath(pathname: string) {

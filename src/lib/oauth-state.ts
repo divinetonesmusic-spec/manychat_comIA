@@ -1,4 +1,5 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import type { NextRequest, NextResponse } from "next/server";
 import { safeNextPath } from "@/lib/auth";
 import { requireEnv } from "@/lib/env";
 
@@ -9,6 +10,12 @@ import { requireEnv } from "@/lib/env";
  *   em OUTRO navegador/computador (onde o UaiFlow pode não estar logado).
  * Os dois levam um nonce, vencem em 30 min e carregam o caminho de volta (next). Um não serve no lugar do outro.
  * A chave é derivada do INSTAGRAM_APP_SECRET (já existe em produção) com um rótulo fixo: nenhuma variável nova.
+ *
+ * v133 (U-SEG-02b): o "state" também fica PRESO AO NAVEGADOR que começou o login. O /api/oauth/login grava o nonce
+ * do state num cookie httpOnly + SameSite=Lax (só o servidor lê; vence junto com o state, 30 min) e o callback só aceita
+ * o state se o cookie do mesmo navegador tiver o mesmo nonce. O cookie é apagado na volta (uso único). Assim, um state
+ * válido que vazou (ou um link pronto com o código de outra pessoa) não liga conta nenhuma em outro navegador (CSRF).
+ * PKCE: o Login do Instagram (instagram.com/oauth/authorize) não documenta code_challenge; não é usado aqui.
  */
 export const OAUTH_TOKEN_TTL_MS = 30 * 60_000;
 
@@ -62,4 +69,46 @@ export function createLoginLinkToken(next: string | null | undefined, now = Date
 
 export function verifyLoginLinkToken(token: string | null | undefined, now = Date.now()) {
   return verify("login", token, now);
+}
+
+/** Cookie do state do Instagram (nonce). Vale para /api/oauth/login e /api/oauth/callback. */
+export const INSTAGRAM_STATE_COOKIE = "uaiflow_ig_state";
+const IG_COOKIE_PATH = "/api/oauth";
+
+function nonceDigest(nonce: string) {
+  return createHash("sha256").update(`uaiflow-ig-nonce:${nonce}`).digest("base64url");
+}
+
+/** Grava no navegador o nonce do state (como hash). Chame no /api/oauth/login, na resposta que manda para o Instagram. */
+export function setInstagramStateCookie(response: NextResponse, state: string) {
+  const verified = verifyOAuthState(state);
+  if (!verified) return response;
+  response.cookies.set(INSTAGRAM_STATE_COOKIE, nonceDigest(verified.nonce), {
+    httpOnly: true,
+    sameSite: "lax", // a volta do Instagram é uma navegação comum (GET): o cookie "lax" vai junto
+    secure: process.env.NODE_ENV === "production",
+    path: IG_COOKIE_PATH,
+    maxAge: Math.floor(OAUTH_TOKEN_TTL_MS / 1000),
+  });
+  return response;
+}
+
+export function clearInstagramStateCookie(response: NextResponse) {
+  response.cookies.set(INSTAGRAM_STATE_COOKIE, "", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: IG_COOKIE_PATH, maxAge: 0 });
+  return response;
+}
+
+/**
+ * Confere o state que voltou do Instagram: assinatura, prazo E o cookie do mesmo navegador (mesmo nonce).
+ * Qualquer falha: null (não troca o código).
+ */
+export function verifyInstagramCallbackState(request: NextRequest, returnedState: string | null | undefined, now = Date.now()): SignedOAuthToken | null {
+  const verified = verifyOAuthState(returnedState, now);
+  if (!verified) return null;
+  const cookie = request.cookies.get(INSTAGRAM_STATE_COOKIE)?.value;
+  if (!cookie || cookie.length > 256) return null;
+  const expected = Buffer.from(nonceDigest(verified.nonce));
+  const given = Buffer.from(cookie);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  return verified;
 }

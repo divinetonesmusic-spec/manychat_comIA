@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   GRAPH_BASE_URL,
   IG_OAUTH_TOKEN_URL,
@@ -599,7 +600,17 @@ export function isMetaTimeout(error: unknown): error is MetaApiError {
 /** Prazo atual (só os testes mudam, por META_TIMEOUT_MS no ambiente, para não esperar 8 s). */
 function metaTimeoutMs() {
   const fromEnv = Number(process.env.META_TIMEOUT_MS);
-  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : META_TIMEOUT_MS;
+  const base = Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : META_TIMEOUT_MS;
+  const deadline = metaDeadline.getStore();
+  // Dentro de withMetaDeadline: cada chamada à Meta desiste antes do fim do tempo do relógio (no mínimo 300 ms).
+  return deadline === undefined ? base : Math.max(300, Math.min(base, deadline - Date.now()));
+}
+
+const metaDeadline = new AsyncLocalStorage<number>();
+
+/** Roda `work` com um prazo final: as chamadas à Meta lá dentro (metaFetch) não passam dele. */
+export function withMetaDeadline<T>(deadline: number, work: () => Promise<T>) {
+  return metaDeadline.run(deadline, work);
 }
 
 /** fetch com prazo de 8 s. Estourou: MetaApiError do tipo "timeout" (erro temporário). */

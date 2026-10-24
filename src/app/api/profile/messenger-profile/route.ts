@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
     fields: kind,
   });
 
-  return NextResponse.json({ data });
+  // Só o que a tela usa (a lista): o "paging" da Meta pode trazer endereços com o access_token (v133).
+  return NextResponse.json({ data: { data: Array.isArray(data?.data) ? data.data : [] } });
 }
 
 export async function POST(request: NextRequest) {

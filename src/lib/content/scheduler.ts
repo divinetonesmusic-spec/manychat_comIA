@@ -1,3 +1,4 @@
+import { findRefPublicada, marcarRefPublicada, REF_JA_PUBLICADA_MESSAGE, reservarRefParaPublicar } from "@/lib/db/refs-publicadas";
 import { MIGRATION_0012_SEQUENCIA, salvarSequenciaNaAutomacao, sequenciaDaAutomacao } from "@/lib/db/dm-sequencias";
 import { createAutomation, getConfig, updateContentPostMediaItems, updateContentPostStatus, type Config, type ContentMediaItem, type ContentPost } from "@/lib/db/repositories";
 import {
@@ -338,6 +339,8 @@ async function publishRoute(post: ContentPost, config: Config): Promise<PublishR
 
 export async function startPost(post: ContentPost, config: Config, deadline = Date.now() + 8000) {
   assertConnected(config);
+  // v133: o mesmo item do Molde já saiu por outro post deste perfil (ex.: post apagado e mandado de novo): nem cria o container.
+  if (await findRefPublicada(post.account_id, post.external_ref, post.id)) throw new Error(REF_JA_PUBLICADA_MESSAGE);
   if (post.publish_type === "carousel") {
     const items = (post.media_items ?? []).map((item) => ({ ...item, status: item.status ?? "pending" })) as ContentMediaItem[];
     if (items.length < 2) throw new Error("Carrossel precisa de pelo menos 2 itens.");
@@ -487,6 +490,13 @@ async function advanceLocked(post: ContentPost, config: Config, deadline: number
   if (tooOld) return failTooOld(post, pending);
 
   if (status.status_code === "FINISHED") {
+    // v133: trava no banco (chave única perfil + referência do Molde) antes do media_publish. A referência já é de outro
+    // post (o mesmo item mandado de novo): não publica, o post vai para "Com erro" com a explicação.
+    const reserva = await reservarRefParaPublicar(post);
+    if (!reserva.ok) {
+      await markPostFailed(post, REF_JA_PUBLICADA_MESSAGE, { containerId: post.container_id, pending });
+      return "failed";
+    }
     // Grava o pedido ANTES de chamar a Meta: se a função cair no meio, a próxima rodada confere em vez de repetir.
     await markPublishRequested(post.id);
     const published = await publishInstagramMediaContainer({
@@ -562,6 +572,7 @@ async function finishPublished(post: ContentPost, config: Config, media: FeedMed
     lastError: media?.id ? null : PUBLISHED_WITHOUT_LINK_NOTE,
     publishedAt: parseMetaTimestamp(media?.timestamp) ?? new Date(),
   });
+  await marcarRefPublicada(post, media);
   if (media?.id) {
     const fresh = (await getContentPost(post.id)) ?? updated ?? post;
     // com a trava do post: faz o 1º comentário e liga a automação na hora; sem ela, afterPublish pega a trava

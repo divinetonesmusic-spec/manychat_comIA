@@ -1,4 +1,5 @@
 import { GOOGLE_OAUTH_AUTHORIZE_URL, GOOGLE_OAUTH_TOKEN_URL, requireEnv, YOUTUBE_UPLOAD_URL } from "@/lib/env";
+import { assertPublicHttpUrl } from "@/lib/net/url-segura";
 import type { YoutubePrivacidade } from "@/lib/redes/redes";
 
 /**
@@ -137,9 +138,19 @@ export function buildYoutubeVideoResource(input: { title: string; description: s
   };
 }
 
+/** v133 (SSRF): o servidor só baixa a mídia de endereço público (o R2 passa direto). Endereço interno: erro que não se repete. */
+async function assertMediaUrl(mediaUrl: string) {
+  try {
+    await assertPublicHttpUrl(mediaUrl);
+  } catch (error) {
+    throw new YoutubeApiError(error instanceof Error ? error.message : "Endereço da mídia recusado.", null, false, "midia");
+  }
+}
+
 /** Tamanho e tipo do vídeo no R2 (HEAD). */
 export async function headMedia(mediaUrl: string) {
-  const response = await timedFetch(mediaUrl, { method: "HEAD" });
+  await assertMediaUrl(mediaUrl);
+  const response = await timedFetch(mediaUrl, { method: "HEAD", redirect: "error" });
   if (!response.ok) throw new YoutubeApiError(`Não consegui ler o vídeo no armazenamento (${response.status}).`, response.status, response.status >= 500, "midia");
   const size = Number(response.headers.get("content-length"));
   if (!Number.isFinite(size) || size <= 0) throw new YoutubeApiError("O armazenamento não informou o tamanho do vídeo.", null, false, "midia");
@@ -197,7 +208,8 @@ export async function queryYoutubeUpload(uploadUrl: string, total: number) {
 export async function uploadYoutubeChunk(input: { uploadUrl: string; mediaUrl: string; offset: number; total: number; chunkBytes: number; timeoutMs: number }): Promise<ChunkResult> {
   const end = Math.min(input.offset + input.chunkBytes, input.total) - 1;
   const half = Math.max(2000, Math.floor(input.timeoutMs / 2));
-  const media = await timedFetch(input.mediaUrl, { headers: { Range: `bytes=${input.offset}-${end}` } }, half);
+  await assertMediaUrl(input.mediaUrl);
+  const media = await timedFetch(input.mediaUrl, { headers: { Range: `bytes=${input.offset}-${end}` }, redirect: "error" }, half);
   if (media.status !== 206 && media.status !== 200) throw new YoutubeApiError(`Não consegui ler o vídeo no armazenamento (${media.status}).`, media.status, media.status >= 500, "midia");
   let bytes = new Uint8Array(await media.arrayBuffer());
   if (media.status === 200 && bytes.length > end - input.offset + 1) bytes = bytes.slice(input.offset, end + 1); // o armazenamento ignorou o Range

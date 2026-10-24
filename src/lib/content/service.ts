@@ -18,6 +18,7 @@ import { confirmEarlierPublish, publishPostNow } from "@/lib/content/scheduler";
 import { isReelType } from "@/lib/content/package";
 import { facebookAccessToken, getFacebookConnection } from "@/lib/db/facebook-connections";
 import { MUSIC_FACEBOOK_EXPIRED, MUSIC_NEEDS_FACEBOOK } from "@/lib/facebook/audio";
+import { findRefPublicada } from "@/lib/db/refs-publicadas";
 import { attachRedesOne, connectedRedesByAccount, hasRedesTables, retryRede, syncPostRedes } from "@/lib/db/redes";
 import { getInstagramAccountById } from "@/lib/db/repositories";
 import { isRedeExtra, REDE_NOME, redesCompativeis, REDES_SO_REEL, redesExtras } from "@/lib/redes/redes";
@@ -103,7 +104,7 @@ export async function retryPostRede(id: string, rede: unknown) {
   return attachRedesOne(await getContentPost(id));
 }
 
-export async function savePostPackage(input: PostPackage, publishNow: boolean): Promise<{ post: ContentPost | null; created: boolean }> {
+export async function savePostPackage(input: PostPackage, publishNow: boolean, retried = false): Promise<{ post: ContentPost | null; created: boolean }> {
   const config = await getConfig(input.accountId);
   const needsInstagram = publishNow || Boolean(input.scheduledAt);
   if (needsInstagram && (!config.account_id || !config.instagram_user_id || !config.instagram_access_token)) {
@@ -127,11 +128,27 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean): 
       }
       const alreadyPublished = await ensureNotPublishedYet(existing);
       if (alreadyPublished) return { post: alreadyPublished, created: false };
-      post = await updatePlannedPost(existing.id, pkg);
+      try {
+        post = await updatePlannedPost(existing.id, pkg);
+      } catch (error) {
+        // Outro envio do mesmo item começou a publicar entre a leitura e a edição: 409 (nunca 500, nunca 2 Reels).
+        throw new ContentError(error instanceof Error ? error.message : "Não deu para atualizar este item agora.", 409);
+      }
     }
   }
+  if (!post && pkg.externalRef && pkg.accountId && (await findRefPublicada(pkg.accountId, pkg.externalRef))) {
+    // v133: o post foi apagado do UaiFlow, mas este item já saiu no Instagram (registro da 0015): não cria um 2º Reel.
+    throw new ContentError("Este item já foi publicado neste perfil (o post foi apagado do UaiFlow, mas continua no Instagram). Para postar de novo, mande como um item novo.", 409);
+  }
   if (!post) {
-    post = await createPlannedPost(pkg);
+    try {
+      post = await createPlannedPost(pkg);
+    } catch (error) {
+      // Dois envios do mesmo item ao mesmo tempo: o banco (índice único da 0002) deixa só um criar; o outro segue
+      // pelo caminho de "já existe" (atualiza ou responde 409), em vez de dar erro 500.
+      if (!retried && (error as { code?: string })?.code === "23505" && pkg.externalRef) return savePostPackage(input, publishNow, true);
+      throw error;
+    }
     created = true;
   }
   if (post) await syncPostRedes(post, { restart: !created });

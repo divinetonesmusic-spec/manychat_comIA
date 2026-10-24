@@ -69,6 +69,8 @@ npm run release:check # verifica o pacote antes de publicar
 
 Nunca envie ao GitHub `.env.local`, tokens do Instagram, `DATABASE_URL`, chaves secretas do Supabase, `INSTAGRAM_APP_SECRET`, `FACEBOOK_APP_SECRET` ou segredos de worker/sessao. Confira `npm run release:check` antes de publicar.
 
+Revisão de segurança da versão 133 (o que foi corrigido e o que o dono precisa fazer): [docs/SEGURANCA_V133.md](docs/SEGURANCA_V133.md). Banco: [0015](docs/ATUALIZACAO_0015.md).
+
 ## Licenca
 
 MIT. Consulte [LICENSE](LICENSE).
