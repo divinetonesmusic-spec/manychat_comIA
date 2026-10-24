@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getConfig } from "@/lib/db/repositories";
 import { listInstagramMedia } from "@/lib/instagram/client";
+import { redactSecrets } from "@/lib/secrets";
 
 export const runtime = "nodejs";
 
@@ -13,13 +14,15 @@ export async function GET(request: NextRequest) {
     }
 
     const media = await listInstagramMedia(config.instagram_user_id, config.instagram_access_token);
-    return NextResponse.json(media);
+    // Só a lista: o "paging" da Meta traz endereços com o access_token dentro e não pode ir para o navegador (v133).
+    return NextResponse.json({ data: Array.isArray(media.data) ? media.data : [] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não consegui carregar os posts e Reels.";
-    console.error("[api/media]", message);
+    const safe = redactSecrets(message);
+    console.error("[api/media]", safe);
 
     return NextResponse.json(
-      { data: [], error: message },
+      { data: [], error: safe },
       { status: 502 },
     );
   }

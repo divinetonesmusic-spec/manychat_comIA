@@ -8,6 +8,7 @@ import { notifyWaitingDms } from "@/lib/dm-alerts";
 import { cleanupOldRecords } from "@/lib/db/cleanup";
 import { runMoldeClock } from "@/lib/molde/relogio";
 import { runVendasClock } from "@/lib/vendas/relogio";
+import { runTokenClock } from "@/lib/instagram/token-clock";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -24,7 +25,8 @@ export async function POST(request: NextRequest) {
  * Relógio do sistema (chamado a cada minuto pelo pg_cron do Supabase):
  * 1) envia a fila de DMs/respostas; 2) publica posts agendados, 1º comentário, automação, resultados e limpeza da mídia;
  * 3) avisa no Telegram as DMs esperando resposta; 4) fila do Molde (trabalhos parados, avisos, aprovações, relatório de
- * domingo); 5) pedidos de depoimento vencidos (e-mail, 0011); 6) limpa o banco (1 vez por hora). Só um relógio roda por vez.
+ * domingo); 5) pedidos de depoimento vencidos (e-mail, 0011); 6) renova os tokens que precisam (a cada 15 min);
+ * 7) limpa o banco (1 vez por hora). Só um relógio roda por vez.
  * Tudo dentro de ~9 s para caber no plano grátis de funções serverless.
  */
 async function runDrain(request: NextRequest) {
@@ -78,11 +80,15 @@ async function runCycle(request: NextRequest) {
   // Pedido de depoimento N dias depois da compra (só com a 0011 e o e-mail configurado). Nunca falha.
   const vendas = await runVendasClock({ deadline, origin: request.nextUrl.origin });
 
+  // Renovação dos tokens de TODAS as conexões que precisam (Instagram, Facebook, Threads), no máximo a cada 15 min, uma
+  // por vez no tempo que sobrar, com aviso no Telegram quando falha ou falta pouco para vencer. Nunca falha.
+  const tokens = await runTokenClock({ deadline, origin: request.nextUrl.origin });
+
   // Limpeza do banco (eventos de mais de 90 dias, envios terminados há mais de 30), no máximo 1 vez por hora. Nunca falha.
   const limpeza = await cleanupOldRecords({ deadline });
 
   // Batimento para o /api/health (migração 0004). Falha ignorada: sem a 0004 o relógio segue normal.
   await recordClockBeat({ ms: Date.now() - startedAt });
 
-  return { ok: true, ...queue, content, avisosDm, molde, vendas, limpeza, ms: Date.now() - startedAt };
+  return { ok: true, ...queue, content, avisosDm, molde, vendas, tokens, limpeza, ms: Date.now() - startedAt };
 }

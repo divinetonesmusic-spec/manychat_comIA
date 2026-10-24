@@ -11,6 +11,16 @@ type Params = { params: Promise<{ slug: string }> };
 /** Robôs de prévia (WhatsApp, Telegram, Slack, Facebook...) não contam como clique. O navegador de dentro do Instagram conta. */
 const PREVIEW_BOT = /facebookexternalhit|Facebot|bot\b|crawler|spider|preview|WhatsApp|TelegramBot|Slackbot|Discordbot|curl|wget/i;
 
+/** Destino aceito: endereço https:// completo, sem usuário/senha embutidos. */
+function isSafeRedirect(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function notFound() {
   return new NextResponse("Link não encontrado.", {
     status: 404,
@@ -47,7 +57,14 @@ async function handle(request: NextRequest, { params }: Params, counts: boolean)
     if (sequencia && /^[a-z0-9]{6,24}$/.test(sequencia)) await marcarCliqueSequencia(sequencia).catch(() => undefined);
   }
 
-  return NextResponse.redirect(destinoComClique(lookup.link.destino, lookup.link.origem, origin), { status: 302, headers: { "cache-control": "no-store" } });
+  // v133: só leva para https:// (conferido de novo aqui, não só ao criar o link): um destino gravado errado no banco
+  // (javascript:, data:, http:// ou lixo) nunca vira redirecionamento aberto.
+  const destino = destinoComClique(lookup.link.destino, lookup.link.origem, origin);
+  if (!isSafeRedirect(destino)) {
+    console.warn("[links] destino recusado (não é https):", slug);
+    return notFound();
+  }
+  return NextResponse.redirect(destino, { status: 302, headers: { "cache-control": "no-store" } });
 }
 
 export async function GET(request: NextRequest, context: Params) {

@@ -115,7 +115,7 @@ describe("Reel duplicado (com a 0015)", { skip: semBanco }, () => {
 
   test("dois envios do mesmo item ao mesmo tempo: um post só, sem erro 500, e 1 publicação", async () => {
     const respostas = await Promise.all([enviar("reel-f"), enviar("reel-f"), enviar("reel-f")]);
-    for (const resposta of respostas) assert.ok(resposta.status < 500, `status ${resposta.status}`);
+    for (const resposta of respostas) assert.ok(resposta.status < 500, `status ${resposta.status}: ${await resposta.clone().text()}`);
     assert.equal((await db.sql("select 1 from public.content_posts where external_ref = 'reel-f'")).length, 1);
     await rodarRelogio();
     assert.equal(meta.count("/media_publish"), 1);

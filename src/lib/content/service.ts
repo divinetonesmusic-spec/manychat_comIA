@@ -128,7 +128,12 @@ export async function savePostPackage(input: PostPackage, publishNow: boolean, r
       }
       const alreadyPublished = await ensureNotPublishedYet(existing);
       if (alreadyPublished) return { post: alreadyPublished, created: false };
-      post = await updatePlannedPost(existing.id, pkg);
+      try {
+        post = await updatePlannedPost(existing.id, pkg);
+      } catch (error) {
+        // Outro envio do mesmo item começou a publicar entre a leitura e a edição: 409 (nunca 500, nunca 2 Reels).
+        throw new ContentError(error instanceof Error ? error.message : "Não deu para atualizar este item agora.", 409);
+      }
     }
   }
   if (!post && pkg.externalRef && pkg.accountId && (await findRefPublicada(pkg.accountId, pkg.externalRef))) {

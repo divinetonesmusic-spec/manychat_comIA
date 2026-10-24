@@ -4,6 +4,7 @@
 --   * uaiflow-drain-every-minute: a cada 1 minuto ('* * * * *') chama POST /api/queue/drain (envia a fila de mensagens,
 --     publica os posts agendados, avisa as DMs esperando no Telegram e limpa o banco 1 vez por hora).
 --   * uaiflow-refresh-weekly: toda segunda-feira às 9h UTC ('0 9 * * 1') chama POST /api/token/refresh (renova os tokens).
+--     Desde a v133 o relógio de cada minuto já renova os tokens que precisam (todas as contas); este fica como reserva.
 --
 -- Antes de rodar, troque nas DUAS chamadas:
 --   * https://SEU-SITE.netlify.app pelo endereço do seu site no Netlify (ex.: https://uaiflow-divinetones.netlify.app);

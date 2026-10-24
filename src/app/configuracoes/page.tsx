@@ -11,7 +11,18 @@ import { getCurrentWorkspaceContext } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function ConfiguracoesPage() {
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+/** Resultado do botão «Renovar a conexão» (o formulário volta para cá com ?renovacao=). */
+const RENOVACAO: Record<string, string> = {
+  ok: "Pronto: a conexão de todos os perfis foi renovada.",
+  parcial: "Renovei parte dos perfis. Os que falharam chegam no aviso do Telegram; reconecte-os em Perfis.",
+  erro: "Não consegui renovar a conexão agora. Tente de novo em alguns minutos ou reconecte o perfil em Perfis.",
+};
+
+export default async function ConfiguracoesPage({ searchParams }: Props) {
+  const params = await searchParams;
+  const renovacao = typeof params.renovacao === "string" ? RENOVACAO[params.renovacao] : undefined;
   const workspaceContext = await getCurrentWorkspaceContext();
   const config = await getConfig();
   const appBaseUrl = getAppBaseUrl();
@@ -63,6 +74,7 @@ export default async function ConfiguracoesPage() {
           <div className="panel p-5 sm:p-6">
             <p className="eyebrow">Instagram</p>
             <h2 className="mt-2 text-xl font-semibold">Detalhes da conexão</h2>
+            {renovacao ? <p role="status" className="mt-3 text-sm">{renovacao}</p> : null}
             <div className="mt-5 grid gap-3 text-sm">
               <InfoRow label="ID do usuário" value={config.instagram_user_id || "Não conectado"} />
               <InfoRow label="Nome" value={config.instagram_name || "Não informado"} />
@@ -70,10 +82,13 @@ export default async function ConfiguracoesPage() {
               <InfoRow label="Aviso de novas mensagens ligado em" value={formatDate(config.webhook_subscribed_at)} />
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
-              <PendingLink className="btn-secondary" href="/api/token/refresh" pendingLabel="Renovando...">
-                <RefreshCcw size={16} />
-                Renovar a conexão
-              </PendingLink>
+              {/* POST com a sessão: renova todos os perfis e volta para cá (o GET só aceita o segredo do relógio). */}
+              <form method="post" action="/api/token/refresh">
+                <button className="btn-secondary" type="submit">
+                  <RefreshCcw size={16} />
+                  Renovar a conexão
+                </button>
+              </form>
               <Link className="btn-secondary" href={metaDeveloperUrl} target="_blank" rel="noreferrer">
                 <ExternalLink size={16} />
                 Abrir o painel da Meta (avançado)
