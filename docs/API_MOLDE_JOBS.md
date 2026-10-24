@@ -269,3 +269,10 @@ Todas com o token do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'c
 **Proteção dos formulários de e-mail** (quiz, entrega e `/p/<slug>/obrigado/email` da 0011): campo «isca» escondido (o robô que preenche não grava nada); limite por IP (8 envios em 10 min; 60 inícios de quiz em 10 min) e por e-mail (3 em 1 h), contados no Postgres (`formulario_limites`, só o resumo do IP e do e-mail), com a frase «Muitas tentativas…». Confirmação dupla opcional: `FUNIL_CONFIRMACAO_DUPLA=1` + o e-mail do Resend configurado.
 
 **E-mails:** nenhuma sequência é enviada nesta versão. `leads.sequencia` é o gancho, desligado (K-EMAILCURSO).
+
+## DM com o vídeo do avatar (0014, página v133)
+
+O roteiro de DM em modo vídeo (`automationOptions.sequencia.modo = "video"`), o cadastro dos vídeos de resposta
+(`GET`/`POST /api/molde/dmvideo`) e o funil por post com o gargalo (`GET /api/molde/dmvideo/funil`) estão em
+`docs/MOLDE_V133_DMVIDEO.md`. Os vídeos sobem pelo `POST /api/molde/upload` com `folder: "dmvideos"` (até 25 MB, o limite da
+Meta para vídeo na DM). Sem a 0014 (`docs/ATUALIZACAO_0014.md`): o cadastro responde 503 `falta_0014` e a DM segue a sequência da 0012.

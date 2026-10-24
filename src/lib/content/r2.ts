@@ -198,8 +198,11 @@ export const PASTA_PRINTS_DEPOIMENTO = "uaiflow/depoimentos";
 /** Materiais grátis da página de entrega (0013). Privados: a pessoa baixa por link com prazo, depois do e-mail. */
 export const PASTA_ENTREGAS_R2 = "uaiflow/entregas";
 
-/** Prefixos do R2 que NÃO são mídia de post: cópias do Molde, prévias de aprovação, prints de depoimento e materiais de entrega. */
-const NOT_POST_MEDIA = ["uaiflow/molde-backups/", `uaiflow/${PREVIEW_FOLDER}/`, `${PASTA_PRINTS_DEPOIMENTO}/`, `${PASTA_ENTREGAS_R2}/`];
+/** Vídeos de resposta da DM (Molde v133, 0014): ficam enquanto o post estiver respondendo; nunca saem com o post. */
+export const DMVIDEOS_FOLDER = "molde-dmvideos";
+
+/** Prefixos do R2 que NÃO são mídia de post: cópias do Molde, prévias de aprovação, prints de depoimento e materiais de entrega e vídeos de resposta da DM. */
+const NOT_POST_MEDIA = ["uaiflow/molde-backups/", `uaiflow/${PREVIEW_FOLDER}/`, `${PASTA_PRINTS_DEPOIMENTO}/`, `${PASTA_ENTREGAS_R2}/`, `uaiflow/${DMVIDEOS_FOLDER}/`];
 
 /** true = a chave é de cópia de segurança ou prévia: um post nunca apaga isto. */
 export function isProtectedKey(key: string) {
