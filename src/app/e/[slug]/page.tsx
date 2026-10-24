@@ -34,7 +34,7 @@ export default async function EntregaPage({ params, searchParams }: Props) {
   const P = e.pacote;
   const marca = lerMarca(P.marca);
   const T = textosDe(P.idioma);
-  const origem = origemValida(um(sp.o));
+  const origem = origemValida(um(sp.o)) ?? origemValida(um(sp.utm_content)); // o link que conta cliques (/l/) chega com o código do post em utm_content
   const de = deValido(um(sp.de));
   const codigoLead = (await cookies()).get(cookieEntrega(e.slug))?.value || "";
   const lead = codigoLead ? await getLeadPorCodigo(codigoLead) : null;

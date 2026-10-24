@@ -40,7 +40,7 @@ export default async function QuizPage({ params, searchParams }: Props) {
         slug={q.slug}
         quiz={publico}
         perfilDm={q.quiz.perfis.some((p) => p.id === perfil) ? perfil : null}
-        origem={origemValida(um(sp.o))}
+        origem={origemValida(um(sp.o)) ?? origemValida(um(sp.utm_content))}
         de={deValido(um(sp.de))}
       />
     </main>
