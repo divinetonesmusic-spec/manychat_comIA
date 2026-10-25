@@ -32,6 +32,7 @@ const PUBLIC_PREFIXES = [
   "/e", // página de entrega do material grátis (/e/<slug>, 0013); o download só depois do e-mail
   "/lista", // sair da Lista própria (/lista/sair/<código>, 0013)
   "/d", // o botão da oferta do desafio de 5 dias (/d/<slug>/ir, 0017): só conta o toque e leva ao checkout
+  "/a", // o app por assinatura (/a/<slug>, 0018): quem assina entra pelo link ou código do e-mail (sessão própria do app), sem login do UaiFlow
   "/l", // links rastreados (/l/<código>): quem clica no Instagram não tem login; só redireciona e conta o clique
 ];
 

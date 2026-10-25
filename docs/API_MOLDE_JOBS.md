@@ -296,3 +296,36 @@ Com o token do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'chamar'
 ## Contagem de visitas (Umami Cloud, v134)
 
 As páginas públicas `/q`, `/e` e `/p` carregam o script do Umami só com `UMAMI_WEBSITE_ID` no ambiente (`UMAMI_SRC` opcional, padrão `https://cloud.umami.is/script.js`, só https). Sem a variável, nada. Passo a passo em `docs/ATUALIZACAO_0017.md`.
+
+## App por assinatura (0018, página v134)
+
+O produto pronto vira um app de 1 toque (`/a/<slug>`, página-app instalável): a rotina de 30 dias, o áudio do dia, «Noite N de 30», os
+dias seguidos e o lembrete diário por e-mail, vendido como assinatura mensal na plataforma de pagamento de sempre. Todas com o token
+do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'chamar'}`). Sem a 0018: 503 com `codigo: "falta_0018"`.
+
+| Rota | O que faz |
+| --- | --- |
+| `POST /api/molde/apps` `{ molde, accountId?, id?, slug?, app, produtoRefs?, carenciaDias?, audios:[{id, contentType, size}] }` | Cria ou atualiza o app. `app` = `{ titulo, nomeCurto, promessa, idioma, marca, audios:[{id, titulo, minutos}] (2 a 8), dias:[{titulo, fazer, audio, minutos}] (30), preco:{valor, moeda:'BRL'\|'USD', porque}, checkout, convite, lembrete:{assunto, texto, hora}, aviso }`. Conferido no servidor: 30 dias, os áudios que existem, o preço abaixo do teto de entrada (US$ 26,99 / R$ 47 por mês) e nada de cura, tratamento ou resultado garantido. Devolve `envios:[{id, uploadUrl, headers}]` (PUT, 1 h, pasta privada `uaiflow/apps/<id>/`, até 25 MB por áudio) e `enderecos:{app, webhooks:{hotmart, kiwify, stripe}}`. Sem `audios`: o app fica com os áudios de antes. Sem `produtoRefs`: os códigos guardados ficam. |
+| `POST /api/molde/apps/<id>/publicar` `{ molde }` | Confere no R2 cada áudio (existe e tem o tamanho anunciado; senão 409), exige todos os áudios da rotina e abre `/a/<slug>` (a versão sobe: o celular troca os áudios guardados). |
+| `GET /api/molde/apps?molde=` | Os apps do projeto com `numeros: { ativos, emCarencia, novos30, cancelamentos30, retencao2:{elegiveis, retidos, taxa}, uso:{tocaramHoje, semana, seguidosMedia, quatroDias}, receita30:{<moeda>}, mrr:{<moeda>}, diasDeTeste }`. Nenhum e-mail sai daqui. |
+
+**A assinatura vem do aviso de venda que já existe** (`/api/webhooks/<plataforma>`): o aviso cujo produto está em `produtoRefs` mexe na
+assinatura da pessoa, casada pelo **e-mail do comprador**. Hotmart (`PURCHASE_APPROVED`/`COMPLETE` com `recurrence_number`, `PURCHASE_DELAYED`,
+`PURCHASE_REFUNDED`, `PURCHASE_CHARGEBACK`, `SUBSCRIPTION_CANCELLATION`), Kiwify (`order_approved`, `subscription_renewed`, `subscription_late`,
+`subscription_canceled`, `order_refunded`, `chargeback`) e Stripe (`checkout.session.completed` em modo assinatura, `invoice.paid` de renovação,
+`invoice.payment_failed`, `customer.subscription.deleted` — este sem e-mail, casado pelo código da assinatura). As outras plataformas: compra,
+reembolso e chargeback, com o e-mail achado no aviso. Pagou → ativo até o pagamento + 31 dias + a carência (padrão 3 dias); cancelada,
+atrasada, reembolsada ou chargeback → o acesso vai até o fim da carência. Sem renovação, o acesso vence sozinho. O mesmo aviso de novo não
+conta duas vezes. A resposta do webhook leva `app: "aplicado" | "repetido" | "sem_app" | "sem_pessoa"`. O e-mail do comprador só é guardado
+para quem compra o app (é o que dá o acesso); os avisos de venda continuam sem dado pessoal em `vendas`.
+
+**Páginas públicas (sem login do UaiFlow).** `/a/<slug>` (o app; sem a sessão: o convite com o preço e «Já assinei»), `/a/<slug>/entrar`
+(manda o link e o código de 6 números por e-mail; a tela responde igual para quem assina e quem não assina), `/a/<slug>/codigo` (o código,
+para o app instalado no iPhone, onde o link do e-mail abre no Safari), `/a/<slug>/link/<token>` (o botão que entra; o link vale 30 min e uma
+vez), `/a/<slug>/audio/<id>?link=1` (o link assinado do R2, 15 min, só com a assinatura ativa; o app baixa direto do R2, guarda no aparelho
+e toca dali, também sem internet), `/a/<slug>/uso`, `/a/<slug>/lembrete`, `/a/<slug>/lembrete/sair/<código>`, `/a/<slug>/sair`,
+`/a/<slug>/assinar?o=<código do post>` (o checkout com a origem: `MOAPPORIGEM` no link vira o código), `/a/<slug>/manifest.webmanifest`,
+`/a/<slug>/sw.js` e `/a/<slug>/icone/<180|192|512>`.
+
+**O lembrete** sai pelo relógio de sempre (`/api/queue/drain`), pelo e-mail do Resend (`RESEND_API_KEY` + `EMAIL_REMETENTE`): só para quem
+ligou no app, tem acesso e ainda não tocou hoje, depois da hora que escolheu (no fuso do aparelho); 1 por dia, com o «sair» de um toque.

@@ -1,0 +1,33 @@
+/* O app por assinatura (/a/<slug>, 0018): a tela de 1 toque. Usa a base das páginas do funil (funil.css: .fu, os cartões, os
+   botões e os campos, com as cores da marca nas variáveis --f-*, contraste já conferido). Aqui só o que é do app: a noite, o botão
+   grande de tocar, o andamento e as linhas pequenas. Celular primeiro; alvos de 48 px (o de tocar, 112 px). */
+.ap-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; }
+.ap-noite { display: grid; gap: 6px; text-align: center; }
+.ap-noite .ap-n { font: 700 clamp(30px, 9vw, 40px)/1.1 var(--f-fonte-titulo); }
+.ap-noite .ap-titulo { font: 600 20px/1.3 var(--f-fonte-corpo); }
+.ap-selos { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.ap-selos span { padding: 6px 12px; border-radius: 99px; border: 1px solid var(--f-linha); font-size: 15px; color: var(--f-texto); }
+.ap-tocar {
+  justify-self: center; display: grid; place-items: center; width: 112px; height: 112px; border-radius: 50%; border: 0;
+  background: var(--f-prim); color: var(--f-prim-texto); cursor: pointer; font: 700 17px/1.1 var(--f-fonte-corpo);
+}
+.ap-tocar svg { width: 40px; height: 40px; fill: currentColor; }
+.ap-tocar:focus-visible { outline: 3px solid var(--f-prim); outline-offset: 4px; }
+.ap-tocar[disabled] { opacity: 0.6; cursor: wait; }
+.ap-tempo { text-align: center; font: 600 16px/1.2 var(--f-fonte-corpo); color: var(--f-suave); font-variant-numeric: tabular-nums; }
+.ap-fazer { font-size: 17px; }
+.ap-status { font-size: 15px; color: var(--f-suave); text-align: center; }
+.ap-linha { display: grid; gap: 12px; }
+.ap-campo { display: grid; gap: 6px; font-weight: 600; font-size: 15px; }
+.ap-campo select { min-height: 52px; padding: 10px 14px; border-radius: 12px; border: 2px solid var(--f-linha); background: var(--f-sup); color: var(--f-texto); font: 400 17px var(--f-fonte-corpo); width: 100%; }
+.ap-campo select:focus-visible { outline: 3px solid var(--f-prim); outline-offset: 3px; }
+.ap-btn2 {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 52px; padding: 12px 20px; border-radius: 14px;
+  border: 2px solid var(--f-prim); background: var(--f-sup); color: var(--f-texto); font: 700 17px/1.2 var(--f-fonte-corpo); cursor: pointer; width: 100%;
+}
+.ap-btn2:focus-visible { outline: 3px solid var(--f-prim); outline-offset: 3px; }
+.ap-preco { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ap-preco b { font: 700 34px/1 var(--f-fonte-titulo); }
+.ap-pequeno { font-size: 14px; color: var(--f-suave); }
+.ap-codigo input { letter-spacing: 6px; font-size: 22px; text-align: center; }
+@media (prefers-reduced-motion: no-preference) { .ap-tocar { transition: transform 150ms; } .ap-tocar:active { transform: scale(0.96); } }

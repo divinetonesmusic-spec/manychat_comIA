@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { hasVendasTable, MIGRATION_0010_MISSING } from "@/lib/db/redes";
 import { hasVendasOrigemColumn, MIGRATION_0012_MISSING, registrarEvento } from "@/lib/db/vendas";
 import { origemProfunda } from "@/lib/vendas/origem";
+import { lerAssinatura } from "@/lib/app/assinatura";
+import { registrarAvisoAssinatura } from "@/lib/db/apps";
 import {
   decryptClickbank,
   formParaObjeto,
@@ -91,16 +93,22 @@ export async function handleVendaWebhook(plataforma: Plataforma, request: NextRe
   if (raw.length > MAX_BODY) return NextResponse.json({ error: "Aviso grande demais.", codigo: "grande_demais" }, { status: 413 });
 
   let evento: VendaEvento;
+  let corpo: unknown;
   try {
     const checked = verifyAndParse(plataforma, request, raw, secret);
     if (!checked) return NextResponse.json({ error: "Assinatura inválida.", codigo: "assinatura_invalida" }, { status: 401 });
     evento = checked.evento;
+    corpo = checked.corpo;
     // A origem do post (mo…): o campo conhecido de cada plataforma; senão, qualquer campo de rastreio do aviso.
     if (evento.tipo !== "ignorar" && !evento.origem) evento = { ...evento, origem: origemProfunda(checked.corpo) };
   } catch {
     return NextResponse.json({ error: "Aviso em formato inválido.", codigo: "formato_invalido" }, { status: 400 });
   }
-  if (evento.tipo === "ignorar") return ok(plataforma, { ok: true, ignorado: evento.motivo });
+  // 0018 · a assinatura do app por assinatura (o mesmo aviso): antes do «ignorar», porque o cancelamento e o atraso da assinatura
+  // não são venda. Sem a 0018, ou sem app com este produto, nada muda. Erro do banco sobe (500): a plataforma manda de novo.
+  const aviso = lerAssinatura(plataforma, corpo, evento);
+  const app = aviso ? await registrarAvisoAssinatura(plataforma, aviso) : undefined;
+  if (evento.tipo === "ignorar") return ok(plataforma, { ok: true, ignorado: evento.motivo, ...(app ? { app } : {}) });
   if (!(await hasVendasTable())) return NextResponse.json({ error: MIGRATION_0010_MISSING, codigo: "falta_0010" }, { status: 503 });
   // As plataformas novas só cabem no banco depois da 0012 (a plataforma tenta de novo mais tarde).
   if (isPlataforma0012(plataforma) && !(await hasVendasOrigemColumn())) return NextResponse.json({ error: MIGRATION_0012_MISSING, codigo: "falta_0012" }, { status: 503 });
@@ -112,7 +120,7 @@ export async function handleVendaWebhook(plataforma: Plataforma, request: NextRe
   }
 
   const resultado = await registrarEvento(plataforma, evento);
-  return ok(plataforma, { ok: true, resultado });
+  return ok(plataforma, { ok: true, resultado, ...(app ? { app } : {}) });
 }
 
 /** Resposta de sucesso. A Digistore24 espera o texto "OK" (senão repete o aviso); as outras recebem o JSON de sempre. */

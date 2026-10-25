@@ -201,8 +201,11 @@ export const PASTA_ENTREGAS_R2 = "uaiflow/entregas";
 /** Vídeos de resposta da DM (Molde v133, 0014): ficam enquanto o post estiver respondendo; nunca saem com o post. */
 export const DMVIDEOS_FOLDER = "molde-dmvideos";
 
-/** Prefixos do R2 que NÃO são mídia de post: cópias do Molde, prévias de aprovação, prints de depoimento e materiais de entrega e vídeos de resposta da DM. */
-const NOT_POST_MEDIA = ["uaiflow/molde-backups/", `uaiflow/${PREVIEW_FOLDER}/`, `${PASTA_PRINTS_DEPOIMENTO}/`, `${PASTA_ENTREGAS_R2}/`, `uaiflow/${DMVIDEOS_FOLDER}/`];
+/** Os áudios do app por assinatura (0018). Privados: tocam só por link com prazo, para quem tem a assinatura ativa. */
+export const PASTA_APPS_R2 = "uaiflow/apps";
+
+/** Prefixos do R2 que NÃO são mídia de post: cópias do Molde, prévias de aprovação, prints de depoimento, materiais de entrega, vídeos de resposta da DM e áudios do app (0018). */
+const NOT_POST_MEDIA = ["uaiflow/molde-backups/", `uaiflow/${PREVIEW_FOLDER}/`, `${PASTA_PRINTS_DEPOIMENTO}/`, `${PASTA_ENTREGAS_R2}/`, `uaiflow/${DMVIDEOS_FOLDER}/`, `${PASTA_APPS_R2}/`];
 
 /** true = a chave é de cópia de segurança ou prévia: um post nunca apaga isto. */
 export function isProtectedKey(key: string) {
