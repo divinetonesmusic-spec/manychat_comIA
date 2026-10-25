@@ -37,10 +37,12 @@ TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres npm run test:htm
 
 Sem build ou sem `TEST_DATABASE_URL`, ele aparece como pulado.
 
+O `tests/html/app-pwa.test.mts` (0018) abre o app por assinatura num Chromium de verdade, em 390×844 de toque: o manifest instalável, o service worker, os áudios guardados no aparelho, a tela e o áudio de teste tocando **sem internet**, alvos de 44 px e o contraste AA. O Playwright não é dependência do UaiFlow: aponte `PLAYWRIGHT_DIR` para uma pasta `node_modules` que tenha o `playwright` (ex.: a do Molde, `molde/testes/node_modules`) e `PLAYWRIGHT_BROWSERS_PATH` para o Chromium; sem eles, o teste aparece como pulado.
+
 ## Onde fica cada coisa
 
 - `tests/helpers/env.mts`: variáveis falsas (nada é segredo real).
-- `tests/helpers/db.mts`: cria o banco de teste e aplica as migrações. `createTestDatabase({ ate: "0002" })` simula um Supabase em que a 0003 ainda não foi colada (o mesmo vale para a 0005: `ate: "0004"`, para a 0006: `ate: "0005"`, para a 0007: `ate: "0006"`, para a 0008: `ate: "0007"`, para a 0009: `ate: "0008"`, para a 0010: `ate: "0009"`, para a 0011: `ate: "0010"`, para a 0012: `ate: "0011"`, para a 0013 e a 0014: `ate: "0012"`, e para a 0015: `ate: "0014"`).
+- `tests/helpers/db.mts`: cria o banco de teste e aplica as migrações. `createTestDatabase({ ate: "0002" })` simula um Supabase em que a 0003 ainda não foi colada (o mesmo vale para a 0005: `ate: "0004"`, para a 0006: `ate: "0005"`, para a 0007: `ate: "0006"`, para a 0008: `ate: "0007"`, para a 0009: `ate: "0008"`, para a 0010: `ate: "0009"`, para a 0011: `ate: "0010"`, para a 0012: `ate: "0011"`, para a 0013 e a 0014: `ate: "0012"`, para a 0015: `ate: "0014"`, e para a 0018: `ate: "0015"`).
 - `tests/helpers/caixa.mts`: bases de contatos para os testes da Caixa de entrada (5.000 contatos em SQL, 300 pelo webhook) e a consulta antiga de `listContacts`, usada como referência.
 - `tests/helpers/escopo-next.mts`: "escopo de pedido" de mentira para chamar o webhook de dentro de um teste (ele usa `after()` do Next); importe-o antes de `next/server`.
 - `tests/helpers/fake-meta.mts`: Meta/Instagram/R2 falsos (inclui o graph.facebook.com do Login do Facebook e a Audio API: `facebookPages`, `igAudio`; os Reels da Página, o Threads, o Google/YouTube com envio em pedaços, a leitura do vídeo no R2 por Range e a API do Gumroad), com contagem de chamadas (ex.: quantas vezes o `media_publish` foi chamado) e opção de simular o corte do Netlify logo depois de a Meta publicar.
