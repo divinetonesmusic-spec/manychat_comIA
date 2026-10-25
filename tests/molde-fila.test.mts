@@ -154,8 +154,12 @@ describe("v134 · fila única e Telegram para aprovar e pedir", { skip: semBanco
       assert.equal((await acao(a.id, "aplicada", { rodada: 2 })).status, 409, "rodada errada");
       assert.equal((await acao(a.id, "aplicada", { rodada: 1 })).status, 200);
       assert.equal((await (await listar("?decisoes=pendentes")).json()).data.length, 0);
-      // depois de aplicada, a página manda «aprovado» e nada muda
+      // depois de aplicada, a página manda «aprovado» e nada muda; uma aba com outro projeto aberto (sem ver a decisão) que
+      // ainda manda «para aprovar» com a mesma prévia também não reabre nem manda a mensagem de novo
       assert.equal((await registrar({ estado: "aprovado", previa })).estado, "aprovado");
+      const n = meta.telegram.length;
+      assert.equal((await registrar({ estado: "para_aprovar", previa })).estado, "aprovado");
+      assert.equal(meta.telegram.length, n);
     });
 
     test("«Refazer» pede o motivo em texto; a próxima mensagem do dono vira a nota; outra conversa não conta", async () => {

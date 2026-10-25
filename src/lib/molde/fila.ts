@@ -144,8 +144,8 @@ const samePreview = (a: FilaPreview | null | undefined, b: FilaPreview | null | 
  * pedido da página ou pela `ref`. Regras:
  *  - entrar em «para_aprovar» (vindo de outro estado, ou com outra prévia) abre uma rodada nova: a mensagem do Telegram sai
  *    de novo (avisar);
- *  - uma decisão que a página ainda não aplicou (aprovar ou refazer do Telegram) não é desfeita por um espelho atrasado que
- *    ainda diz «para_aprovar» na mesma rodada;
+ *  - a decisão da rodada (aprovar ou refazer, aplicada ou não pela página) não é desfeita por um espelho que ainda diz
+ *    «para_aprovar» com a mesma prévia (atrasado, ou de uma aba com outro projeto aberto, que não vê a decisão);
  *  - um pedido do Telegram que ainda é rascunho (sem o 2º toque) nunca é mudado pela página.
  */
 export async function registrarItem(input: FilaInput, client: PoolClient): Promise<FilaRegistro | { erro: string; ref: string }> {
@@ -178,8 +178,10 @@ export async function registrarItem(input: FilaInput, client: PoolClient): Promi
   let rodada = row.rodada;
   let avisar = false;
   const previa = input.previa === undefined ? row.previa : input.previa;
-  // a decisão do Telegram que a página ainda não aplicou fica (o espelho atrasado da mesma prévia ainda diz «para_aprovar»)
-  if (decisaoPendente && estado === "para_aprovar" && samePreview(previa, row.previa)) estado = row.estado;
+  // a decisão desta rodada fica: um espelho atrasado (ou de uma aba com outro projeto aberto, que não vê a decisão) da mesma
+  // prévia ainda diz «para_aprovar», e isso não reabre a aprovação nem manda a mensagem de novo
+  const decididaNaRodada = Boolean(row.decisao && Number(row.decisao.rodada) === row.rodada && (row.estado === "aprovado" || row.estado === "refazer"));
+  if (decididaNaRodada && estado === "para_aprovar" && samePreview(previa, row.previa)) estado = row.estado;
   // entrar em «para_aprovar» (ou trocar a prévia nele) abre uma rodada nova, com a mensagem do Telegram de novo
   if (estado === "para_aprovar" && (row.estado !== "para_aprovar" || !samePreview(previa, row.previa))) {
     rodada = row.rodada + 1;
