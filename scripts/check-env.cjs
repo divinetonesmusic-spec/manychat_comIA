@@ -100,6 +100,11 @@ if (telegramSet.length === 1) warnings.push(`Telegram incompleto (falta ${telegr
 const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 if (webhookSecret && !/^[A-Za-z0-9_-]{24,256}$/.test(webhookSecret)) warnings.push("TELEGRAM_WEBHOOK_SECRET deve ter de 24 a 256 letras, números, _ ou - (sem espaço).");
 if (telegramSet.length === 2 && !webhookSecret) warnings.push("TELEGRAM_WEBHOOK_SECRET vazio: os avisos saem, mas sem os botões «Aprovar» e «Mandar» (veja docs/ATUALIZACAO_0008.md).");
+for (const chave of ["MOLDE_ORQUESTRADOR_TOKEN", "MOLDE_MCP_TOKEN"]) {
+  const valor = process.env[chave];
+  if (valor && valor.trim().length < 24) warnings.push(`${chave} deve ter pelo menos 24 caracteres (gere com openssl rand -hex 32).`);
+  if (valor && valor === process.env.MOLDE_API_TOKEN) warnings.push(`${chave} deve ser diferente do MOLDE_API_TOKEN.`);
+}
 const teto = process.env.MOLDE_TETO_USD;
 if (teto && !(Number(teto.replace(",", ".")) >= 0)) warnings.push("MOLDE_TETO_USD deve ser um número (em dólares), por exemplo 50.");
 if (!telegramSet.length) warnings.push("Telegram não configurado: o UaiFlow não manda avisos no celular (opcional; veja docs/AVISOS_E_COPIA.md).");

@@ -96,9 +96,18 @@ na_fila · produzindo · para_aprovar · aprovado · refazer · pronto · erro �
 2. **Ao abrir e ao atualizar:** lê `?decisoes=pendentes` e aplica com a regra da Caixa de aprovações (fotos: aprovar = aprovada; refazer = reprovada com o motivo; os outros: o pedido mostra o ajuste e o botão de refazer de sempre, que pergunta o custo), depois `aplicada`.
 3. **Pedidos do Telegram:** lê `?origem=telegram&estado=na_fila&semPedido=1`; para o projeto aberto, faz o pedido como se o dono tivesse clicado (a confirmação já foi dada no Telegram), respeitando o limite do mês da carteira (passou: pergunta na página; «Cancelar» → `cancelar`). Os de outro avatar esperam ele abrir.
 
-## Para o orquestrador (próxima rodada)
+## Para o orquestrador e o Claude (v135, migração 0019)
 
-- Ler: `GET /api/molde/fila` (o estado de tudo, de todos os avatares, com a contagem).
-- Decidir: `POST /api/molde/fila/<id>/decidir` (a mesma regra do Telegram e da página).
-- Pedir: hoje só pelo Telegram (rascunho → confirmação). O orquestrador pode criar um item `origem: "telegram"`-like no futuro com uma rota própria; a página já sabe pegar os confirmados (`semPedido=1`).
-- A chave do núcleo (`chave`) e o `pedidoId` ligam o espelho ao pedido da página; a `ref` é única.
+O orquestrador usa esta mesma rota, com o contrato dele: **`docs/API_MOLDE_ORQUESTRADOR.md`** (criar com chave idempotente, `pegar`
+com prazo, `passo`, `aprovacao` com os achados do revisor, `decisao`, `resultado`, `erro`, `soltar`, a `versao` com 409). O que muda
+para a página (nada quebra):
+
+- Cada item que a página recebe ganha `estadoOrquestrador` (e, com a 0019, `versao` e `estacao`). Os itens do orquestrador (com
+  `estacao`) podem aparecer na lista; o estado `na_revisao` deles aparece como `produzindo`, e `?estado=produzindo` inclui os dois.
+- `?decisoes=pendentes` **não** traz as decisões dos itens do orquestrador (quem aplica é ele).
+- `decidir` aceita também as decisões novas (`corrigir`, `publicar`, `gravar`, `nao-gravar`, `completar`, `cancelar`) quando o item
+  as oferece; nos espelhos da página continuam só `aprovar` e `refazer`.
+- O espelho não muda um item do orquestrador (`{erro: "Este item é do orquestrador…"}`).
+- O `/status` do Telegram mostra o gasto do mês contra o limite (`MOLDE_TETO_USD`).
+- O Claude (conector MCP, `docs/MOLDE_MCP.md`) pede e decide pelas mesmas funções do Telegram. Os pedidos dele chegam como os do
+  Telegram (`origem: "telegram"`, `confirmadoVia: "mcp"`): a página pega com o mesmo `?origem=telegram&estado=na_fila&semPedido=1`.

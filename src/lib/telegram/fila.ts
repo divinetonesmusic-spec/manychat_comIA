@@ -10,6 +10,7 @@ import {
   esperarMotivo,
   FILA_STATES,
   FOTOS_MAX,
+  gastoDoMes,
   getFila,
   isMissing0016,
   itemEsperandoMotivo,
@@ -17,6 +18,8 @@ import {
   listarAvatares,
   RASCUNHO_MINUTOS,
   type AvatarRow,
+  type Decisao,
+  type DecisaoVia,
   type FilaDecision,
   type FilaPedido,
   type FilaRow,
@@ -44,6 +47,7 @@ const ESTADO_NOME: Record<FilaState, string> = {
   rascunho: "rascunho",
   na_fila: "na fila",
   produzindo: "produzindo",
+  na_revisao: "na revisão",
   para_aprovar: "para aprovar",
   aprovado: "aprovado",
   refazer: "para refazer",
@@ -83,8 +87,66 @@ function previewLink(item: Pick<FilaRow, "previa">) {
 
 // ---------- aprovar ----------
 
+/** O que cada decisão mostra no botão (e, no pedido de gasto, o custo no «Aprovar»). */
+const BOTAO: Record<Decisao, string> = {
+  aprovar: "Aprovar",
+  refazer: "Refazer",
+  corrigir: "Corrigir",
+  publicar: "Publicar mesmo assim",
+  gravar: "Gravar",
+  "nao-gravar": "Não gravar",
+  completar: "Completar na página",
+  cancelar: "Cancelar",
+};
+/** A letra do botão (callback-data.ts). «completar» não tem botão: é na página. */
+const LETRA: Partial<Record<Decisao, "a" | "r" | "k" | "p" | "g" | "o" | "e">> = {
+  aprovar: "a", refazer: "r", corrigir: "k", publicar: "p", gravar: "g", "nao-gravar": "o", cancelar: "e",
+};
+export const DECISAO_DA_LETRA: Record<string, Decisao> = { a: "aprovar", k: "corrigir", p: "publicar", g: "gravar", o: "nao-gravar", e: "cancelar" };
+
+const MOTIVO_TITULO: Record<string, string> = {
+  revisor: "o revisor reprovou",
+  publico: "vai a público e precisa do seu sim",
+  gasto: "vai gastar e precisa do seu sim",
+  "faltam-dados": "faltam dados",
+  pecas: "quer mudar uma peça do projeto",
+};
+
+/** O pedido de aprovação do orquestrador: o motivo, a pergunta, os achados do revisor (na hora) e o custo. */
+function orquestradorApprovalText(item: FilaRow, gasto: { gastoUsd: number; limiteUsd: number } | null, options: { decided?: boolean }) {
+  const a = item.aprovacao!;
+  const avatar = item.avatar ? ` de ${item.avatar}` : "";
+  const versao = item.rodada > 1 ? ` Versão ${item.rodada}.` : "";
+  const link = previewLink(item);
+  const lines: Array<string | null> = [
+    `Molde: «${shorten(item.titulo || item.tipo, 80)}»${avatar}: ${MOTIVO_TITULO[a.motivo] ?? "precisa do seu sim"}.${versao}`,
+    a.pergunta ? `\n${shorten(a.pergunta, 500)}` : null,
+    a.resumo ? `\n${shorten(a.resumo, 900)}` : null,
+  ];
+  if (a.achados?.length) {
+    lines.push(`\nO revisor achou ${a.achados.length} problema${a.achados.length > 1 ? "s" : ""}:`);
+    a.achados.slice(0, 12).forEach((x, i) => {
+      const partes = [x.lugar ? `${shorten(x.lugar, 80)}:` : null, x.trecho ? `«${shorten(x.trecho, 160)}»` : null, x.porque ? `— ${shorten(x.porque, 220)}` : null];
+      lines.push(`${i + 1}. ${partes.filter(Boolean).join(" ")}${x.troca ? `\n   Troca: «${shorten(x.troca, 160)}»` : ""}`);
+    });
+    if (a.achados.length > 12) lines.push(`… e mais ${a.achados.length - 12} (veja na página).`);
+  }
+  if (a.custo != null) {
+    lines.push(`\nCusto: ≈ ${usd(a.custo)}.${gasto ? ` Gasto do mês até agora: ${usd(gasto.gastoUsd)} de ${usd(gasto.limiteUsd)}.` : ""}`);
+  }
+  if (link) lines.push(`\nPrévia: ${link}`);
+  if (!options.decided) {
+    if (!callbacksEnabled()) lines.push("\nDecida pela página do Molde.");
+    else if (a.motivo === "revisor") lines.push("\n«Corrigir» aplica só as trocas do revisor; «Refazer» pergunta o que mudar; «Publicar mesmo assim» é escolha sua.");
+    else if (a.opcoes.includes("completar")) lines.push("\nAbra a página do Molde para completar (ou toque em «Cancelar»).");
+    else if (a.opcoes.includes("refazer")) lines.push("\nToque numa opção («Refazer» pergunta o que mudar).");
+  }
+  return lines.filter((l) => l !== null).join("\n");
+}
+
 /** Texto da mensagem de aprovação de um item da fila. */
-export function filaApprovalText(item: FilaRow, options: { decided?: boolean } = {}) {
+export function filaApprovalText(item: FilaRow, options: { decided?: boolean; gasto?: { gastoUsd: number; limiteUsd: number } | null } = {}) {
+  if (item.aprovacao) return orquestradorApprovalText(item, options.gasto ?? null, options);
   const avatar = item.avatar ? ` de ${item.avatar}` : "";
   const versao = item.rodada > 1 ? ` Versão ${item.rodada}.` : "";
   const link = previewLink(item);
@@ -101,15 +163,47 @@ export function filaApprovalText(item: FilaRow, options: { decided?: boolean } =
   return lines.filter(Boolean).join("\n");
 }
 
+const ONDE: Record<DecisaoVia, string> = { telegram: "pelo Telegram", pagina: "pela página", mcp: "pelo Claude" };
+const DECIDIDO: Record<Decisao, string> = {
+  aprovar: "Aprovado",
+  refazer: "Pedido para refazer",
+  corrigir: "Pedido para corrigir (só as trocas do revisor)",
+  publicar: "Publicar mesmo assim (escolha do dono)",
+  gravar: "Gravar",
+  "nao-gravar": "Não gravar",
+  completar: "Completado",
+  cancelar: "Cancelado",
+};
+
 export function filaDecisionLine(d: Pick<FilaDecision, "decisao" | "via" | "em" | "nota">) {
   const hora = formatSaoPauloTime(new Date(d.em));
-  const onde = d.via === "telegram" ? "pelo Telegram" : "pela página";
-  if (d.decisao === "aprovar") return `Aprovado às ${hora} (${onde}).`;
-  return `Pedido para refazer às ${hora} (${onde})${d.nota ? `: «${shorten(d.nota, 300)}»` : ""}.`;
+  const onde = ONDE[d.via] ?? "pela página";
+  return `${DECIDIDO[d.decisao] ?? "Decidido"} às ${hora} (${onde})${d.nota ? `: «${shorten(d.nota, 300)}»` : ""}.`;
 }
 
 function approvalButtons(item: FilaRow): InlineButton[][] | null {
   if (!callbacksEnabled()) return null;
+  if (item.aprovacao) {
+    const a = item.aprovacao;
+    const botoes: Array<InlineButton & { decisao: Decisao }> = [];
+    for (const decisao of a.opcoes) {
+      const letra = LETRA[decisao];
+      const data = letra ? signCallback({ kind: "f", action: letra, id: item.id, version: item.rodada }) : null;
+      if (!data) continue;
+      const texto = decisao === "aprovar" && a.motivo === "gasto" && a.custo != null ? `Aprovar o gasto · ${usd(a.custo)}` : BOTAO[decisao];
+      botoes.push({ text: texto, callback_data: data, decisao });
+    }
+    // de 2 em 2; «Publicar mesmo assim» e «Cancelar» em linhas próprias, embaixo
+    const linhas: InlineButton[][] = [];
+    const principais = botoes.filter((x) => x.decisao !== "publicar" && x.decisao !== "cancelar");
+    for (let i = 0; i < principais.length; i += 2) linhas.push(principais.slice(i, i + 2));
+    for (const fim of ["publicar", "cancelar"] as const) {
+      const x = botoes.find((y) => y.decisao === fim);
+      if (x) linhas.push([x]);
+    }
+    const limpo = linhas.map((linha) => linha.map(({ text, callback_data }) => ({ text, callback_data })));
+    return limpo.length ? limpo : null;
+  }
   const aprovar = signCallback({ kind: "f", action: "a", id: item.id, version: item.rodada });
   const refazer = signCallback({ kind: "f", action: "r", id: item.id, version: item.rodada });
   return aprovar && refazer ? [[{ text: "Aprovar", callback_data: aprovar }, { text: "Refazer", callback_data: refazer }]] : null;
@@ -122,7 +216,8 @@ export async function sendFilaApproval(id: string, options: { timeoutMs?: number
     const item = await getFila(id);
     if (!item || item.estado !== "para_aprovar") return false;
     await query("update public.molde_fila set telegram_aviso_em = now() where id = $1 and rodada = $2", [item.id, item.rodada]);
-    const sent = await sendTelegramWithButtons(filaApprovalText(item), approvalButtons(item), { timeoutMs: options.timeoutMs, preview: Boolean(previewLink(item)) });
+    const gasto = item.aprovacao?.custo != null ? await gastoDoMes().catch(() => null) : null;
+    const sent = await sendTelegramWithButtons(filaApprovalText(item, { gasto }), approvalButtons(item), { timeoutMs: options.timeoutMs, preview: Boolean(previewLink(item)) });
     if (!sent.ok) return false;
     if (sent.messageId) await query("update public.molde_fila set telegram_msg_id = $3 where id = $1 and rodada = $2", [item.id, item.rodada, sent.messageId]);
     return true;
@@ -139,6 +234,19 @@ export async function reflectFilaDecision(item: FilaRow, options: { timeoutMs?: 
     return (await editTelegramMessage(Number(item.telegram_msg_id), `${filaApprovalText(item, { decided: true })}\n\n${filaDecisionLine(item.decisao)}`, options)).ok;
   } catch (error) {
     console.error("[fila] não consegui mostrar a decisão no Telegram:", error instanceof Error ? error.message : error);
+    return false;
+  }
+}
+
+/** O orquestrador desistiu de um item (erro final): o dono vê no Telegram, sem botões. Nunca lança. */
+export async function sendFilaErro(item: FilaRow, options: { timeoutMs?: number } = {}) {
+  try {
+    if (!telegramBotConfig()) return false;
+    const avatar = item.avatar ? ` de ${item.avatar}` : "";
+    const texto = `Molde: «${shorten(item.titulo || item.tipo, 80)}»${avatar} parou com erro: ${shorten(item.erro ?? "sem detalhe", 500)}\nVeja na página do Molde (painel «Fila») e peça de novo se quiser.`;
+    return (await sendTelegramWithButtons(texto, null, options)).ok;
+  } catch (error) {
+    console.error("[fila] não consegui avisar o erro no Telegram:", error instanceof Error ? error.message : error);
     return false;
   }
 }
@@ -180,7 +288,8 @@ export function lerComando(texto: string): { comando: "ajuda" | "status" | "canc
   return { comando: "ajuda", resto: "" };
 }
 
-function textoDoPedido(item: FilaRow, avatar: AvatarRow | null) {
+/** O pedido com o custo (o mesmo texto no Telegram e no Claude/MCP; muda só o último passo). */
+export function textoDoPedido(item: FilaRow, avatar: AvatarRow | null, canal: "telegram" | "mcp" = "telegram") {
   const p = item.pedido ?? {};
   const custo = custoDoPedido(p, avatar);
   const quem = item.avatar ? ` para ${item.avatar}${avatar?.conta ? ` (@${avatar.conta})` : ""}` : "";
@@ -190,7 +299,9 @@ function textoDoPedido(item: FilaRow, avatar: AvatarRow | null) {
     : [`Pedido: um Reel novo${quem} sobre «${shorten(p.texto ?? "", 300)}».`,
       `Custo: ${usd(0)} agora. Ele entra no 1º dia livre do calendário; o roteiro usa o seu plano do Claude.`,
       Number(avatar?.precos?.reel) > 0 ? `Produzir o vídeo depois custa ≈ ${usd(Number(avatar?.precos?.reel))}, com outra confirmação.` : "Produzir o vídeo depois é outro pedido, com outra confirmação."];
-  linhas.push("Nada gasta até você tocar em «Confirmar».");
+  linhas.push(canal === "mcp"
+    ? `Nada gasta até a ferramenta «confirmar» ser chamada com o id ${item.id} (o pedido vale por ${RASCUNHO_MINUTOS} minutos).`
+    : "Nada gasta até você tocar em «Confirmar».");
   return linhas.join("\n");
 }
 
@@ -215,6 +326,12 @@ function avatarButtons(item: FilaRow, avatares: AvatarRow[]): InlineButton[][] |
   return linhas;
 }
 
+/** «Gasto em outubro: US$ 3,20 de US$ 50,00 (sobra US$ 46,80).» (a mesma conta do «status_do_mes» do MCP) */
+export async function linhaDoGasto() {
+  const g = await gastoDoMes();
+  return `Gasto em ${g.mes}: ${usd(g.gastoUsd)} de ${usd(g.limiteUsd)} (${g.passou ? "passou do limite" : `sobra ${usd(g.sobraUsd)}`}).`;
+}
+
 async function statusTexto() {
   const porProjeto = await contarFila();
   const projetos = Object.entries(porProjeto);
@@ -227,6 +344,7 @@ async function statusTexto() {
   const esperando = await query<{ n: string }>("select count(*) as n from public.molde_fila where origem = 'telegram' and estado = 'na_fila' and pedido_id is null");
   const n = Number(esperando.rows[0]?.n ?? 0);
   if (n) linhas.push(`\n${n} pedido${n > 1 ? "s" : ""} do Telegram esperando a página do Molde abrir.`);
+  linhas.push(`\n${await linhaDoGasto()}`);
   return `Fila do Molde (últimos 30 dias):\n${linhas.join("\n")}`;
 }
 
@@ -309,7 +427,7 @@ export async function handleFilaCallback(payload: CallbackPayload, callback: Cal
   const reply = (text: string) => answerCallback(callback.id, text);
   const por = callback.from?.username ? `@${callback.from.username}` : callback.from?.first_name ?? null;
   try {
-    if (payload.action === "a" || payload.action === "r") {
+    if (payload.action === "a" || payload.action === "r" || DECISAO_DA_LETRA[payload.action]) {
       const item = await getFila(payload.id);
       if (!item) {
         await reply("Este pedido não existe mais.");
@@ -332,14 +450,15 @@ export async function handleFilaCallback(payload: CallbackPayload, callback: Cal
         await sendTelegramWithButtons(`O que você quer mudar em «${shorten(item.titulo, 80)}»${item.avatar ? ` (${item.avatar})` : ""}? Responda com uma mensagem (até 15 min). /cancelar desiste.`, null);
         return { acao: "motivo" as const };
       }
-      const outcome = await decidirFila(item.id, { decisao: "aprovar", via: "telegram", por, rodada: payload.version });
+      const decisao = DECISAO_DA_LETRA[payload.action];
+      const outcome = await decidirFila(item.id, { decisao, via: "telegram", por, rodada: payload.version });
       if (!outcome.ok) {
-        await reply("Este pedido não espera mais aprovação.");
+        await reply(outcome.motivo === "opcao" ? "Esta opção não vale para este pedido." : "Este pedido não espera mais aprovação.");
         return { acao: "fechado" as const };
       }
-      await reply("Aprovado.");
+      await reply(DECIDIDO[decisao]);
       await edit(`${filaApprovalText(outcome.item, { decided: true })}\n\n${filaDecisionLine(outcome.item.decisao!)}`);
-      return { acao: "aprovar" as const };
+      return { acao: decisao === "aprovar" ? ("aprovar" as const) : decisao };
     }
 
     // pedir: escolher o avatar, confirmar (o 2º toque) ou cancelar

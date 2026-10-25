@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { query, transaction } from "@/lib/db/client";
+import { capUsd, isMissing0008, MONTH_START_SQL, monthName, monthSpendUsd } from "@/lib/molde/jobs";
 
 /**
  * Fila única do Molde (migração 0016, tabelas public.molde_fila e public.molde_avatares). Molde v134, etapa N1.
@@ -15,11 +16,13 @@ import { query, transaction } from "@/lib/db/client";
  * Contrato completo: docs/API_MOLDE_FILA.md.
  */
 
-export const FILA_STATES = ["rascunho", "na_fila", "produzindo", "para_aprovar", "aprovado", "refazer", "pronto", "erro", "cancelado"] as const;
+export const FILA_STATES = ["rascunho", "na_fila", "produzindo", "na_revisao", "para_aprovar", "aprovado", "refazer", "pronto", "erro", "cancelado"] as const;
 export type FilaState = (typeof FILA_STATES)[number];
 /** Os estados que a página manda no espelho (o rascunho é só do Telegram). */
 export const PAGE_STATES: FilaState[] = ["na_fila", "produzindo", "para_aprovar", "aprovado", "refazer", "pronto", "erro", "cancelado"];
 export const FINISHED: FilaState[] = ["pronto", "erro", "cancelado"];
+/** «na_revisao» (0019) só existe nos itens do orquestrador; para a página ele é «produzindo». */
+export const pageState = (estado: FilaState): FilaState => (estado === "na_revisao" ? "produzindo" : estado);
 /** A origem (e o «confirmado por») do espelho que a página manda. */
 const ORIGEM_PAGINA: FilaRow["origem"] = "pagina";
 
@@ -39,13 +42,25 @@ export function isMissing0016(error: unknown) {
 }
 
 export type FilaPreview = { texto?: string; imagem?: string; video?: string; audio?: string; link?: string };
-export type FilaDecision = { decisao: "aprovar" | "refazer"; nota: string | null; via: "pagina" | "telegram"; por: string | null; em: string; rodada: number };
+/**
+ * As decisões do dono. A página e o Telegram de sempre: aprovar / refazer (com o motivo). Os pedidos de aprovação do
+ * orquestrador (0019) também: corrigir, publicar (= «Publicar mesmo assim»), gravar, nao-gravar, completar e cancelar.
+ */
+export const DECISOES = ["aprovar", "refazer", "corrigir", "publicar", "gravar", "nao-gravar", "completar", "cancelar"] as const;
+export type Decisao = (typeof DECISOES)[number];
+/** O estado em que cada decisão deixa o item. */
+export const ESTADO_DA_DECISAO: Record<Decisao, FilaState> = {
+  aprovar: "aprovado", corrigir: "aprovado", publicar: "aprovado", gravar: "aprovado", completar: "aprovado",
+  refazer: "refazer", "nao-gravar": "cancelado", cancelar: "cancelado",
+};
+export type DecisaoVia = "pagina" | "telegram" | "mcp";
+export type FilaDecision = { decisao: Decisao; nota: string | null; via: DecisaoVia; por: string | null; em: string; rodada: number };
 export type FilaPedido = { comando?: "reel" | "fotos"; texto?: string; n?: number; opcoes?: string[] };
 
 export type FilaRow = {
   id: string;
   ref: string;
-  origem: "pagina" | "telegram";
+  origem: "pagina" | "telegram" | "piloto";
   pedido_id: string | null;
   chave: string | null;
   projeto: string;
@@ -70,7 +85,50 @@ export type FilaRow = {
   expira_em: Date | null;
   criado_em: Date;
   atualizado_em: Date;
+  // 0019 (orquestrador): só existem depois de colar a 0019
+  versao?: number;
+  estacao?: string | null;
+  conta?: string | null;
+  detalhes?: Record<string, unknown>;
+  entrada?: Record<string, unknown> | null;
+  passos?: Array<Record<string, unknown>>;
+  aprovacao?: FilaAprovacao | null;
+  resultado?: Record<string, unknown> | null;
+  tentativas?: number;
+  erro?: string | null;
+  pego_por?: string | null;
+  pego_ate?: Date | null;
+  pego_prazo_seg?: number | null;
+  pego_de?: FilaState | null;
 };
+
+/** Um achado do revisor (o que o dono vê: o lugar, o trecho, por quê e a troca permitida). */
+export type FilaAchado = { lugar?: string; trecho?: string; porque?: string; troca?: string; nivel?: string };
+/** O pedido de aprovação do orquestrador (0019). */
+export type FilaAprovacao = {
+  necessaria: boolean;
+  motivo: "revisor" | "publico" | "gasto" | "faltam-dados" | "pecas";
+  pergunta: string;
+  opcoes: Decisao[];
+  achados: FilaAchado[];
+  custo: number | null;
+  resumo: string;
+  canais: string[];
+  pedidaEm: string;
+  decisao: Decisao | null;
+  decididaEm: string | null;
+  nota: string;
+  via?: DecisaoVia | null;
+  por?: string | null;
+};
+
+/** O prazo da posse venceu (o orquestrador caiu no meio): o item volta, sozinho, ao estado de quando foi pego. */
+export function estadoEfetivo(row: Pick<FilaRow, "estado" | "pego_ate" | "pego_de">): FilaState {
+  if ((row.estado === "produzindo" || row.estado === "na_revisao") && row.pego_ate && new Date(row.pego_ate).getTime() < Date.now()) {
+    return row.pego_de ?? "na_fila";
+  }
+  return row.estado;
+}
 
 export type AvatarRow = { projeto: string; nome: string; conta: string; precos: { foto?: number; reel?: number }; ordem: number; atualizado_em: Date };
 
@@ -88,7 +146,7 @@ export function filaView(row: FilaRow) {
     avatar: row.avatar,
     tipo: row.tipo,
     titulo: row.titulo,
-    estado: row.estado,
+    estado: pageState(estadoEfetivo(row)),
     etapa: row.etapa,
     nota: row.nota,
     custoEstimadoUsd: Number(row.custo_estimado_usd),
@@ -104,8 +162,25 @@ export function filaView(row: FilaRow) {
     confirmadoVia: row.confirmado_via,
     criadoEm: iso(row.criado_em),
     atualizadoEm: iso(row.atualizado_em),
+    // 0019: o mesmo item no vocabulário do orquestrador (docs/API_MOLDE_ORQUESTRADOR.md); sem a 0019, só o estado
+    estadoOrquestrador: ESTADO_ORQ[estadoEfetivo(row)],
+    ...(row.versao !== undefined ? { versao: row.versao, estacao: row.estacao ?? null } : {}),
   };
 }
+
+/** O estado da fila no vocabulário do orquestrador (plugin-molde/ORQUESTRADOR.md). O rascunho do Telegram não existe lá. */
+export const ESTADO_ORQ: Record<FilaState, string> = {
+  rascunho: "rascunho",
+  na_fila: "novo",
+  produzindo: "na-estacao",
+  na_revisao: "na-revisao",
+  para_aprovar: "esperando-dono",
+  aprovado: "aprovado",
+  refazer: "refazer",
+  pronto: "pronto",
+  erro: "erro",
+  cancelado: "cancelado",
+};
 export type FilaView = ReturnType<typeof filaView>;
 
 type Run = (text: string, params?: unknown[]) => Promise<{ rows: FilaRow[] }>;
@@ -172,6 +247,7 @@ export async function registrarItem(input: FilaInput, client: PoolClient): Promi
   }
 
   if (row.estado === "rascunho") return { erro: "Este pedido do Telegram ainda não foi confirmado.", ref: input.ref };
+  if (row.estacao) return { erro: "Este item é do orquestrador: a página não muda ele pelo espelho.", ref: input.ref };
 
   const decisaoPendente = Boolean(row.decisao && !row.decisao_aplicada_em && Number(row.decisao.rodada) === row.rodada);
   let estado = input.estado;
@@ -237,7 +313,7 @@ export async function listarAvatares(): Promise<AvatarRow[]> {
   return rows;
 }
 
-export type FilaFiltro = { projeto?: string | null; estados?: FilaState[] | null; origem?: "pagina" | "telegram" | null; semPedido?: boolean; decisoesPendentes?: boolean; limite?: number };
+export type FilaFiltro = { projeto?: string | null; estados?: FilaState[] | null; origem?: "pagina" | "telegram" | "piloto" | null; semPedido?: boolean; decisoesPendentes?: boolean; limite?: number };
 
 export async function listarFila(filtro: FilaFiltro) {
   const { rows } = await query<FilaRow>(
@@ -246,7 +322,7 @@ export async function listarFila(filtro: FilaFiltro) {
        and ($2::text[] is null or estado = any($2))
        and ($3::text is null or origem = $3)
        and (not $4 or pedido_id is null)
-       and (not $5 or (decisao is not null and decisao_aplicada_em is null))
+       and (not $5 or (decisao is not null and decisao_aplicada_em is null and (to_jsonb(molde_fila) ->> 'estacao') is null))
        and estado <> 'rascunho'
      order by atualizado_em desc, id
      limit $6`,
@@ -265,36 +341,67 @@ export async function contarFila() {
   const out: Record<string, { avatar: string; estados: Partial<Record<FilaState, number>> }> = {};
   for (const r of rows) {
     const p = (out[r.projeto] ??= { avatar: r.avatar, estados: {} });
-    p.estados[r.estado] = Number(r.n);
+    const estado = pageState(r.estado);
+    p.estados[estado] = (p.estados[estado] ?? 0) + Number(r.n);
     if (!p.avatar && r.avatar) p.avatar = r.avatar;
   }
   return out;
 }
 
-// ---------- decisões (aprovar / refazer) ----------
+// ---------- decisões (aprovar / refazer; e as do orquestrador, 0019) ----------
 
 export type FilaDecideOutcome =
   | { ok: true; item: FilaRow }
   | { ok: false; motivo: "not-found" }
-  | { ok: false; motivo: "already" | "old-round" | "not-waiting" | "sem-motivo"; item: FilaRow };
+  | { ok: false; motivo: "already" | "old-round" | "not-waiting" | "sem-motivo" | "opcao" | "versao"; item: FilaRow };
 
-/** «Aprovar» ou «Refazer» (com o motivo) de um item «para aprovar», pela página ou pelo Telegram. */
-export async function decidirFila(id: string, input: { decisao: "aprovar" | "refazer"; nota?: string | null; via: "pagina" | "telegram"; por?: string | null; rodada?: number | null }): Promise<FilaDecideOutcome> {
+/** As decisões que valem para o item: a página e o Telegram de sempre (aprovar/refazer) ou as opções do pedido do orquestrador. */
+export function opcoesDoItem(item: Pick<FilaRow, "aprovacao">): Decisao[] {
+  const a = item.aprovacao;
+  if (!a) return ["aprovar", "refazer"];
+  const opcoes = new Set<Decisao>(a.opcoes ?? []);
+  if (a.motivo === "revisor") for (const d of ["corrigir", "refazer", "publicar"] as const) opcoes.add(d); // decisão 21: sempre
+  opcoes.add("cancelar");
+  return [...opcoes];
+}
+
+/**
+ * Uma decisão do dono sobre um item «para aprovar» (esperando-dono), pela página, pelo Telegram ou pelo Claude (MCP).
+ * A mesma regra para todos: a primeira decisão da rodada vale; a segunda vê «já decidido». «refazer» precisa do motivo.
+ * Nos itens do orquestrador, a decisão também fica em `aprovacao` (decisao, decididaEm, nota) e o orquestrador aplica
+ * quando pegar o item de novo; nos espelhos da página, a página aplica (`?decisoes=pendentes` → `aplicada`).
+ */
+export async function decidirFila(id: string, input: { decisao: Decisao; nota?: string | null; via: DecisaoVia; por?: string | null; rodada?: number | null; versao?: number | null }): Promise<FilaDecideOutcome> {
   return transaction(async (client) => {
     const item = (await runner(client)("select * from public.molde_fila where id = $1 for update", [id])).rows[0];
     if (!item) return { ok: false, motivo: "not-found" };
+    if (input.versao != null && item.versao !== undefined && input.versao !== item.versao) return { ok: false, motivo: "versao", item };
     if (input.rodada != null && input.rodada !== item.rodada) return { ok: false, motivo: "old-round", item };
-    if (item.decisao && Number(item.decisao.rodada) === item.rodada && (item.estado === "aprovado" || item.estado === "refazer")) return { ok: false, motivo: "already", item };
+    if (item.decisao && Number(item.decisao.rodada) === item.rodada && ["aprovado", "refazer", "cancelado"].includes(item.estado)) return { ok: false, motivo: "already", item };
     if (item.estado !== "para_aprovar") return { ok: false, motivo: "not-waiting", item };
+    if (!opcoesDoItem(item).includes(input.decisao)) return { ok: false, motivo: "opcao", item };
     if (input.decisao === "refazer" && !input.nota?.trim()) return { ok: false, motivo: "sem-motivo", item };
     const decisao: FilaDecision = { decisao: input.decisao, nota: input.nota?.trim() || null, via: input.via, por: input.por ?? null, em: new Date().toISOString(), rodada: item.rodada };
-    const { rows } = await client.query<FilaRow>(
+    let { rows } = await client.query<FilaRow>(
       `update public.molde_fila
        set estado = $2, decisao = $3::jsonb, decisoes = decisoes || jsonb_build_array($3::jsonb), decisao_aplicada_em = null,
            espera_motivo_em = null, atualizado_em = now()
        where id = $1 returning *`,
-      [id, input.decisao === "aprovar" ? "aprovado" : "refazer", JSON.stringify(decisao)],
+      [id, ESTADO_DA_DECISAO[input.decisao], JSON.stringify(decisao)],
     );
+    if (item.aprovacao) {
+      // o pedido do orquestrador guarda a decisão; o «Aprovar o gasto» confirma o custo (conta no gasto do mês)
+      const gasto = item.aprovacao.motivo === "gasto" && input.decisao === "aprovar" && item.aprovacao.custo != null;
+      ({ rows } = await client.query<FilaRow>(
+        `update public.molde_fila
+         set aprovacao = aprovacao || jsonb_build_object('decisao', $2::text, 'decididaEm', $3::text, 'nota', $4::text, 'via', $5::text, 'por', $6::text),
+             custo_estimado_usd = case when $7 then $8::numeric else custo_estimado_usd end,
+             confirmado_em = case when $7 then now() else confirmado_em end,
+             confirmado_via = case when $7 then $5 else confirmado_via end
+         where id = $1 returning *`,
+        [id, input.decisao, decisao.em, decisao.nota ?? "", input.via, decisao.por, gasto, gasto ? item.aprovacao.custo : 0],
+      ));
+    }
     return { ok: true, item: rows[0] };
   });
 }
@@ -400,16 +507,17 @@ export async function escolherAvatar(id: string, indice: number): Promise<Rascun
 }
 
 /** O 2º toque «Confirmar · US$ X»: o pedido entra na fila (a página faz quando abrir). */
-export async function confirmarRascunho(id: string, por: string | null): Promise<RascunhoOutcome> {
+/** O 2º passo pelo Telegram («Confirmar · US$ X») ou pelo Claude (a ferramenta «confirmar» do MCP): mesma regra. */
+export async function confirmarRascunho(id: string, por: string | null, via: "telegram" | "mcp" = "telegram"): Promise<RascunhoOutcome> {
   return transaction(async (client) => {
     const vivo = await rascunhoVivo(client, id);
     if (!vivo.ok) return vivo;
     if (!vivo.item.projeto) return { ok: false, motivo: "sem-avatar", item: vivo.item };
     const { rows } = await client.query<FilaRow>(
-      `update public.molde_fila set estado = 'na_fila', confirmado_em = now(), confirmado_via = 'telegram', expira_em = null,
+      `update public.molde_fila set estado = 'na_fila', confirmado_em = now(), confirmado_via = $3, expira_em = null,
          etapa = 'Esperando a página do Molde', nota = $2, atualizado_em = now()
        where id = $1 returning *`,
-      [id, por ? `Pedido no Telegram por ${por}.` : "Pedido no Telegram."],
+      [id, via === "mcp" ? `Pedido pelo Claude${por ? ` (${por})` : ""}.` : por ? `Pedido no Telegram por ${por}.` : "Pedido no Telegram.", via],
     );
     return { ok: true, item: rows[0] };
   });
@@ -428,4 +536,30 @@ export async function cancelarRascunho(id: string): Promise<RascunhoOutcome> {
 export async function limparRascunhos() {
   const { rowCount } = await query("delete from public.molde_fila where estado = 'rascunho' and criado_em < now() - interval '1 day'");
   return rowCount ?? 0;
+}
+
+// ---------- o gasto do mês (o «/status» do Telegram e o «status_do_mes» do MCP) ----------
+
+export type GastoDoMes = { mes: string; gastoUsd: number; pedidos: number; gastoMacUsd: number | null; limiteUsd: number; sobraUsd: number; passou: boolean };
+
+/**
+ * Quanto a fila única já gastou no mês (São Paulo; zera no dia 1º): a soma do custo estimado dos pedidos confirmados (o 2º
+ * toque, o clique da página ou o «Aprovar o gasto» do orquestrador) que não foram cancelados. O limite é o teto do mês do
+ * Molde (MOLDE_TETO_USD, padrão 50). Os trabalhos do Mac (0008) aparecem à parte: muitos deles também estão no espelho.
+ */
+export async function gastoDoMes(): Promise<GastoDoMes> {
+  const { rows } = await query<{ total: string; n: string }>(
+    `select coalesce(sum(custo_estimado_usd), 0) as total, count(*) filter (where custo_estimado_usd > 0) as n from public.molde_fila
+     where confirmado_em >= ${MONTH_START_SQL} and estado not in ('rascunho', 'cancelado')`,
+  );
+  let gastoMacUsd: number | null = null;
+  try {
+    gastoMacUsd = await monthSpendUsd();
+  } catch (error) {
+    if (!isMissing0008(error)) throw error;
+  }
+  const gastoUsd = Math.round(Number(rows[0]?.total ?? 0) * 10_000) / 10_000;
+  const limiteUsd = capUsd();
+  const sobraUsd = Math.max(0, Math.round((limiteUsd - gastoUsd) * 10_000) / 10_000);
+  return { mes: monthName(), gastoUsd, pedidos: Number(rows[0]?.n ?? 0), gastoMacUsd, limiteUsd, sobraUsd, passou: gastoUsd > limiteUsd };
 }
