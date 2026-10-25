@@ -31,6 +31,7 @@ const PUBLIC_PREFIXES = [
   "/q", // quiz público do Molde (/q/<slug>, 0013): quem responde não tem login
   "/e", // página de entrega do material grátis (/e/<slug>, 0013); o download só depois do e-mail
   "/lista", // sair da Lista própria (/lista/sair/<código>, 0013)
+  "/d", // o botão da oferta do desafio de 5 dias (/d/<slug>/ir, 0017): só conta o toque e leva ao checkout
   "/l", // links rastreados (/l/<código>): quem clica no Instagram não tem login; só redireciona e conta o clique
 ];
 

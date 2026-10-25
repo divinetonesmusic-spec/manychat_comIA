@@ -80,6 +80,8 @@ export type Automation = {
   flow_edges: FlowEdgeDefinition[];
   /** Sequência de DM do post (0012): { mensagem2, mensagem3, linkUrl, ... }. Ausente sem a 0012; {} = sem sequência. */
   sequencia?: unknown;
+  /** O desafio de 5 dias do post (0017). Ausente sem a 0017. */
+  desafio_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -249,7 +251,7 @@ export type ContentPost = {
   link_url?: string;
   link_label?: string;
   public_reply?: string;
-  automation_options?: { quickReplyLabel?: string; linkText?: string; reminderText?: string; publicReplies?: string[]; requireFollower?: boolean; sequencia?: unknown; quizDm?: unknown };
+  automation_options?: { quickReplyLabel?: string; linkText?: string; reminderText?: string; publicReplies?: string[]; requireFollower?: boolean; sequencia?: unknown; quizDm?: unknown; desafio?: unknown };
   automation_id?: string | null;
   source?: string;
   external_ref?: string | null;
@@ -1403,7 +1405,7 @@ export async function markExpiredDmsSkipped() {
      from public.contacts c
      where q.contact_id = c.id
        and q.status = 'pending'
-       and q.payload ->> 'origem' in ('molde_ia', 'sequencia_dm')
+       and q.payload ->> 'origem' in ('molde_ia', 'sequencia_dm', 'desafio')
        and c.opted_out_at is not null`,
     [MOLDE_REPLY_OPTED_OUT],
   );

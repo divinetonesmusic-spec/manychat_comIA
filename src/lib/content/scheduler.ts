@@ -1,5 +1,7 @@
 import { findRefPublicada, marcarRefPublicada, REF_JA_PUBLICADA_MESSAGE, reservarRefParaPublicar } from "@/lib/db/refs-publicadas";
 import { parseQuizDm, quickRepliesDoQuiz } from "@/lib/funil/quiz-dm";
+import { parseDesafioPost } from "@/lib/desafio/desafio";
+import { getDesafioPorId, isMissing0017, ligarAutomacao, MIGRATION_0017, quickRepliesDoConvite, type DesafioRow } from "@/lib/db/desafios";
 import { MIGRATION_0012_SEQUENCIA, salvarSequenciaNaAutomacao, sequenciaDaAutomacao } from "@/lib/db/dm-sequencias";
 import { createAutomation, getConfig, updateContentPostMediaItems, updateContentPostStatus, type Config, type ContentMediaItem, type ContentPost } from "@/lib/db/repositories";
 import {
@@ -679,6 +681,8 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
     try {
       const options = post.automation_options ?? {};
       const quizDm = parseQuizDm(options.quizDm); // 0013: relida do banco (um pacote velho ou mexido não quebra a automação)
+      // O desafio de 5 dias (0017): a 1ª mensagem é o convite, com o botão «Começar». Sem a 0017 (ou sem o desafio), o post sai como antes.
+      const desafio = quizDm ? null : await desafioDoPost(post.id, options.desafio);
       const publicReplies = [post.public_reply, ...(options.publicReplies ?? [])].map((text) => (text || "").trim()).filter(Boolean);
       const automation = await createAutomation({
         account_id: post.account_id,
@@ -690,8 +694,8 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
         post_id: mediaId,
         public_replies: Array.from(new Set(publicReplies)).slice(0, 8),
         // «Começar pela pergunta do quiz» (0013): a 1ª mensagem é a pergunta, com um botão por perfil (respostas rápidas)
-        welcome_dm: quizDm?.texto || post.dm_text || "Oi! Toque no botão abaixo para receber.",
-        quick_replies: quizDm ? quickRepliesDoQuiz(quizDm) : undefined,
+        welcome_dm: desafio?.pacote.convite || quizDm?.texto || post.dm_text || "Oi! Toque no botão abaixo para receber.",
+        quick_replies: desafio ? quickRepliesDoConvite(desafio) : quizDm ? quickRepliesDoQuiz(quizDm) : undefined,
         quick_reply_label: (options.quickReplyLabel || "").slice(0, 20) || undefined,
         link_text: options.linkText || undefined,
         link_url: post.link_url || "",
@@ -701,7 +705,8 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
       });
       if (automation?.id) {
         // Sequência de DM do post (0012): passos 2, 3 (link) e o lembrete. Sem a 0012 a DM sai só com a 1ª mensagem.
-        const sequencia = sequenciaDaAutomacao({ sequencia: options.sequencia ?? null });
+        if (desafio) await ligarAutomacao(automation.id, desafio.id);
+        const sequencia = desafio ? null : sequenciaDaAutomacao({ sequencia: options.sequencia ?? null });
         if (sequencia && !(await salvarSequenciaNaAutomacao(automation.id, sequencia))) await touchContentPost(post.id, MIGRATION_0012_SEQUENCIA);
         await setPostAutomation(post.id, automation.id);
         done.automation = true;
@@ -711,6 +716,21 @@ async function afterPublishLocked(post: ContentPost, config: Config, mediaId: st
     }
   }
   return done;
+}
+
+/** O desafio do pacote do post, se ainda existe. Sem a 0017: a nota no post e o post segue sem o desafio. */
+async function desafioDoPost(postId: string, value: unknown): Promise<DesafioRow | null> {
+  const pedido = parseDesafioPost(value);
+  if (!pedido) return null;
+  try {
+    const desafio = await getDesafioPorId(pedido.id);
+    if (!desafio?.ativo) await touchContentPost(postId, "O desafio de 5 dias deste post não existe mais: a DM saiu com a mensagem de sempre.");
+    return desafio?.ativo ? desafio : null;
+  } catch (error) {
+    if (!isMissing0017(error)) throw error;
+    await touchContentPost(postId, MIGRATION_0017);
+    return null;
+  }
 }
 
 function isStoryType(value: ContentPost["publish_type"]) {

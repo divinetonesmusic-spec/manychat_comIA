@@ -6,6 +6,7 @@ import { isYoutubePrivacidade, parseRedes, redesCompativeis, REDES_INVALIDAS, RE
 import { parseDestino } from "@/lib/content/destino";
 import { parseSequencia } from "@/lib/db/dm-sequencias";
 import { parseQuizDm } from "@/lib/funil/quiz-dm";
+import { parseDesafioPost } from "@/lib/desafio/desafio";
 
 /**
  * Lê e confere o "pacote" de um post vindo da tela de Conteúdo ou do Molde do Avatar:
@@ -167,6 +168,7 @@ function parseAutomationOptions(value: unknown): AutomationOptions | undefined {
       : undefined,
     requireFollower: typeof record.requireFollower === "boolean" ? record.requireFollower : undefined,
     quizDm: parseQuizDm(record.quizDm),
+    desafio: parseDesafioPost(record.desafio),
   };
 }
 
