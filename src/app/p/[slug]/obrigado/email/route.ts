@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { emailValido, getProdutoPublico, getSessao, registrarEventoFunil, salvarComprador } from "@/lib/db/funil";
 import { cookieSessao } from "@/lib/vendas/funil-web";
+import { passouDoLimite } from "@/lib/funil/limite";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const email = String(form?.get("email") ?? "").trim().toLowerCase();
   if (!emailValido(email)) return voltar(request, `${pagina}?erro=email`);
+  // 0013 · limite por IP e por e-mail (ninguém cadastra a caixa de outra pessoa em série); sem a 0013, segue sem limite
+  if (await passouDoLimite(request, "obrigado", email)) return voltar(request, `${pagina}?erro=limite`);
   const sessao = await getSessao(request.cookies.get(cookieSessao(produto.slug))?.value, produto.id);
   await salvarComprador(produto, {
     email,

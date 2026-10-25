@@ -5,6 +5,7 @@ import { hasRedesTables } from "@/lib/db/redes";
 import type { Rede, YoutubePrivacidade } from "@/lib/redes/redes";
 import type { DestinoTipo } from "@/lib/content/destino";
 import type { DmSequencia } from "@/lib/db/dm-sequencias";
+import type { QuizDmPost } from "@/lib/funil/quiz-dm";
 
 /** Tudo o que um post leva: mídia, legenda, horário e o funil (palavra → DM → link). */
 export type PostPackage = {
@@ -58,6 +59,8 @@ export type AutomationOptions = {
   requireFollower?: boolean;
   /** Sequência de DM do post (0012): passos 2, 3 (link) e o lembrete antes de fechar as 24 h. */
   sequencia?: DmSequencia;
+  /** «Começar pela pergunta do quiz» (0013): a 1ª mensagem é a pergunta do quiz, com um botão por perfil. */
+  quizDm?: QuizDmPost;
 };
 
 const EDITABLE_STATUSES = ["draft", "scheduled", "failed", "canceled"];

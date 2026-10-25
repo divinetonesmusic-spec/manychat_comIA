@@ -19,6 +19,7 @@ import { avancarSequencia, iniciarSequencia, marcarRespostaDepois, sequenciaAgua
 import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_PREFIX, hasExecutableFlow } from "@/lib/flow-executor";
 import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
 import { safeEqualSecret } from "@/lib/secrets";
+import { QUIZ_PAYLOAD, responderQuizDm } from "@/lib/funil/quiz-dm";
 
 export const runtime = "nodejs";
 
@@ -307,6 +308,16 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
     return 1;
   }
 
+  // A pergunta do quiz na DM (0013): o botão marca o perfil no contato e a resposta leva o link do quiz com o perfil.
+  if (payload?.startsWith(QUIZ_PAYLOAD)) {
+    try {
+      await responderQuizDm({ accountId: account.id, contactId, instagramRecipientId: senderId, eventId, payload });
+    } catch (error) {
+      console.error("[quiz] não consegui responder o botão da DM:", error instanceof Error ? error.message : error);
+    }
+    return 1;
+  }
+
   if (payload?.startsWith("automation:")) {
     const automationId = payload.replace("automation:", "");
     const automation = await getAutomation(automationId, account.id);
@@ -314,7 +325,7 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
     // e o lembrete). Toque repetido não manda de novo.
     if (automation?.active && sequenciaDaAutomacao(automation)) {
       await iniciarSequencia({ accountId: account.id, automationId: automation.id, contactId }); // quem comentou antes da 0012
-      await avancarSequenciaSafely({ automation, contactId, instagramRecipientId: senderId, eventId });
+      await avancarSequenciaSafely({ automation, contactId, instagramRecipientId: senderId, eventId, texto: text });
       return 1;
     }
     if (automation?.active && hasExecutableFlow(automation)) {
@@ -387,12 +398,12 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
   }
 
   // Sequência de DM do post (0012): a 1ª resposta escrita de quem comentou a palavra segue a sequência (passos 2, 3 e o
-  // lembrete). Depois disso, cada mensagem nova da pessoa tira o lembrete da fila (a conversa seguiu) e segue o caminho normal.
+  // lembrete; no modo vídeo da 0014, o texto dela escolhe o vídeo do avatar que vai antes do link). Depois disso, cada mensagem nova da pessoa tira o lembrete da fila (a conversa seguiu) e segue o caminho normal.
   if (trigger === "dm" && !payload) {
     const aguardando = await sequenciaAguardandoSafely(contactId);
     if (aguardando) {
       const automation = await getAutomation(aguardando.automation_id, account.id);
-      if (automation && (await avancarSequenciaSafely({ automation, contactId, instagramRecipientId: senderId, eventId }))) return 1;
+      if (automation && (await avancarSequenciaSafely({ automation, contactId, instagramRecipientId: senderId, eventId, texto: text }))) return 1;
     } else {
       await marcarRespostaDepois(contactId);
     }

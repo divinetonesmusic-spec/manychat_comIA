@@ -28,7 +28,7 @@ describe("sequência de DM (sem banco)", () => {
     assert.equal(parseSequencia(null), null);
     assert.equal(parseSequencia({}), null, "sem nenhuma mensagem = sem sequência");
     assert.deepEqual(parseSequencia({ mensagem2: " Valor ", mensagem3: "O link", linkUrl: "https://u.teste/l/abc1234?de=dm", lembrete: "Lembrete", lembreteHoras: 30, linkAposSegundos: -5 }), {
-      mensagem2: "Valor", mensagem3: "O link", linkUrl: "https://u.teste/l/abc1234?de=dm", linkLabel: "Abrir link", linkAposSegundos: 0, lembrete: "Lembrete", lembreteHoras: 23,
+      mensagem2: "Valor", mensagem3: "O link", linkUrl: "https://u.teste/l/abc1234?de=dm", linkLabel: "Abrir link", linkAposSegundos: 0, lembrete: "Lembrete", lembreteHoras: 23, modo: "link", videoAposMinutos: 3,
     });
     assert.match(String((parseSequencia({ mensagem2: "x", linkUrl: "http://inseguro" }) as { erro: string }).erro), /https/);
     assert.match(String((parseSequencia({ mensagem2: "x", linkUrl: "https://ok.teste" }) as { erro: string }).erro), /mensagem3/);

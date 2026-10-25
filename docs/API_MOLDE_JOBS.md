@@ -246,3 +246,33 @@ Como roda, respeitando a janela de 24 h da Meta:
    mensagem nova vai para as «DMs sem resposta», para o rascunho do Molde).
 4. Quem não respondeu não recebe mais nada. Quem pediu para parar não recebe o resto. Tudo passa pela fila normal (limite de 200 por
    hora, pausa humana, prazo de 24 h: o que passar do prazo é pulado).
+
+## Funil do Molde: quiz, página de entrega e Lista própria (0013, página v133)
+
+Todas com o token do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'chamar'}`). Sem a 0013: 503 com `codigo: "falta_0013"`.
+
+| Rota | O que faz |
+| --- | --- |
+| `POST /api/molde/quiz` `{ molde, accountId?, id?, slug?, quiz }` | Publica ou atualiza o quiz. `quiz` = `{ titulo, subtitulo, idioma, minutos, perfis:[{id, nome, causa, miniPlano[], projecao, ofertaDegrau, oferta:{nome, preco, moeda, garantia, checkout, rotulo}}], perguntas:[{texto, ajuda, tipo:'botoes'\|'imagem'\|'escala', opcoes:[{texto, imagem?, pesos:{perfilId:n}}]}], provaSocial:{tipo:'numero', numero, texto} ou {tipo:'como', passos[]}, provaDepois, dmPergunta:{texto, botoes:[{rotulo, perfilId}]}, dmResposta, marca, aviso }`. Conferido no servidor (2 a 4 perfis, 4 a 10 perguntas, todo perfil alcançável). Resposta: `{ id, slug, url, avisos[] }`. |
+| `GET /api/molde/quiz?molde=` | Os quizzes do projeto com `numeros: { inicios, fins, emails, checkouts, compras, porPerfil:{<id>:{fins, emails, checkouts, compras}} }`. |
+| `POST /api/molde/entregas` `{ molde, accountId?, id?, slug?, entrega:{titulo, subtitulo, idioma, itens[], marca, proximo:{titulo, texto, link, rotulo}, aviso}, arquivos:[{tipo:'pdf'\|'html'\|'capa', nome, contentType, size}] }` | Cria/atualiza a página de entrega e devolve `envios:[{tipo, uploadUrl, headers}]` (PUT, 1 h, pasta privada `uaiflow/entregas/<id>/`). O robô manda cada arquivo com `{acao:'enviar', path, url, headers}`. |
+| `POST /api/molde/entregas/<id>/publicar` `{ molde }` | Confere no R2 cada arquivo (existe e tem o tamanho anunciado; senão 409) e abre `/e/<slug>`. |
+| `GET /api/molde/entregas?molde=` | As entregas com `numeros: { visitas, emails, pdf, html, proximo }`. |
+| `GET /api/molde/leads?molde=` | A Lista própria: `{ total, naLista, confirmacaoDupla, csv }` (CSV com BOM). |
+
+**Checkout do perfil.** No `oferta.checkout`, a página do Molde põe `MOQUIZORIGEM` onde a plataforma lê o código da origem (o mesmo mapa do `rec131ComOrigem`). O botão do resultado (`/q/<slug>/ir?s=<sessão>`) troca a marca pelo código de compra (`mo…`, do quiz + perfil + post), junta `?perfil=<id>` e guarda o código em `quiz_origens`. A venda que volta com esse código (`vendas.origem`, 0012) conta como compra do perfil. Sem a marca no link, o código vai em `?src=`.
+
+**Pergunta do quiz na DM.** No pacote do post, `automationOptions.quizDm = { slug, texto, origem, botoes:[{rotulo, perfilId}] }` (2 a 4 botões). A automação do post sai com a pergunta como 1ª mensagem e um botão por perfil (payload `quiz:<slug>:<perfil>:<origem>`). O toque marca a etiqueta `perfil:<id>` no contato e manda a mensagem com o botão «Fazer o quiz» → `/q/<slug>?perfil=<id>&de=dm&o=<origem>`. Com `quizDm`, a página não manda a `sequencia` (0012).
+
+**Páginas públicas (sem login).** `/q/<slug>` (o quiz), `/q/<slug>/evento` (início, respostas, fim, e-mail), `/q/<slug>/ir` (a oferta), `/e/<slug>` (a entrega), `/e/<slug>/email`, `/e/<slug>/baixar?tipo=pdf|html` (só depois do e-mail; link assinado do R2), `/e/<slug>/proximo`, `/lista/sair/<chave>` e `/lista/confirmar/<chave>`. A versão interativa precisa ser um HTML único (CSS, JS e imagens dentro do arquivo): ela abre de um link do R2, sem as outras pastas.
+
+**Proteção dos formulários de e-mail** (quiz, entrega e `/p/<slug>/obrigado/email` da 0011): campo «isca» escondido (o robô que preenche não grava nada); limite por IP (8 envios em 10 min; 60 inícios de quiz em 10 min) e por e-mail (3 em 1 h), contados no Postgres (`formulario_limites`, só o resumo do IP e do e-mail), com a frase «Muitas tentativas…». Confirmação dupla opcional: `FUNIL_CONFIRMACAO_DUPLA=1` + o e-mail do Resend configurado.
+
+**E-mails:** nenhuma sequência é enviada nesta versão. `leads.sequencia` é o gancho, desligado (K-EMAILCURSO).
+
+## DM com o vídeo do avatar (0014, página v133)
+
+O roteiro de DM em modo vídeo (`automationOptions.sequencia.modo = "video"`), o cadastro dos vídeos de resposta
+(`GET`/`POST /api/molde/dmvideo`) e o funil por post com o gargalo (`GET /api/molde/dmvideo/funil`) estão em
+`docs/MOLDE_V133_DMVIDEO.md`. Os vídeos sobem pelo `POST /api/molde/upload` com `folder: "dmvideos"` (até 25 MB, o limite da
+Meta para vídeo na DM). Sem a 0014 (`docs/ATUALIZACAO_0014.md`): o cadastro responde 503 `falta_0014` e a DM segue a sequência da 0012.

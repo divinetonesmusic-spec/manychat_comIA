@@ -5,6 +5,7 @@ import { runContentCycle } from "@/lib/content/scheduler";
 import { recordClockBeat, recordClockSkipped } from "@/lib/health";
 import { withDrainLock } from "@/lib/queue/drain-lock";
 import { notifyWaitingDms } from "@/lib/dm-alerts";
+import { avisarRespostasVideo } from "@/lib/db/dm-videos";
 import { cleanupOldRecords } from "@/lib/db/cleanup";
 import { runMoldeClock } from "@/lib/molde/relogio";
 import { runVendasClock } from "@/lib/vendas/relogio";
@@ -74,6 +75,9 @@ async function runCycle(request: NextRequest) {
   // DMs esperando resposta há mais de 30 min: 1 aviso por perfil no Telegram (no máximo a cada 2 h). Nunca falha.
   const avisosDm = await notifyWaitingDms({ deadline, origin: request.nextUrl.origin });
 
+  // DM com vídeo (0014): quem respondeu a pergunta da DM vira 1 aviso no Telegram (o que respondeu e qual vídeo sai e quando). Nunca falha.
+  const avisosVideo = await avisarRespostasVideo({ deadline });
+
   // Fila do Molde: trabalhos cujo Mac sumiu voltam para a fila, avisos no Telegram e o relatório de domingo. Nunca falha.
   const molde = await runMoldeClock({ deadline, origin: request.nextUrl.origin }).catch(() => null);
 
@@ -90,5 +94,5 @@ async function runCycle(request: NextRequest) {
   // Batimento para o /api/health (migração 0004). Falha ignorada: sem a 0004 o relógio segue normal.
   await recordClockBeat({ ms: Date.now() - startedAt });
 
-  return { ok: true, ...queue, content, avisosDm, molde, vendas, tokens, limpeza, ms: Date.now() - startedAt };
+  return { ok: true, ...queue, content, avisosDm, avisosVideo, molde, vendas, tokens, limpeza, ms: Date.now() - startedAt };
 }
