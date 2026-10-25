@@ -47,6 +47,9 @@ describe("aviso de DMs esperando (com a 0006 e a 0007)", { skip: semBanco }, () 
   beforeEach(async () => {
     meta.reset();
     process.env.TELEGRAM_BOT_TOKEN = "123:falso";
+    // O relatório de domingo (9h de São Paulo) dispararia junto com o relógio aos domingos e mudaria a contagem deste teste;
+    // ele tem o seu teste próprio (molde-jobs, com a hora fixa).
+    process.env.RELATORIO_SEMANAL = "desligado";
     process.env.TELEGRAM_CHAT_ID = "42";
     await db!.sql("delete from public.dm_pending");
     await db!.sql("delete from public.app_status where chave like 'aviso_dms:%'");
