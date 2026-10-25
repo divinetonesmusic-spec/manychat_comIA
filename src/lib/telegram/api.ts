@@ -58,8 +58,8 @@ export async function sendTelegramWithButtons(text: string, buttons: InlineButto
   return { ok: true as const, messageId: typeof result.result?.message_id === "number" ? result.result.message_id : null };
 }
 
-/** Troca o texto de uma mensagem já enviada e tira os botões dela. */
-export async function editTelegramMessage(messageId: number, text: string, options: { timeoutMs?: number } = {}) {
+/** Troca o texto de uma mensagem já enviada e tira os botões dela (ou põe outros, com `buttons`). */
+export async function editTelegramMessage(messageId: number, text: string, options: { timeoutMs?: number; buttons?: InlineButton[][] | null } = {}) {
   const config = telegramBotConfig();
   if (!config) return { ok: false as const, error: "Telegram não configurado." };
   const result = await telegramCall("editMessageText", {
@@ -67,7 +67,7 @@ export async function editTelegramMessage(messageId: number, text: string, optio
     message_id: messageId,
     text: text.slice(0, TEXT_LIMIT),
     disable_web_page_preview: true,
-    reply_markup: { inline_keyboard: [] },
+    reply_markup: { inline_keyboard: options.buttons ?? [] },
   }, options);
   // "message is not modified": o texto já era este (segundo toque no mesmo botão). Não é erro.
   if (!result.ok && /not modified/i.test(result.error)) return { ok: true as const };

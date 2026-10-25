@@ -2,15 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { safeEqualSecret } from "@/lib/secrets";
 import { handleCallback, type TelegramCallbackQuery } from "@/lib/telegram/approvals";
 import { answerCallback } from "@/lib/telegram/api";
+import { handleMessage, type TelegramMessage } from "@/lib/telegram/fila";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 /**
  * POST /api/telegram/webhook — o Telegram chama aqui quando a dona toca num botão («Aprovar», «Refazer», «Mandar»,
- * «Não mandar»). Rota pública, protegida por:
+ * «Não mandar», e os da fila única: «Confirmar · US$ X», o avatar, «Cancelar») e, desde a v134, quando ela escreve no chat do
+ * robô (os comandos /reel, /fotos, /status, /ajuda, /cancelar e o motivo do «Refazer»). Rota pública, protegida por:
  * 1. o cabeçalho X-Telegram-Bot-Api-Secret-Token igual a TELEGRAM_WEBHOOK_SECRET (comparado em tempo constante);
- * 2. só aceita toques da conversa TELEGRAM_CHAT_ID;
+ * 2. só aceita toques e mensagens da conversa TELEGRAM_CHAT_ID (e, com TELEGRAM_ALLOWED_USER_IDS, só dessas pessoas);
+ *    mensagem de outra conversa é ignorada sem resposta (ninguém de fora descobre o robô);
  * 3. cada botão leva uma assinatura (HMAC) que só o UaiFlow sabe fazer.
  * Depois de conferido, responde sempre 200 (senão o Telegram repete o mesmo toque várias vezes).
  * Registrar o webhook: botão em Configurações (POST /api/telegram/registrar) ou `npm run telegram:webhook`.
@@ -24,11 +27,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  const update = (await request.json().catch(() => null)) as { callback_query?: TelegramCallbackQuery } | null;
+  const update = (await request.json().catch(() => null)) as { callback_query?: TelegramCallbackQuery; message?: TelegramMessage } | null;
   const callback = update?.callback_query;
-  if (!callback?.id) return NextResponse.json({ ok: true, ignorado: true }); // mensagens comuns: nada a fazer
-
   const chatId = process.env.TELEGRAM_CHAT_ID?.trim();
+  if (!callback?.id) {
+    // v134 · uma mensagem de texto: só da conversa do dono (e das pessoas permitidas); o resto é ignorado sem resposta
+    const message = update?.message;
+    if (!message?.text || !chatId || String(message.chat?.id ?? "") !== chatId) return NextResponse.json({ ok: true, ignorado: true });
+    const permitidos = allowedUserIds();
+    if (permitidos && !permitidos.has(String(message.from?.id ?? ""))) return NextResponse.json({ ok: true, ignorado: true });
+    const result = await handleMessage(message);
+    return NextResponse.json({ ok: true, ...result });
+  }
+
   if (!chatId || String(callback.message?.chat?.id ?? "") !== chatId) {
     await answerCallback(callback.id, "Esta conversa não pode aprovar nada no UaiFlow.");
     return NextResponse.json({ ok: true, ignorado: true });
