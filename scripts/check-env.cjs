@@ -89,6 +89,9 @@ if (process.env.CLICKBANK_SECRET_KEY && !/^[A-Z0-9]{1,16}$/.test(process.env.CLI
 // E-mail do pedido de depoimento (opcional): as duas juntas, ou nenhuma.
 if (Boolean(process.env.RESEND_API_KEY) !== Boolean(process.env.EMAIL_REMETENTE)) warnings.push("E-mail incompleto: RESEND_API_KEY e EMAIL_REMETENTE vão juntas. Sem as duas, o pedido de depoimento não sai por e-mail (o painel Vendas mostra o link para mandar à mão).");
 if (process.env.EMAIL_REMETENTE && !/@/.test(process.env.EMAIL_REMETENTE)) warnings.push("EMAIL_REMETENTE precisa ter um e-mail, ex.: Nicolas <oi@seu-dominio.com>.");
+// Contagem de visitas (Umami Cloud, opcional): o Website ID é um código como 94db1cb1-74f4-4a40-ad6c-962362670409.
+if (process.env.UMAMI_WEBSITE_ID && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(process.env.UMAMI_WEBSITE_ID.trim())) warnings.push("UMAMI_WEBSITE_ID não parece um Website ID do Umami (um código como 94db1cb1-74f4-4a40-ad6c-962362670409): sem ele certo, as visitas não são contadas.");
+if (process.env.UMAMI_SRC && !/^https:\/\//.test(process.env.UMAMI_SRC.trim())) warnings.push("UMAMI_SRC precisa começar com https:// (ou apague: o padrão é o Umami Cloud).");
 
 // Avisos pelo Telegram (opcional): as duas variáveis juntas, ou nenhuma.
 const telegramKeys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];

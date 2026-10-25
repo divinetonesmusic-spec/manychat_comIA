@@ -268,7 +268,7 @@ Todas com o token do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'c
 
 **Proteção dos formulários de e-mail** (quiz, entrega e `/p/<slug>/obrigado/email` da 0011): campo «isca» escondido (o robô que preenche não grava nada); limite por IP (8 envios em 10 min; 60 inícios de quiz em 10 min) e por e-mail (3 em 1 h), contados no Postgres (`formulario_limites`, só o resumo do IP e do e-mail), com a frase «Muitas tentativas…». Confirmação dupla opcional: `FUNIL_CONFIRMACAO_DUPLA=1` + o e-mail do Resend configurado.
 
-**E-mails:** nenhuma sequência é enviada nesta versão. `leads.sequencia` é o gancho, desligado (K-EMAILCURSO).
+**E-mails:** nenhuma sequência sai pela Lista própria (`leads.sequencia` continua desligado): o K-EMAILCURSO virou o desafio de 5 dias no Direct com o e-mail de reserva (0017, abaixo).
 
 ## DM com o vídeo do avatar (0014, página v133)
 
@@ -276,3 +276,23 @@ O roteiro de DM em modo vídeo (`automationOptions.sequencia.modo = "video"`), o
 (`GET`/`POST /api/molde/dmvideo`) e o funil por post com o gargalo (`GET /api/molde/dmvideo/funil`) estão em
 `docs/MOLDE_V133_DMVIDEO.md`. Os vídeos sobem pelo `POST /api/molde/upload` com `folder: "dmvideos"` (até 25 MB, o limite da
 Meta para vídeo na DM). Sem a 0014 (`docs/ATUALIZACAO_0014.md`): o cadastro responde 503 `falta_0014` e a DM segue a sequência da 0012.
+
+## Desafio de 5 dias no Direct, com e-mail de reserva (0017, página v134)
+
+Com o token do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'chamar'}`). Sem a 0017: 503 com `codigo: "falta_0017"` (`docs/ATUALIZACAO_0017.md`).
+
+| Rota | O que faz |
+| --- | --- |
+| `POST /api/molde/desafio` `{ molde, accountId?, id?, slug?, desafio }` | Publica ou atualiza o desafio. `desafio` = `{ titulo, idioma:'pt-BR'\|'en-US', keyword, convite?, botaoComecar?, pedidoEmail?, emailAnotado?, oferta:{url, rotulo?, texto?}, variantes:{ A:[5 dias], B?:[5 dias] }, aviso? }`; cada dia = `{ titulo, texto, videoUrl?, tamanho?, tarefa, botao?, emailAssunto?, emailTexto? }`. Conferido no servidor: 5 dias por versão, texto até 1000 letras, tarefa até 900, botões até 20 letras (limite da Meta), vídeo https `.mp4`/`.mov` até 25 MB, oferta https. Os textos que faltam ganham o padrão do idioma. Resposta: `{ id, slug, avisos[], emailLigado, aviso? }`. |
+| `POST /api/molde/desafio` `{ molde, id, gastoAnuncio, moeda? }` | Só o gasto de anúncio do desafio (para o custo por venda; `null` apaga). |
+| `GET /api/molde/desafio?molde=` | `{ desafios:[{ id, slug, titulo, keyword, temB, gastoAnuncio, moeda, numeros, porVariante:{A, B\|null}, custoPorVenda, comparacao:{vencedora, frase, minimo, p} }], emailLigado, aviso? }`; `numeros` = `{ comentaram, inscritos, porDia:[d1..d5], comEmail, emailsReserva, cliques, compras, receita }`. |
+
+**No pacote do post:** `automationOptions.desafio = { id }`. A automação do post sai com o `convite` como 1ª mensagem (a resposta privada ao comentário) e o botão `botaoComecar` (payload `desafio:<slug>:comecar`). Com o desafio, a `sequencia` (0012) não vai. Sem a 0017 (ou desafio apagado), o post sai com a DM de sempre e a nota no post.
+
+**O caminho da pessoa:** comentou → `desafio_inscricoes` (versão A/B, a que tem menos gente) → toque em «Começar» → dia 1 na hora: o texto com o vídeo, (com o e-mail configurado) o pedido do e-mail e, por último, a tarefa com o botão «Quero o dia 2 amanhã» (payload `desafio:<slug>:prox`; a resposta rápida só aparece na última mensagem). Cada toque: «Combinado!» na hora e o dia seguinte na fila para **23 h** depois (o toque renova a janela de 24 h da Meta; a fila confere de novo e pula o que passar dela). O e-mail escrito no Direct vai para a Lista própria (`fonte = 'desafio'`, consentimento = a frase do pedido) e volta o botão do dia. Sem toque 24 h depois de um dia: o relógio manda o dia seguinte por e-mail (Resend; só com e-mail, consentimento, sem ter saído da lista nem pedido «parar»; se o dia de antes não chegou pelo Direct, manda esse dia). No dia 5: a tarefa e a oferta com o botão → `/d/<slug>/ir?i=<pessoa>&de=dm|email` (conta o toque, leva ao checkout com o código `mo…` do desafio e da versão no lugar de `MODESAFIOORIGEM`, ou em `?src=`). A venda com esse código (`vendas.origem`) conta como compra.
+
+**A/B:** a vencedora (`comparacao.vencedora`) só com 200 inscritos em cada versão e diferença de compras por inscrito com p < 0,05 (teste de duas proporções); antes disso, a `frase` diz quanto falta.
+
+## Contagem de visitas (Umami Cloud, v134)
+
+As páginas públicas `/q`, `/e` e `/p` carregam o script do Umami só com `UMAMI_WEBSITE_ID` no ambiente (`UMAMI_SRC` opcional, padrão `https://cloud.umami.is/script.js`, só https). Sem a variável, nada. Passo a passo em `docs/ATUALIZACAO_0017.md`.
