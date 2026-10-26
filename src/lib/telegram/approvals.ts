@@ -4,11 +4,13 @@ import { decideJob, getJob, isMissing0008, type JobApproval, type JobRow } from 
 import { formatSaoPauloTime } from "@/lib/time";
 import { answerCallback, editTelegramMessage, sendTelegramWithButtons, telegramBotConfig, type InlineButton } from "@/lib/telegram/api";
 import { callbacksEnabled, signCallback, verifyCallback } from "@/lib/telegram/callback-data";
+import { handleFilaCallback } from "@/lib/telegram/fila";
 
 /**
  * Aprovar pelo Telegram: as mensagens com botões e o que acontece quando a dona toca neles.
  * (a) Trabalho do Molde esperando aprovação: «Aprovar» / «Refazer».
  * (b) Resposta de DM preparada pelo Molde: «Mandar» / «Não mandar».
+ * (c) v134 · item da fila única (aprovar, refazer com o motivo, e os pedidos do Telegram): src/lib/telegram/fila.ts.
  * Os botões só aparecem com TELEGRAM_WEBHOOK_SECRET definido (sem ele, a mensagem diz para aprovar pela página).
  */
 
@@ -175,6 +177,7 @@ export async function handleCallback(callback: TelegramCallbackQuery) {
     await reply("Este botão não vale mais.");
     return { acao: "invalido" as const };
   }
+  if (payload.kind === "f") return handleFilaCallback(payload, callback); // v134 · a fila única (aprovar e pedir)
   const por = callback.from?.username ? `@${callback.from.username}` : callback.from?.first_name ?? null;
 
   try {

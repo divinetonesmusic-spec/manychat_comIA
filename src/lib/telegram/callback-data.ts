@@ -4,19 +4,22 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * O que vai escondido em cada botão do Telegram (callback_data, até 64 bytes), assinado para ninguém forjar um toque.
  *
  * Formato: <tipo>.<ação>.<id>.<versão>.<assinatura>
- *   tipo: j = trabalho do Molde (molde_jobs), d = resposta de DM (dm_pending)
- *   ação: a = aprovar, r = refazer (trabalho); m = mandar, n = não mandar (DM)
+ *   tipo: j = trabalho do Molde (molde_jobs), d = resposta de DM (dm_pending), f = item da fila única (molde_fila, 0016)
+ *   ação: a = aprovar, r = refazer (trabalho e fila); m = mandar, n = não mandar (DM);
+ *         na fila também c = confirmar o pedido do Telegram (o 2º toque), x = cancelar, v = escolher o avatar (a versão é o índice);
+ *         e, nos pedidos de aprovação do orquestrador (0019), k = corrigir, p = publicar mesmo assim, g = gravar, o = não gravar,
+ *         e = cancelar o item (a versão é a rodada)
  *   id: o uuid em base64url (22 letras)
- *   versão: a rodada de aprovação (trabalho) ou o número do rascunho (DM), em base 36
+ *   versão: a rodada de aprovação (trabalho e fila), o número do rascunho (DM) ou o índice do avatar (fila, v), em base 36
  *   assinatura: HMAC-SHA256 (16 letras base64url) com uma chave tirada de TELEGRAM_WEBHOOK_SECRET
  * Ex.: j.a.q83vEjRWeJASNFZ4kBI0Vg.1.Xb3d9kQ0aPq1ZyZ2  (cerca de 45 letras)
  */
 
-export type CallbackKind = "j" | "d";
-export type CallbackAction = "a" | "r" | "m" | "n";
+export type CallbackKind = "j" | "d" | "f";
+export type CallbackAction = "a" | "r" | "m" | "n" | "c" | "x" | "v" | "k" | "p" | "g" | "o" | "e";
 export type CallbackPayload = { kind: CallbackKind; action: CallbackAction; id: string; version: number };
 
-const ACTIONS: Record<CallbackKind, CallbackAction[]> = { j: ["a", "r"], d: ["m", "n"] };
+const ACTIONS: Record<CallbackKind, CallbackAction[]> = { j: ["a", "r"], d: ["m", "n"], f: ["a", "r", "c", "x", "v", "k", "p", "g", "o", "e"] };
 const SIG_LENGTH = 16;
 
 function callbackKey() {
@@ -62,7 +65,7 @@ export function verifyCallback(data: unknown): CallbackPayload | null {
   const expected = Buffer.from(sign(key, body));
   const provided = Buffer.from(signature);
   if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
-  if (kind !== "j" && kind !== "d") return null;
+  if (kind !== "j" && kind !== "d" && kind !== "f") return null;
   if (!ACTIONS[kind].includes(action as CallbackAction)) return null;
   if (!/^[A-Za-z0-9_-]{22}$/.test(idB64) || !/^[0-9a-z]{1,6}$/.test(versionText)) return null;
   const id = b64ToUuid(idB64);

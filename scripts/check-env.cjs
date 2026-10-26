@@ -89,6 +89,9 @@ if (process.env.CLICKBANK_SECRET_KEY && !/^[A-Z0-9]{1,16}$/.test(process.env.CLI
 // E-mail do pedido de depoimento (opcional): as duas juntas, ou nenhuma.
 if (Boolean(process.env.RESEND_API_KEY) !== Boolean(process.env.EMAIL_REMETENTE)) warnings.push("E-mail incompleto: RESEND_API_KEY e EMAIL_REMETENTE vão juntas. Sem as duas, o pedido de depoimento não sai por e-mail (o painel Vendas mostra o link para mandar à mão).");
 if (process.env.EMAIL_REMETENTE && !/@/.test(process.env.EMAIL_REMETENTE)) warnings.push("EMAIL_REMETENTE precisa ter um e-mail, ex.: Nicolas <oi@seu-dominio.com>.");
+// Contagem de visitas (Umami Cloud, opcional): o Website ID é um código como 94db1cb1-74f4-4a40-ad6c-962362670409.
+if (process.env.UMAMI_WEBSITE_ID && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(process.env.UMAMI_WEBSITE_ID.trim())) warnings.push("UMAMI_WEBSITE_ID não parece um Website ID do Umami (um código como 94db1cb1-74f4-4a40-ad6c-962362670409): sem ele certo, as visitas não são contadas.");
+if (process.env.UMAMI_SRC && !/^https:\/\//.test(process.env.UMAMI_SRC.trim())) warnings.push("UMAMI_SRC precisa começar com https:// (ou apague: o padrão é o Umami Cloud).");
 
 // Avisos pelo Telegram (opcional): as duas variáveis juntas, ou nenhuma.
 const telegramKeys = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"];
@@ -97,6 +100,11 @@ if (telegramSet.length === 1) warnings.push(`Telegram incompleto (falta ${telegr
 const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 if (webhookSecret && !/^[A-Za-z0-9_-]{24,256}$/.test(webhookSecret)) warnings.push("TELEGRAM_WEBHOOK_SECRET deve ter de 24 a 256 letras, números, _ ou - (sem espaço).");
 if (telegramSet.length === 2 && !webhookSecret) warnings.push("TELEGRAM_WEBHOOK_SECRET vazio: os avisos saem, mas sem os botões «Aprovar» e «Mandar» (veja docs/ATUALIZACAO_0008.md).");
+for (const chave of ["MOLDE_ORQUESTRADOR_TOKEN", "MOLDE_MCP_TOKEN"]) {
+  const valor = process.env[chave];
+  if (valor && valor.trim().length < 24) warnings.push(`${chave} deve ter pelo menos 24 caracteres (gere com openssl rand -hex 32).`);
+  if (valor && valor === process.env.MOLDE_API_TOKEN) warnings.push(`${chave} deve ser diferente do MOLDE_API_TOKEN.`);
+}
 const teto = process.env.MOLDE_TETO_USD;
 if (teto && !(Number(teto.replace(",", ".")) >= 0)) warnings.push("MOLDE_TETO_USD deve ser um número (em dólares), por exemplo 50.");
 if (!telegramSet.length) warnings.push("Telegram não configurado: o UaiFlow não manda avisos no celular (opcional; veja docs/AVISOS_E_COPIA.md).");

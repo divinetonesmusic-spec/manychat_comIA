@@ -9,6 +9,8 @@ import { avisarRespostasVideo } from "@/lib/db/dm-videos";
 import { cleanupOldRecords } from "@/lib/db/cleanup";
 import { runMoldeClock } from "@/lib/molde/relogio";
 import { runVendasClock } from "@/lib/vendas/relogio";
+import { runDesafioClock } from "@/lib/db/desafios";
+import { runAppClock } from "@/lib/app/relogio";
 import { runTokenClock } from "@/lib/instagram/token-clock";
 
 export const runtime = "nodejs";
@@ -26,7 +28,7 @@ export async function POST(request: NextRequest) {
  * Relógio do sistema (chamado a cada minuto pelo pg_cron do Supabase):
  * 1) envia a fila de DMs/respostas; 2) publica posts agendados, 1º comentário, automação, resultados e limpeza da mídia;
  * 3) avisa no Telegram as DMs esperando resposta; 4) fila do Molde (trabalhos parados, avisos, aprovações, relatório de
- * domingo); 5) pedidos de depoimento vencidos (e-mail, 0011); 6) renova os tokens que precisam (a cada 15 min);
+ * domingo); 5) pedidos de depoimento vencidos (e-mail, 0011) e o e-mail de reserva do desafio de 5 dias (0017) e o lembrete diário do app por assinatura (e-mail, 0018); 6) renova os tokens que precisam (a cada 15 min);
  * 7) limpa o banco (1 vez por hora). Só um relógio roda por vez.
  * Tudo dentro de ~9 s para caber no plano grátis de funções serverless.
  */
@@ -84,6 +86,12 @@ async function runCycle(request: NextRequest) {
   // Pedido de depoimento N dias depois da compra (só com a 0011 e o e-mail configurado). Nunca falha.
   const vendas = await runVendasClock({ deadline, origin: request.nextUrl.origin });
 
+  // O desafio de 5 dias (0017): quem não tocou no botão em 24 h recebe o dia seguinte por e-mail (com e-mail, consentimento e
+  // o envio de e-mail configurado). Nunca falha.
+  const desafio = await runDesafioClock({ deadline, origin: request.nextUrl.origin });
+  // O lembrete diário do app por assinatura (só com a 0018, o e-mail configurado e quem ligou o lembrete). Nunca falha.
+  const app = await runAppClock({ deadline, origin: request.nextUrl.origin });
+
   // Renovação dos tokens de TODAS as conexões que precisam (Instagram, Facebook, Threads), no máximo a cada 15 min, uma
   // por vez no tempo que sobrar, com aviso no Telegram quando falha ou falta pouco para vencer. Nunca falha.
   const tokens = await runTokenClock({ deadline, origin: request.nextUrl.origin });
@@ -94,5 +102,5 @@ async function runCycle(request: NextRequest) {
   // Batimento para o /api/health (migração 0004). Falha ignorada: sem a 0004 o relógio segue normal.
   await recordClockBeat({ ms: Date.now() - startedAt });
 
-  return { ok: true, ...queue, content, avisosDm, avisosVideo, molde, vendas, tokens, limpeza, ms: Date.now() - startedAt };
+  return { ok: true, ...queue, content, avisosDm, avisosVideo, molde, vendas, desafio, app, tokens, limpeza, ms: Date.now() - startedAt };
 }

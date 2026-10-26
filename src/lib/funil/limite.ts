@@ -18,7 +18,7 @@ export const JANELA_EMAIL_MIN = 60;
 /** O início do quiz (sessão nova) também tem teto por IP, mais folgado. */
 export const LIMITE_INICIO_IP = 60;
 
-export type Formulario = "quiz" | "quiz-inicio" | "entrega" | "obrigado";
+export type Formulario = "quiz" | "quiz-inicio" | "entrega" | "obrigado" | "app";
 
 function resumo(tipo: string, valor: string) {
   return createHash("sha256").update(`uaiflow-formulario:${tipo}:${valor}`).digest("hex").slice(0, 40);

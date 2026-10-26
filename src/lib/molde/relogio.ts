@@ -6,6 +6,8 @@ import { sendDmDraftApproval, sendJobApproval } from "@/lib/telegram/approvals";
 import { telegramBotConfig } from "@/lib/telegram/api";
 import { deleteR2Object, getR2BackupConfig, getR2Config, keyFromPublicUrl, R2_DELETE_TIMEOUT_MS } from "@/lib/content/r2";
 import { pruneBackups } from "@/lib/molde/backup";
+import { isMissing0016, limparRascunhos } from "@/lib/molde/fila";
+import { sendFilaApproval } from "@/lib/telegram/fila";
 
 /**
  * A parte do Molde no relógio (a cada minuto, depois do planner e do aviso de DMs). Tudo curto e dentro do prazo:
@@ -14,12 +16,15 @@ import { pruneBackups } from "@/lib/molde/backup";
  *    - trabalhos que viraram "erro" (1 aviso por trabalho);
  *    - "O Mac parece desligado": nenhum Mac pediu trabalho há mais de 30 min e há trabalho esperando há mais de 30 min
  *      (1 aviso por vez que o Mac some; repete depois de 12 h se continuar assim);
- *    - mensagens de aprovação que não saíram na hora (trabalhos e respostas de DM), de novo a cada 10 min por 1 dia;
+ *    - mensagens de aprovação que não saíram na hora (trabalhos, respostas de DM e, desde a v134, itens da fila única),
+ *      de novo a cada 10 min por 1 dia;
  *    - o relatório de domingo.
  * 3. Prévias de aprovação no R2 (pasta molde-previas) de trabalhos parados há mais de 30 dias são apagadas (até 3 por vez).
  *    Um item cujo DELETE falha é pulado por 6 h (não trava os seguintes).
  * 4. Cópias de segurança do Molde: a limpeza das antigas (e das partes de envio esquecidas) roda aqui, no máximo a cada
  *    15 min, com o orçamento de tempo do relógio (as rotas de cópia só guardam).
+ * 5. v134 · fila única (0016): os rascunhos do Telegram sem o 2º toque há mais de 1 dia são apagados; as aprovações da fila
+ *    que não saíram na hora saem de novo (independe da 0008; sem a 0016, nada).
  * Sem a 0008 só o relatório roda (sem a parte dos gastos). Nunca lança erro.
  */
 export const MAC_ASLEEP_MINUTES = 30;
@@ -37,6 +42,7 @@ export type MoldeClockResult = {
   relatorio: WeeklyReportResult;
   previasApagadas?: number;
   copiasApagadas?: number;
+  rascunhosApagados?: number;
   motivo?: "sem_tempo" | "sem_migracao" | "erro";
 };
 
@@ -89,6 +95,15 @@ export async function runMoldeClock(options: { deadline: number; origin?: string
       sends.push(...(await resendApprovals(telegramTimeout())));
     } catch (error) {
       console.error("[molde] não consegui preparar os avisos do Molde:", error instanceof Error ? error.message : error);
+    }
+  }
+
+  if (timeLeft() > 1500) {
+    try {
+      out.rascunhosApagados = await limparRascunhos();
+      if (telegramBotConfig()) sends.push(...(await resendFilaApprovals(telegramTimeout())));
+    } catch (error) {
+      if (!isMissing0016(error)) console.error("[molde] não consegui cuidar da fila única:", error instanceof Error ? error.message : error);
     }
   }
 
@@ -289,4 +304,18 @@ async function pruneBackupsIfDue(timeLeft: () => number) {
   ).catch(() => null); // sem a tabela app_status: não limpa (nunca lança)
   if (!claimed?.rowCount) return null;
   return pruneBackups({ timeLeft });
+}
+
+/** v134 · itens da fila única «para aprovar» cuja mensagem não saiu na hora: de novo a cada 10 min, por 1 dia. */
+async function resendFilaApprovals(timeoutMs: number): Promise<Array<() => Promise<boolean>>> {
+  if (timeoutMs < 500) return [];
+  const { rows } = await query<{ id: string }>(
+    `select id from public.molde_fila
+     where estado = 'para_aprovar' and telegram_msg_id is null
+       and atualizado_em < now() - interval '1 minute' and atualizado_em > now() - interval '1 day'
+       and (telegram_aviso_em is null or telegram_aviso_em < now() - interval '10 minutes')
+     order by atualizado_em
+     limit ${RESEND_MAX}`,
+  );
+  return rows.map((row) => () => sendFilaApproval(row.id, { timeoutMs }));
 }

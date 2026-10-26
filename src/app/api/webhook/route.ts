@@ -20,6 +20,8 @@ import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_P
 import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
 import { safeEqualSecret } from "@/lib/secrets";
 import { QUIZ_PAYLOAD, responderQuizDm } from "@/lib/funil/quiz-dm";
+import { capturarEmailDesafio, registrarConvite, tocarDesafio } from "@/lib/db/desafios";
+import { DESAFIO_PAYLOAD } from "@/lib/desafio/desafio";
 
 export const runtime = "nodejs";
 
@@ -200,6 +202,8 @@ async function processComment(entry: WebhookEntry, change: WebhookChange) {
     });
     // Sequência de DM do post (0012): a pessoa fica esperando a resposta dela para receber os passos 2, 3 e o lembrete.
     if (sequenciaDaAutomacao(automation)) await iniciarSequencia({ accountId: account.id, automationId: automation.id, contactId });
+    // Desafio de 5 dias (0017): quem comentou entra como «comentou», com a versão (A ou B) sorteada; o toque em «Começar» manda o dia 1.
+    if (automation.desafio_id) await desafioSafely("registrar quem comentou", () => registrarConvite({ desafioId: automation.desafio_id as string, accountId: account.id, contactId }));
   }
 
   return matches.length;
@@ -318,6 +322,13 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
     return 1;
   }
 
+  // O desafio de 5 dias (0017): «Começar» manda o dia 1; o botão de cada dia marca o dia seguinte para 23 h depois (o toque
+  // renova a janela de 24 h da Meta).
+  if (payload?.startsWith(DESAFIO_PAYLOAD)) {
+    await desafioSafely("responder o botão", () => tocarDesafio({ accountId: account.id, contactId, instagramRecipientId: senderId, eventId, payload }));
+    return 1;
+  }
+
   if (payload?.startsWith("automation:")) {
     const automationId = payload.replace("automation:", "");
     const automation = await getAutomation(automationId, account.id);
@@ -396,6 +407,9 @@ async function processMessage(entry: WebhookEntry, event: WebhookMessageEvent) {
     }
     return 1;
   }
+
+  // O desafio de 5 dias (0017): a resposta ao pedido do e-mail (um endereço no texto) vai para a Lista própria e volta o botão do dia.
+  if (trigger === "dm" && !payload && (await desafioSafely("guardar o e-mail", () => capturarEmailDesafio({ accountId: account.id, contactId, instagramRecipientId: senderId, eventId, texto: text })))) return 1;
 
   // Sequência de DM do post (0012): a 1ª resposta escrita de quem comentou a palavra segue a sequência (passos 2, 3 e o
   // lembrete; no modo vídeo da 0014, o texto dela escolhe o vídeo do avatar que vai antes do link). Depois disso, cada mensagem nova da pessoa tira o lembrete da fila (a conversa seguiu) e segue o caminho normal.
@@ -481,6 +495,16 @@ async function avancarSequenciaSafely(input: Parameters<typeof avancarSequencia>
     return await avancarSequencia(input);
   } catch (error) {
     console.error("[sequência] não consegui seguir:", error instanceof Error ? error.message : error);
+    return false;
+  }
+}
+
+/** O desafio nunca derruba o webhook: um erro dele só vai para o log (e a mensagem segue o caminho normal). */
+async function desafioSafely<T>(oQue: string, fazer: () => Promise<T>): Promise<T | false> {
+  try {
+    return await fazer();
+  } catch (error) {
+    console.error(`[desafio] não consegui ${oQue}:`, error instanceof Error ? error.message : error);
     return false;
   }
 }

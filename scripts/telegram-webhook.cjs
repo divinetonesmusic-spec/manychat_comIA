@@ -39,7 +39,7 @@ async function main() {
   if (!/^[A-Za-z0-9_-]{24,256}$/.test(secret)) throw new Error("TELEGRAM_WEBHOOK_SECRET precisa ter de 24 a 256 letras, números, _ ou - (sem espaço).");
   if (!/^https:\/\/[^\s/]+/i.test(base)) throw new Error("APP_BASE_URL precisa ser o endereço do site no ar, começando com https://.");
   const url = `${base}/api/telegram/webhook`;
-  await call("setWebhook", { url, secret_token: secret, allowed_updates: ["callback_query"], max_connections: 5 });
+  await call("setWebhook", { url, secret_token: secret, allowed_updates: ["callback_query", "message"], max_connections: 5 });
   console.log(`Pronto: o Telegram vai avisar ${url} quando você tocar nos botões.`);
 }
 

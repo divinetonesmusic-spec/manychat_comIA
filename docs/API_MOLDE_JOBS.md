@@ -268,7 +268,7 @@ Todas com o token do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'c
 
 **Proteção dos formulários de e-mail** (quiz, entrega e `/p/<slug>/obrigado/email` da 0011): campo «isca» escondido (o robô que preenche não grava nada); limite por IP (8 envios em 10 min; 60 inícios de quiz em 10 min) e por e-mail (3 em 1 h), contados no Postgres (`formulario_limites`, só o resumo do IP e do e-mail), com a frase «Muitas tentativas…». Confirmação dupla opcional: `FUNIL_CONFIRMACAO_DUPLA=1` + o e-mail do Resend configurado.
 
-**E-mails:** nenhuma sequência é enviada nesta versão. `leads.sequencia` é o gancho, desligado (K-EMAILCURSO).
+**E-mails:** nenhuma sequência sai pela Lista própria (`leads.sequencia` continua desligado): o K-EMAILCURSO virou o desafio de 5 dias no Direct com o e-mail de reserva (0017, abaixo).
 
 ## DM com o vídeo do avatar (0014, página v133)
 
@@ -276,3 +276,56 @@ O roteiro de DM em modo vídeo (`automationOptions.sequencia.modo = "video"`), o
 (`GET`/`POST /api/molde/dmvideo`) e o funil por post com o gargalo (`GET /api/molde/dmvideo/funil`) estão em
 `docs/MOLDE_V133_DMVIDEO.md`. Os vídeos sobem pelo `POST /api/molde/upload` com `folder: "dmvideos"` (até 25 MB, o limite da
 Meta para vídeo na DM). Sem a 0014 (`docs/ATUALIZACAO_0014.md`): o cadastro responde 503 `falta_0014` e a DM segue a sequência da 0012.
+
+## Desafio de 5 dias no Direct, com e-mail de reserva (0017, página v134)
+
+Com o token do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'chamar'}`). Sem a 0017: 503 com `codigo: "falta_0017"` (`docs/ATUALIZACAO_0017.md`).
+
+| Rota | O que faz |
+| --- | --- |
+| `POST /api/molde/desafio` `{ molde, accountId?, id?, slug?, desafio }` | Publica ou atualiza o desafio. `desafio` = `{ titulo, idioma:'pt-BR'\|'en-US', keyword, convite?, botaoComecar?, pedidoEmail?, emailAnotado?, oferta:{url, rotulo?, texto?}, variantes:{ A:[5 dias], B?:[5 dias] }, aviso? }`; cada dia = `{ titulo, texto, videoUrl?, tamanho?, tarefa, botao?, emailAssunto?, emailTexto? }`. Conferido no servidor: 5 dias por versão, texto até 1000 letras, tarefa até 900, botões até 20 letras (limite da Meta), vídeo https `.mp4`/`.mov` até 25 MB, oferta https. Os textos que faltam ganham o padrão do idioma. Resposta: `{ id, slug, avisos[], emailLigado, aviso? }`. |
+| `POST /api/molde/desafio` `{ molde, id, gastoAnuncio, moeda? }` | Só o gasto de anúncio do desafio (para o custo por venda; `null` apaga). |
+| `GET /api/molde/desafio?molde=` | `{ desafios:[{ id, slug, titulo, keyword, temB, gastoAnuncio, moeda, numeros, porVariante:{A, B\|null}, custoPorVenda, comparacao:{vencedora, frase, minimo, p} }], emailLigado, aviso? }`; `numeros` = `{ comentaram, inscritos, porDia:[d1..d5], comEmail, emailsReserva, cliques, compras, receita }`. |
+
+**No pacote do post:** `automationOptions.desafio = { id }`. A automação do post sai com o `convite` como 1ª mensagem (a resposta privada ao comentário) e o botão `botaoComecar` (payload `desafio:<slug>:comecar`). Com o desafio, a `sequencia` (0012) não vai. Sem a 0017 (ou desafio apagado), o post sai com a DM de sempre e a nota no post.
+
+**O caminho da pessoa:** comentou → `desafio_inscricoes` (versão A/B, a que tem menos gente) → toque em «Começar» → dia 1 na hora: o texto com o vídeo, (com o e-mail configurado) o pedido do e-mail e, por último, a tarefa com o botão «Quero o dia 2 amanhã» (payload `desafio:<slug>:prox`; a resposta rápida só aparece na última mensagem). Cada toque: «Combinado!» na hora e o dia seguinte na fila para **23 h** depois (o toque renova a janela de 24 h da Meta; a fila confere de novo e pula o que passar dela). O e-mail escrito no Direct vai para a Lista própria (`fonte = 'desafio'`, consentimento = a frase do pedido) e volta o botão do dia. Sem toque 24 h depois de um dia: o relógio manda o dia seguinte por e-mail (Resend; só com e-mail, consentimento, sem ter saído da lista nem pedido «parar»; se o dia de antes não chegou pelo Direct, manda esse dia). No dia 5: a tarefa e a oferta com o botão → `/d/<slug>/ir?i=<pessoa>&de=dm|email` (conta o toque, leva ao checkout com o código `mo…` do desafio e da versão no lugar de `MODESAFIOORIGEM`, ou em `?src=`). A venda com esse código (`vendas.origem`) conta como compra.
+
+**A/B:** a vencedora (`comparacao.vencedora`) só com 200 inscritos em cada versão e diferença de compras por inscrito com p < 0,05 (teste de duas proporções); antes disso, a `frase` diz quanto falta.
+
+## Contagem de visitas (Umami Cloud, v134)
+
+As páginas públicas `/q`, `/e` e `/p` carregam o script do Umami só com `UMAMI_WEBSITE_ID` no ambiente (`UMAMI_SRC` opcional, padrão `https://cloud.umami.is/script.js`, só https). Sem a variável, nada. Passo a passo em `docs/ATUALIZACAO_0017.md`.
+
+## App por assinatura (0018, página v134)
+
+O produto pronto vira um app de 1 toque (`/a/<slug>`, página-app instalável): a rotina de 30 dias, o áudio do dia, «Noite N de 30», os
+dias seguidos e o lembrete diário por e-mail, vendido como assinatura mensal na plataforma de pagamento de sempre. Todas com o token
+do Molde (`x-molde-token`), pelo robô do Mac (`uaiflow {op:'chamar'}`). Sem a 0018: 503 com `codigo: "falta_0018"`.
+
+| Rota | O que faz |
+| --- | --- |
+| `POST /api/molde/apps` `{ molde, accountId?, id?, slug?, app, produtoRefs?, carenciaDias?, audios:[{id, contentType, size}] }` | Cria ou atualiza o app. `app` = `{ titulo, nomeCurto, promessa, idioma, marca, audios:[{id, titulo, minutos}] (2 a 8), dias:[{titulo, fazer, audio, minutos}] (30), preco:{valor, moeda:'BRL'\|'USD', porque}, checkout, convite, lembrete:{assunto, texto, hora}, aviso }`. Conferido no servidor: 30 dias, os áudios que existem, o preço abaixo do teto de entrada (US$ 26,99 / R$ 47 por mês) e nada de cura, tratamento ou resultado garantido. Devolve `envios:[{id, uploadUrl, headers}]` (PUT, 1 h, pasta privada `uaiflow/apps/<id>/`, até 25 MB por áudio) e `enderecos:{app, webhooks:{hotmart, kiwify, stripe}}`. Sem `audios`: o app fica com os áudios de antes. Sem `produtoRefs`: os códigos guardados ficam. |
+| `POST /api/molde/apps/<id>/publicar` `{ molde }` | Confere no R2 cada áudio (existe e tem o tamanho anunciado; senão 409), exige todos os áudios da rotina e abre `/a/<slug>` (a versão sobe: o celular troca os áudios guardados). |
+| `GET /api/molde/apps?molde=` | Os apps do projeto com `numeros: { ativos, emCarencia, novos30, cancelamentos30, retencao2:{elegiveis, retidos, taxa}, uso:{tocaramHoje, semana, seguidosMedia, quatroDias}, receita30:{<moeda>}, mrr:{<moeda>}, diasDeTeste }`. Nenhum e-mail sai daqui. |
+
+**A assinatura vem do aviso de venda que já existe** (`/api/webhooks/<plataforma>`): o aviso cujo produto está em `produtoRefs` mexe na
+assinatura da pessoa, casada pelo **e-mail do comprador**. Hotmart (`PURCHASE_APPROVED`/`COMPLETE` com `recurrence_number`, `PURCHASE_DELAYED`,
+`PURCHASE_REFUNDED`, `PURCHASE_CHARGEBACK`, `SUBSCRIPTION_CANCELLATION`), Kiwify (`order_approved`, `subscription_renewed`, `subscription_late`,
+`subscription_canceled`, `order_refunded`, `chargeback`) e Stripe (`checkout.session.completed` em modo assinatura, `invoice.paid` de renovação,
+`invoice.payment_failed`, `customer.subscription.deleted` — este sem e-mail, casado pelo código da assinatura). As outras plataformas: compra,
+reembolso e chargeback, com o e-mail achado no aviso. Pagou → ativo até o pagamento + 31 dias + a carência (padrão 3 dias); cancelada,
+atrasada, reembolsada ou chargeback → o acesso vai até o fim da carência. Sem renovação, o acesso vence sozinho. O mesmo aviso de novo não
+conta duas vezes. A resposta do webhook leva `app: "aplicado" | "repetido" | "sem_app" | "sem_pessoa"`. O e-mail do comprador só é guardado
+para quem compra o app (é o que dá o acesso); os avisos de venda continuam sem dado pessoal em `vendas`.
+
+**Páginas públicas (sem login do UaiFlow).** `/a/<slug>` (o app; sem a sessão: o convite com o preço e «Já assinei»), `/a/<slug>/entrar`
+(manda o link e o código de 6 números por e-mail; a tela responde igual para quem assina e quem não assina), `/a/<slug>/codigo` (o código,
+para o app instalado no iPhone, onde o link do e-mail abre no Safari), `/a/<slug>/link/<token>` (o botão que entra; o link vale 30 min e uma
+vez), `/a/<slug>/audio/<id>?link=1` (o link assinado do R2, 15 min, só com a assinatura ativa; o app baixa direto do R2, guarda no aparelho
+e toca dali, também sem internet), `/a/<slug>/uso`, `/a/<slug>/lembrete`, `/a/<slug>/lembrete/sair/<código>`, `/a/<slug>/sair`,
+`/a/<slug>/assinar?o=<código do post>` (o checkout com a origem: `MOAPPORIGEM` no link vira o código), `/a/<slug>/manifest.webmanifest`,
+`/a/<slug>/sw.js` e `/a/<slug>/icone/<180|192|512>`.
+
+**O lembrete** sai pelo relógio de sempre (`/api/queue/drain`), pelo e-mail do Resend (`RESEND_API_KEY` + `EMAIL_REMETENTE`): só para quem
+ligou no app, tem acesso e ainda não tocou hoje, depois da hora que escolheu (no fuso do aparelho); 1 por dia, com o «sair» de um toque.

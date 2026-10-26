@@ -24,6 +24,8 @@ import {
   sendPublicCommentReply,
 } from "@/lib/instagram/client";
 import { cleanupOldPending } from "@/lib/db/dm-pending";
+import { marcarEnvioDesafio } from "@/lib/db/desafios";
+import { ORIGEM_DESAFIO } from "@/lib/desafio/desafio";
 import { renderMessageTemplate } from "@/lib/message-template";
 import { formatSaoPauloTime } from "@/lib/time";
 
@@ -113,6 +115,8 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
         try {
           await sendJob(job, config.instagram_user_id, config.instagram_access_token);
           await markJobSent(job.id);
+          // O desafio de 5 dias (0017): a última mensagem do dia saiu → o dia conta como entregue. Nunca falha.
+          if (job.payload.origem === ORIGEM_DESAFIO && job.payload.principal === true) await marcarEnvioDesafio(job.id);
           sent += 1;
         } catch (error) {
           if (isMetaRateLimit(error)) {

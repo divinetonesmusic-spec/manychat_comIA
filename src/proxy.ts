@@ -25,12 +25,15 @@ const PUBLIC_PREFIXES = [
   "/api/token/refresh",
   "/api/health", // saúde do relógio para o monitor; não mostra segredo nem @ de conta
   "/api/molde", // protegido pelo MOLDE_API_TOKEN dentro das rotas
+  "/api/mcp", // o Molde como servidor MCP (v135): protegido pelo MOLDE_MCP_TOKEN dentro da rota
   "/api/telegram/webhook", // os toques nos botões do Telegram: protegido pelo TELEGRAM_WEBHOOK_SECRET e pela assinatura de cada botão
   "/p", // páginas públicas de venda (/p/<slug>: produto, oferta pós-compra, obrigado): quem compra não tem login
   "/depoimento", // formulário público do depoimento (/depoimento/<token> do e-mail)
   "/q", // quiz público do Molde (/q/<slug>, 0013): quem responde não tem login
   "/e", // página de entrega do material grátis (/e/<slug>, 0013); o download só depois do e-mail
   "/lista", // sair da Lista própria (/lista/sair/<código>, 0013)
+  "/d", // o botão da oferta do desafio de 5 dias (/d/<slug>/ir, 0017): só conta o toque e leva ao checkout
+  "/a", // o app por assinatura (/a/<slug>, 0018): quem assina entra pelo link ou código do e-mail (sessão própria do app), sem login do UaiFlow
   "/l", // links rastreados (/l/<código>): quem clica no Instagram não tem login; só redireciona e conta o clique
 ];
 

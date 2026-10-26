@@ -61,6 +61,8 @@ export type AutomationOptions = {
   sequencia?: DmSequencia;
   /** «Começar pela pergunta do quiz» (0013): a 1ª mensagem é a pergunta do quiz, com um botão por perfil. */
   quizDm?: QuizDmPost;
+  /** O desafio de 5 dias (0017): o convite e o botão «Começar» viram a 1ª mensagem; o toque manda o dia 1. */
+  desafio?: { id: string };
 };
 
 const EDITABLE_STATUSES = ["draft", "scheduled", "failed", "canceled"];

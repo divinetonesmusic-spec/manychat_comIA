@@ -20,6 +20,9 @@ describe("relógio sem a migração 0007", { skip: semBanco }, () => {
     db = await createTestDatabase({ ate: "0006" });
     route = await import("@/app/api/queue/drain/route");
     process.env.TELEGRAM_BOT_TOKEN = "123:falso";
+    // O relatório de domingo (9h de São Paulo) dispararia junto com o relógio aos domingos e mudaria a contagem deste teste;
+    // ele tem o seu teste próprio (molde-jobs, com a hora fixa).
+    process.env.RELATORIO_SEMANAL = "desligado";
     process.env.TELEGRAM_CHAT_ID = "42";
     const conta = await seedAccount(db, { username: "conta_a", userId: "1001", token: "IGAA-TESTE-A" });
     const [contato] = await db.sql<{ id: string }>(

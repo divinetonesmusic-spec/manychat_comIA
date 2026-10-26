@@ -22,10 +22,10 @@ export async function registerTelegramWebhook(baseUrl: string): Promise<SetupRes
     return { ok: false, error: "O endereço do site precisa começar com https:// (confira APP_BASE_URL no Netlify)." };
   }
   const url = `${base}${WEBHOOK_PATH}`;
-  const result = await telegramCall("setWebhook", { url, secret_token: secret, allowed_updates: ["callback_query"], max_connections: 5 });
+  const result = await telegramCall("setWebhook", { url, secret_token: secret, allowed_updates: ["callback_query", "message"], max_connections: 5 });
   if (!result.ok) {
     if (result.status === 401 || result.status === 404) return { ok: false, error: "O Telegram não aceitou o TELEGRAM_BOT_TOKEN. Confira o token que o @BotFather mandou." };
     return { ok: false, error: `O Telegram recusou o registro: ${result.error}` };
   }
-  return { ok: true, message: "Botões do Telegram ligados! As aprovações agora chegam com «Aprovar» e «Refazer».", url };
+  return { ok: true, message: "Botões do Telegram ligados! As aprovações chegam com «Aprovar» e «Refazer», e você pode pedir pelo chat (/reel, /fotos, /status).", url };
 }

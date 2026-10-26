@@ -28,6 +28,9 @@ describe("aviso de post que não saiu", { skip: semBanco }, () => {
   beforeEach(async () => {
     meta.reset();
     process.env.TELEGRAM_BOT_TOKEN = "123456789:TESTE-token-falso-do-robo";
+    // O relatório de domingo (9h de São Paulo) dispararia junto com o relógio aos domingos e mudaria a contagem deste teste;
+    // ele tem o seu teste próprio (molde-jobs, com a hora fixa).
+    process.env.RELATORIO_SEMANAL = "desligado";
     process.env.TELEGRAM_CHAT_ID = "987654321";
     process.env.APP_BASE_URL = "https://uaiflow.teste";
     await db.sql("delete from public.content_posts");
