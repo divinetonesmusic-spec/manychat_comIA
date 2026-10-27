@@ -19,6 +19,7 @@ import {
   respostaDaDecisao,
 } from "@/lib/molde/orquestrador-http";
 import { filaDecisionLine, reflectFilaDecision, sendFilaApproval, sendFilaErro } from "@/lib/telegram/fila";
+import { atualizarProgresso } from "@/lib/telegram/progresso";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       case "cancelar": {
         const nota = body.nota === undefined || body.nota === null || body.nota === "" ? null : text(body.nota, 1000);
         const item = await cancelarFila(id, nota);
+        if (item) await atualizarProgresso([{ id: item.id }], { timeoutMs: 2500 });
         return item ? NextResponse.json({ data: filaView(item) }) : answer(NOT_FOUND, 404);
       }
       default:

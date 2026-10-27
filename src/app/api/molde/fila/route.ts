@@ -5,6 +5,7 @@ import { answer, readBody } from "@/lib/molde/jobs-http";
 import { criarItem, listarOrq, orqView } from "@/lib/molde/orquestrador";
 import { checkFilaToken, falha, falhaInesperada, isErro, parseCriar, parseEstados } from "@/lib/molde/orquestrador-http";
 import { sendFilaApproval } from "@/lib/telegram/fila";
+import { atualizarProgresso } from "@/lib/telegram/progresso";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -113,7 +114,10 @@ export async function POST(request: NextRequest) {
     const resultado = itens.length ? await registrarItens(itens) : [];
     const avisar = resultado.filter((r): r is Extract<typeof r, { avisar: boolean }> => "avisar" in r && r.avisar).slice(0, AVISOS_NA_HORA);
     const enviados = await Promise.all(avisar.map((r) => sendFilaApproval(r.id, { timeoutMs: 2500 })));
-    return NextResponse.json({ data: resultado, telegram: enviados.filter(Boolean).length });
+    // 0020 · a mensagem de progresso de cada vídeo (uma por vídeo, editada; o que não couber, o relógio manda)
+    const mudaram = resultado.flatMap((r, i) => ("id" in r && r.mudou ? [{ id: r.id, grupo: itens[i].grupo ?? null, passos: itens[i].passos ?? null }] : []));
+    const progresso = await atualizarProgresso(mudaram, { timeoutMs: 2500, esperar: true });
+    return NextResponse.json({ data: resultado, telegram: enviados.filter(Boolean).length, progresso });
   } catch (error) {
     return filaFailure(error, "não consegui gravar a fila");
   }

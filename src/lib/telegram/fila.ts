@@ -28,6 +28,7 @@ import {
 import { formatSaoPauloTime } from "@/lib/time";
 import { answerCallback, editTelegramMessage, sendTelegramWithButtons, telegramBotConfig, type InlineButton } from "@/lib/telegram/api";
 import { callbacksEnabled, signCallback, type CallbackPayload } from "@/lib/telegram/callback-data";
+import { atualizarProgresso } from "@/lib/telegram/progresso";
 
 /**
  * O Telegram da fila única (Molde v134, F-MCP parte 1): APROVAR e PEDIR.
@@ -230,6 +231,7 @@ export async function sendFilaApproval(id: string, options: { timeoutMs?: number
 /** A decisão veio da página: a mensagem do Telegram passa a mostrar o que foi decidido (sem botões). Nunca lança. */
 export async function reflectFilaDecision(item: FilaRow, options: { timeoutMs?: number } = {}) {
   try {
+    await atualizarProgresso([{ id: item.id }], options); // 0020 · a mensagem de progresso do vídeo também
     if (!item.telegram_msg_id || !item.decisao || !telegramBotConfig()) return false;
     return (await editTelegramMessage(Number(item.telegram_msg_id), `${filaApprovalText(item, { decided: true })}\n\n${filaDecisionLine(item.decisao)}`, options)).ok;
   } catch (error) {
@@ -371,6 +373,7 @@ export async function handleMessage(message: TelegramMessage) {
         return { acao: "fechado" as const };
       }
       if (item.telegram_msg_id) await editTelegramMessage(Number(item.telegram_msg_id), `${filaApprovalText(outcome.item, { decided: true })}\n\n${filaDecisionLine(outcome.item.decisao!)}`);
+      await atualizarProgresso([{ id: outcome.item.id }]);
       await responder(`Anotado: refazer «${shorten(outcome.item.titulo, 80)}» com «${shorten(texto, 200)}». A página mostra o pedido de ajuste e o botão de refazer (que pergunta o custo antes).`);
       return { acao: "refazer" as const };
     }
@@ -458,6 +461,7 @@ export async function handleFilaCallback(payload: CallbackPayload, callback: Cal
       }
       await reply(DECIDIDO[decisao]);
       await edit(`${filaApprovalText(outcome.item, { decided: true })}\n\n${filaDecisionLine(outcome.item.decisao!)}`);
+      await atualizarProgresso([{ id: outcome.item.id }]);
       return { acao: decisao === "aprovar" ? ("aprovar" as const) : decisao };
     }
 

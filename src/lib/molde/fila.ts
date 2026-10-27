@@ -207,6 +207,10 @@ export type FilaInput = {
   nota?: string | null;
   custoEstimadoUsd: number;
   previa?: FilaPreview | null;
+  /** 0020 · o vídeo a que o item pertence (a mensagem de progresso do Telegram): o id do Reel na página, por exemplo. */
+  grupo?: string | null;
+  /** 0020 · quantas etapas o vídeo tem («3 de 6» na mensagem de progresso). */
+  passos?: number | null;
 };
 
 export type FilaRegistro = { id: string; ref: string; estado: FilaState; rodada: number; criado: boolean; mudou: boolean; avisar: boolean; decisaoPendente: boolean };

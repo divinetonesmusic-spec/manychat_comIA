@@ -63,9 +63,12 @@ na_fila · produzindo · para_aprovar · aprovado · refazer · pronto · erro �
 ```
 
 - Até 50 itens por vez. Obrigatórios: `ref`, `tipo` (minúsculas, números e `_`), `estado` (um dos 8 da página).
+- Opcionais (v137, migração 0020, a mensagem de progresso do Telegram): `grupo` (texto, até 120: o vídeo a que o item pertence,
+  ex.: o id do Reel no calendário `cal-77`; vale uma vez, depois o item fica no grupo) e `passos` (inteiro 1–30: quantas etapas o
+  vídeo tem, para o «3 de 6»). Veja «O progresso do vídeo» abaixo.
 - Acha a linha por `id` (o do pedido do Telegram, que a página guarda no pedido dela), depois pelo `pedidoId`, depois pela `ref`. Não achou: cria (`origem: "pagina"`).
 - `avatares` (opcional, até 20): a lista inteira dos projetos; quem saiu da lista sai dos botões do Telegram. `precos`: US$ por foto e para produzir um Reel (o custo dos pedidos do Telegram).
-- Resposta: `200 {"data": [{"id","ref","estado","rodada","criado","mudou","avisar","decisaoPendente"} | {"erro","ref"}], "telegram": <quantas aprovações saíram agora>}`. As aprovações que não couberem saem pelo relógio no minuto seguinte (as funções do Netlify param em ~10 s).
+- Resposta: `200 {"data": [{"id","ref","estado","rodada","criado","mudou","avisar","decisaoPendente"} | {"erro","ref"}], "telegram": <quantas aprovações saíram agora>, "progresso": <quantos vídeos ficaram em dia no Telegram>}`. As aprovações que não couberem saem pelo relógio no minuto seguinte (as funções do Netlify param em ~10 s).
 
 ### Listar — `GET /api/molde/fila?projeto=&estado=&origem=&semPedido=1&decisoes=pendentes&limite=`
 
@@ -111,3 +114,38 @@ para a página (nada quebra):
 - O `/status` do Telegram mostra o gasto do mês contra o limite (`MOLDE_TETO_USD`).
 - O Claude (conector MCP, `docs/MOLDE_MCP.md`) pede e decide pelas mesmas funções do Telegram. Os pedidos dele chegam como os do
   Telegram (`origem: "telegram"`, `confirmadoVia: "mcp"`): a página pega com o mesmo `?origem=telegram&estado=na_fila&semPedido=1`.
+
+## O progresso do vídeo numa mensagem só (v137, migração 0020)
+
+Para cada vídeo, o Telegram mantém **uma** mensagem que se atualiza sozinha (em vez de uma por item):
+
+```
+Reel «Oração da manhã» · Birdie
+3 de 6 · Voz ✓ · Fazendo o vídeo…
+
+✓ Roteiro
+✓ Cenas do vídeo
+✓ Voz
+… Vídeo final: Fazendo o vídeo
+
+Atualizado às 14:32.
+```
+
+- **O grupo (o vídeo)** de cada item: o `grupo` que a página mandar (`g:<projeto>:<grupo>`); senão, o projeto + o tema do título,
+  para os tipos de vídeo (`reel`, `reel_final`, `flow_video`, `heygen`, `storyboard`, `so_flow`, `abertura`). O tema é o que vem
+  depois de « · » no título (o formato do `fila134Titulo`: «Vídeo final do Reel (edição) · Oração da manhã») ou depois de «Reel:»
+  (o pedido do Telegram). Sem tema no título (ex.: «Vídeo do avatar falando», do HeyGen), o item fica sozinho no grupo dele.
+  **Hoje o espelho não tem uma chave que junte as etapas do mesmo Reel** (a `chave` do núcleo é de cada pedido); por isso a página
+  deve mandar o `grupo` (ex.: o id do Reel no calendário) nos pedidos de cada Reel — sem ele vale o projeto + o tema.
+- Fotos, produtos e os itens do orquestrador (com `estacao`) não ganham mensagem de progresso (a não ser que venham com `grupo`).
+- **«3 de 6»:** quantas etapas estão prontas (ou aprovadas) de `passos` (o maior que a página mandou) ou, sem ele, do número de itens
+  do grupo.
+- **Aprovar não muda:** o item em `para_aprovar` continua mandando a mensagem de aprovação com os botões, como antes; a mensagem do
+  vídeo diz «esperando você aprovar» e, depois da decisão (Telegram, página ou Claude), mostra o passo seguinte.
+- **Limite do Telegram:** no máximo 1 edição por segundo por mensagem. A vez de editar é tomada no banco
+  (`molde_fila_grupos.editado_em`); quem chega antes de 1 s espera ~1 s e junta as mudanças; o que sobrar (ou o Telegram recusar)
+  fica `pendente` e o relógio manda no minuto seguinte. Texto igual ao anterior não é editado.
+- Um vídeo parado há mais de 6 h que volta a andar ganha mensagem nova (em vez de editar uma lá de cima). Se a mensagem foi apagada
+  no Telegram, sai outra.
+- Liga por padrão; `TELEGRAM_PROGRESSO=0` no Netlify desliga. Sem a 0020, desligado (sem erro).
+

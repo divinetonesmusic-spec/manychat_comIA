@@ -47,12 +47,15 @@ export function parseFilaItem(raw: unknown, indice: number): FilaInput | { error
     titulo: opcional(o.titulo, 200),
     etapa: opcional(o.etapa, 200),
     nota: opcional(o.nota, 1000),
+    grupo: opcional(o.grupo, 120),
   };
   for (const [nome, v] of Object.entries(campos)) {
     if (v === undefined) return { error: `${onde}: ${nome} grande demais ou inválido.` };
   }
   const custo = o.custoEstimadoUsd === undefined || o.custoEstimadoUsd === null ? 0 : Number(o.custoEstimadoUsd);
   if (!Number.isFinite(custo) || custo < 0 || custo > 1000) return { error: `${onde}: custoEstimadoUsd precisa ser um número de 0 a 1000.` };
+  const passos = o.passos === undefined || o.passos === null ? null : Number(o.passos);
+  if (passos !== null && !(Number.isInteger(passos) && passos >= 1 && passos <= 30)) return { error: `${onde}: passos precisa ser um número inteiro de 1 a 30.` };
   let previa: FilaInput["previa"];
   if (o.previa === null) previa = null;
   else if (o.previa !== undefined) {
@@ -74,6 +77,8 @@ export function parseFilaItem(raw: unknown, indice: number): FilaInput | { error
     nota: campos.nota ?? null,
     custoEstimadoUsd: Math.round(custo * 10_000) / 10_000,
     previa,
+    grupo: campos.grupo ?? null,
+    passos,
   };
 }
 

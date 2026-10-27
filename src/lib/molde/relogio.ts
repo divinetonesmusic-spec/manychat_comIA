@@ -8,6 +8,7 @@ import { deleteR2Object, getR2BackupConfig, getR2Config, keyFromPublicUrl, R2_DE
 import { pruneBackups } from "@/lib/molde/backup";
 import { isMissing0016, limparRascunhos } from "@/lib/molde/fila";
 import { sendFilaApproval } from "@/lib/telegram/fila";
+import { gruposPendentes, mostrarGrupo } from "@/lib/telegram/progresso";
 
 /**
  * A parte do Molde no relógio (a cada minuto, depois do planner e do aviso de DMs). Tudo curto e dentro do prazo:
@@ -102,6 +103,11 @@ export async function runMoldeClock(options: { deadline: number; origin?: string
     try {
       out.rascunhosApagados = await limparRascunhos();
       if (telegramBotConfig()) sends.push(...(await resendFilaApprovals(telegramTimeout())));
+      // 0020 · as mensagens de progresso dos vídeos que mudaram e não couberam na hora (1 edição por segundo por mensagem)
+      if (telegramBotConfig() && telegramTimeout() > 500) {
+        const timeoutMs = telegramTimeout();
+        sends.push(...(await gruposPendentes()).map((grupo) => () => mostrarGrupo(grupo, { timeoutMs })));
+      }
     } catch (error) {
       if (!isMissing0016(error)) console.error("[molde] não consegui cuidar da fila única:", error instanceof Error ? error.message : error);
     }
