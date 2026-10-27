@@ -65,7 +65,8 @@ npm run release:check # verifica o pacote antes de publicar
 - [A fila única do Molde e o Telegram para aprovar e pedir (/reel, /fotos, /status) (migração 0016)](docs/ATUALIZACAO_0016.md) · contrato: [docs/API_MOLDE_FILA.md](docs/API_MOLDE_FILA.md)
 - [O quiz do avatar (/q/), a página de entrega do material grátis (/e/) e a Lista própria de e-mails (migração 0013)](docs/ATUALIZACAO_0013.md)
 - [O orquestrador do Molde e o Molde no Claude (conector MCP) (migração 0019)](docs/ATUALIZACAO_0019.md) · contrato: [docs/API_MOLDE_ORQUESTRADOR.md](docs/API_MOLDE_ORQUESTRADOR.md) · conector: [docs/MOLDE_MCP.md](docs/MOLDE_MCP.md)
-- Atualizações do banco: [0003 e 0004](docs/ATUALIZACAO_0003_0004.md), [0005](docs/ATUALIZACAO_0005.md), [0006](docs/ATUALIZACAO_0006.md), [0007](docs/ATUALIZACAO_0007.md), [0008](docs/ATUALIZACAO_0008.md), [0012](docs/ATUALIZACAO_0012.md), [0013](docs/ATUALIZACAO_0013.md), [0016](docs/ATUALIZACAO_0016.md), [0019](docs/ATUALIZACAO_0019.md)
+- [A página de venda no ar pelo UaiFlow (/v/<nome>) e o progresso do vídeo numa mensagem só do Telegram (migração 0020)](docs/ATUALIZACAO_0020.md) · contrato: [docs/API_MOLDE_PAGINAS.md](docs/API_MOLDE_PAGINAS.md)
+- Atualizações do banco: [0003 e 0004](docs/ATUALIZACAO_0003_0004.md), [0005](docs/ATUALIZACAO_0005.md), [0006](docs/ATUALIZACAO_0006.md), [0007](docs/ATUALIZACAO_0007.md), [0008](docs/ATUALIZACAO_0008.md), [0012](docs/ATUALIZACAO_0012.md), [0013](docs/ATUALIZACAO_0013.md), [0016](docs/ATUALIZACAO_0016.md), [0019](docs/ATUALIZACAO_0019.md), [0020](docs/ATUALIZACAO_0020.md)
 - API da fila de trabalho do Molde (para o robô do Mac e a página): [docs/API_MOLDE_JOBS.md](docs/API_MOLDE_JOBS.md)
 
 ## Segredos

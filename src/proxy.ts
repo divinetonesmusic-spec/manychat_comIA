@@ -34,6 +34,7 @@ const PUBLIC_PREFIXES = [
   "/lista", // sair da Lista própria (/lista/sair/<código>, 0013)
   "/d", // o botão da oferta do desafio de 5 dias (/d/<slug>/ir, 0017): só conta o toque e leva ao checkout
   "/a", // o app por assinatura (/a/<slug>, 0018): quem assina entra pelo link ou código do e-mail (sessão própria do app), sem login do UaiFlow
+  "/v", // a página de venda do Molde (/v/<slug>, 0020): pública, isolada pelo CSP sandbox (não usa o login do painel)
   "/l", // links rastreados (/l/<código>): quem clica no Instagram não tem login; só redireciona e conta o clique
 ];
 
