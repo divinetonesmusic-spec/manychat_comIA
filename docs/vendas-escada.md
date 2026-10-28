@@ -87,6 +87,8 @@ Teste com o modo de teste da plataforma antes de divulgar.
 | `EMAIL_RESPONDER_PARA` | Opcional: para onde vão as respostas. |
 | `EMAIL_ENDERECO_POSTAL` | Opcional (recomendado nos EUA): endereço postal no rodapé. |
 
+As mesmas variáveis também mandam o **material grátis por e-mail** para quem se cadastra na página de entrega (`/e/<slug>`, Molde v138 · K7). Sem elas, a pessoa continua baixando na hora pela página; o Molde avisa, na Loja, quais variáveis faltam.
+
 ## 7 · Pré-venda
 
 Marque **Pré-venda** no produto e informe o **prazo de entrega**. A página mostra o selo "Pré-venda", o prazo e o botão «Garantir na pré-venda». Na página de obrigado, o formulário pede o e-mail "para avisar na entrega". No painel: **Lista da pré-venda (CSV)** e **Marcar todos como avisados da entrega**.

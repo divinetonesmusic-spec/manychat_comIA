@@ -3,6 +3,7 @@ import { getAppBaseUrl } from "@/lib/env";
 import { checkMoldeToken } from "@/lib/content/molde-auth";
 import { r2Tamanho } from "@/lib/content/r2";
 import { getEntregaMolde, isMissing0013, MIGRATION_0013, publicarEntrega } from "@/lib/db/funil-molde";
+import { estadoEmailEntrega } from "@/lib/funil/entrega-email";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -13,6 +14,8 @@ type Params = { params: Promise<{ id: string }> };
  * POST /api/molde/entregas/<id>/publicar  { molde }
  * Confere no R2 cada arquivo pedido (existe e tem o tamanho anunciado) e abre a página /e/<slug>. Arquivo que não chegou:
  * erro 409 com a frase (a página manda de novo). A página só abre com o PDF ou a versão interativa.
+ * Resposta: { id, slug, url, ativo, temPdf, temHtml, temCapa, email: {configurado, faltam} } — K7 (v138): `email` diz se o
+ * material também sai por e-mail para quem se cadastra e, se não, quais variáveis faltam na Netlify (só os nomes).
  */
 export async function POST(request: NextRequest, { params }: Params) {
   const denied = checkMoldeToken(request);
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
     if (!(campos.pdf_key || e.pdf_key || campos.html_key || e.html_key)) return NextResponse.json({ error: "Mande o PDF ou a versão interativa antes de publicar." }, { status: 400 });
     const pub = await publicarEntrega(e.id, campos);
-    return NextResponse.json({ data: { id: e.id, slug: e.slug, url: `${getAppBaseUrl(request.url)}/e/${e.slug}`, ativo: Boolean(pub?.ativo), temPdf: Boolean(pub?.pdf_key), temHtml: Boolean(pub?.html_key), temCapa: Boolean(pub?.capa_key) } });
+    return NextResponse.json({ data: { id: e.id, slug: e.slug, url: `${getAppBaseUrl(request.url)}/e/${e.slug}`, ativo: Boolean(pub?.ativo), temPdf: Boolean(pub?.pdf_key), temHtml: Boolean(pub?.html_key), temCapa: Boolean(pub?.capa_key), email: estadoEmailEntrega() } });
   } catch (error) {
     if (isMissing0013(error)) return NextResponse.json({ error: MIGRATION_0013, codigo: "falta_0013" }, { status: 503 });
     console.error("[entrega] não consegui publicar:", error instanceof Error ? error.message : error);

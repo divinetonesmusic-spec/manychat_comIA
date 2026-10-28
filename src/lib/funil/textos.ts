@@ -45,6 +45,7 @@ export const TEXTOS = {
     proximo: "Próximo passo",
     naoAchado: "Esta página não existe ou saiu do ar.",
     acessoVencido: "Deixe o seu e-mail de novo para baixar.",
+    entregaEnviada: "Também mandamos o link para o seu e-mail: guarde para baixar de novo quando quiser.",
     // sair
     sairTitulo: "Sair da lista",
     sairTexto: "Toque no botão para não receber mais e-mails desta lista.",
@@ -94,6 +95,7 @@ export const TEXTOS = {
     proximo: "Next step",
     naoAchado: "This page doesn't exist or is no longer available.",
     acessoVencido: "Enter your email again to download.",
+    entregaEnviada: "We also sent the link to your email: keep it to download again anytime.",
     sairTitulo: "Unsubscribe",
     sairTexto: "Tap the button to stop receiving emails from this list.",
     sairBotao: "Unsubscribe",

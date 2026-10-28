@@ -232,6 +232,17 @@ export async function getLeadPorCodigo(codigoLead: string) {
   return rows[0] ?? null;
 }
 
+/**
+ * K7 · a pessoa do link do e-mail do material (/e/<slug>/m/<código>): o código tem de ser de alguém da MESMA lista da entrega
+ * (a conta do Instagram ou, sem conta, o projeto do Molde). Quem saiu da lista continua podendo baixar o que pediu.
+ */
+export async function getLeadDaEntrega(codigoLead: string, entrega: Pick<EntregaRow, "account_id" | "molde">) {
+  if (!/^[a-z0-9]{12,40}$/.test(codigoLead)) return null;
+  const lista = entrega.account_id || `molde:${entrega.molde}`;
+  const { rows } = await query<{ id: string; chave: string }>("select id, chave from public.leads where chave = $1 and lista = $2", [codigoLead, lista]);
+  return rows[0] ?? null;
+}
+
 /** Sai da lista (o link de cada e-mail). true = achou. */
 export async function descadastrarLead(codigoLead: string) {
   if (!/^[a-z0-9]{12,40}$/.test(codigoLead)) return false;

@@ -70,6 +70,7 @@ export default async function EntregaPage({ params, searchParams }: Props) {
           {liberado ? (
             <>
               <p className="fu-ok" role="status">{T.entregaPronto}</p>
+              {um(sp.enviado) === "1" ? <p className="fu-pequeno">{T.entregaEnviada}</p> : null}
               {um(sp.confirmar) === "1" ? <p className="fu-pequeno">{T.confirmeEmail}</p> : null}
               {e.pdf_key ? <a className="fu-btn" href={`/e/${e.slug}/baixar?tipo=pdf`}>{T.baixarPdf}</a> : null}
               {e.html_key ? <a className="fu-btn" href={`/e/${e.slug}/baixar?tipo=html`} rel="noopener" target="_blank">{T.abrirInterativo}</a> : null}

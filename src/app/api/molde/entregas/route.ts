@@ -4,6 +4,7 @@ import { checkMoldeToken } from "@/lib/content/molde-auth";
 import { getR2Config, PASTA_ENTREGAS_R2, r2UploadPrivado } from "@/lib/content/r2";
 import { guardarPendentes, isMissing0013, listarEntregas, MIGRATION_0013, novoCodigo, salvarEntrega } from "@/lib/db/funil-molde";
 import { extensao, lerEntrega } from "@/lib/funil/entrega";
+import { estadoEmailEntrega } from "@/lib/funil/entrega-email";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -55,7 +56,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** GET /api/molde/entregas?molde=<projeto> → as páginas de entrega do projeto com os números (visitas, e-mails, PDF, interativo, próximo passo). */
+/**
+ * GET /api/molde/entregas?molde=<projeto> → as páginas de entrega do projeto com os números (visitas, e-mails, PDF, interativo,
+ * próximo passo) e, em cada uma, `email: {configurado, faltam}` (K7, v138: o material também vai por e-mail?).
+ */
 export async function GET(request: NextRequest) {
   const denied = checkMoldeToken(request);
   if (denied) return denied;
@@ -63,7 +67,8 @@ export async function GET(request: NextRequest) {
   if (!molde) return NextResponse.json({ error: "Falta o projeto do Molde (molde)." }, { status: 400 });
   try {
     const base = getAppBaseUrl(request.url);
-    return NextResponse.json({ data: (await listarEntregas(molde)).map((e) => ({ ...e, url: `${base}/e/${e.slug}` })) });
+    const email = estadoEmailEntrega();
+    return NextResponse.json({ data: (await listarEntregas(molde)).map((e) => ({ ...e, url: `${base}/e/${e.slug}`, email })) });
   } catch (error) {
     if (isMissing0013(error)) return falta0013();
     console.error("[entrega] não consegui ler:", error instanceof Error ? error.message : error);
