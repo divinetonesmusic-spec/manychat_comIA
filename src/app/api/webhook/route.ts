@@ -499,7 +499,8 @@ async function triggerQueueDrain(requestUrl: string) {
   const secret = process.env.WORKER_SECRET;
   if (!secret) return;
 
-  const url = new URL("/api/queue/drain", requestUrl);
+  // Só a fila: quem comentou ou tocou no botão recebe já, sem esperar o resto do relógio.
+  const url = new URL("/api/queue/drain?so=fila", requestUrl);
   await fetch(url, {
     method: "POST",
     headers: { "x-worker-secret": secret },

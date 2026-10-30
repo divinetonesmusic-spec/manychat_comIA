@@ -86,6 +86,28 @@ describe("relógio único", { skip: semBanco }, () => {
     }
   });
 
+  test("?so=fila (disparo do comentário): manda a fila mesmo com o relógio do minuto rodando, e dois ao mesmo tempo não mandam em dobro", async () => {
+    await pendentes(3);
+    const { DRAIN_LOCK_KEY } = await import("@/lib/queue/drain-lock");
+    const outro = new pg.Client({ connectionString: db!.url });
+    await outro.connect();
+    try {
+      await outro.query("begin");
+      await outro.query("select pg_advisory_xact_lock($1)", [DRAIN_LOCK_KEY]);
+      const route = await import("@/app/api/queue/drain/route");
+      const corpos = await Promise.all([
+        route.GET(request("/api/queue/drain?so=fila", { headers: WORKER })).then((r) => r.json()),
+        route.GET(request("/api/queue/drain?so=fila", { headers: WORKER })).then((r) => r.json()),
+      ]);
+      assert.equal(corpos.filter((c) => !c.skipped).length, 1, "só um envio da fila por vez");
+      assert.equal(corpos.find((c) => !c.skipped).so, "fila");
+      assert.equal(meta.count("/messages", "POST"), 3, "as 3 saem, nenhuma em dobro");
+      await outro.query("commit");
+    } finally {
+      await outro.end();
+    }
+  });
+
   test("trava presa: os relógios saem sem trabalhar e, sem batimento há 15 min, o /api/health diz que é a trava", async () => {
     const { DRAIN_LOCK_KEY } = await import("@/lib/queue/drain-lock");
     const { readHealth } = await import("@/lib/health");

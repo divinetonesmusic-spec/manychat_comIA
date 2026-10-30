@@ -9,10 +9,12 @@ import { requireEnv } from "@/lib/env";
  * A conexão é separada do pool do app de propósito: com DATABASE_POOL_MAX=1, segurar a conexão do pool travaria o resto.
  */
 export const DRAIN_LOCK_KEY = 7_726_001;
+/** Trava só do envio da fila (os disparos de cada comentário): um por vez entre si, sem segurar o relógio do minuto. */
+export const FILA_LOCK_KEY = 7_726_002;
 
 export type DrainLockResult<T> = { ran: true; result: T } | { ran: false };
 
-export async function withDrainLock<T>(work: () => Promise<T>): Promise<DrainLockResult<T>> {
+export async function withDrainLock<T>(work: () => Promise<T>, key: number = DRAIN_LOCK_KEY): Promise<DrainLockResult<T>> {
   let client: Client | null = new Client({
     connectionString: requireEnv("DATABASE_URL"),
     ssl: { rejectUnauthorized: false },
@@ -27,7 +29,7 @@ export async function withDrainLock<T>(work: () => Promise<T>): Promise<DrainLoc
     // inteiro leva ~9 s; o Netlify corta em 10–30 s). Nenhum comando nela pode passar de 5 s.
     await client.query("set local idle_in_transaction_session_timeout = '30s'");
     await client.query("set local statement_timeout = '5s'");
-    const { rows } = await client.query<{ ok: boolean }>("select pg_try_advisory_xact_lock($1) as ok", [DRAIN_LOCK_KEY]);
+    const { rows } = await client.query<{ ok: boolean }>("select pg_try_advisory_xact_lock($1) as ok", [key]);
     if (!rows[0]?.ok) {
       await closeLockClient(client, "rollback");
       return { ran: false };

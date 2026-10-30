@@ -3,7 +3,7 @@ import { safeEqualSecret } from "@/lib/secrets";
 import { drainQueue } from "@/lib/queue/drain";
 import { runContentCycle } from "@/lib/content/scheduler";
 import { recordClockBeat, recordClockSkipped } from "@/lib/health";
-import { withDrainLock } from "@/lib/queue/drain-lock";
+import { FILA_LOCK_KEY, withDrainLock } from "@/lib/queue/drain-lock";
 import { notifyWaitingDms } from "@/lib/dm-alerts";
 import { avisarRespostasVideo } from "@/lib/db/dm-videos";
 import { cleanupOldRecords } from "@/lib/db/cleanup";
@@ -43,6 +43,14 @@ async function runDrain(request: NextRequest) {
   }
   if (expected && !safeEqualSecret(providedSecret, expected)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  }
+
+  // ?so=fila (o disparo de cada comentário/mensagem): só envia a fila, com quase todo o tempo, numa trava própria.
+  // O resto (posts, avisos, tokens, limpeza) fica no relógio do minuto, que não espera atrás desses disparos.
+  if (request.nextUrl.searchParams.get("so") === "fila") {
+    const orcamento = Number(process.env.FILA_BUDGET_MS || 8000);
+    const fila = await withDrainLock(() => drainQueue(60, orcamento), FILA_LOCK_KEY);
+    return NextResponse.json(fila.ran ? { ok: true, so: "fila", ...fila.result } : { ok: true, skipped: true, motivo: "Outro envio da fila já está rodando." });
   }
 
   // Só um relógio por vez (o do pg_cron e os que cada webhook dispara): o segundo sai na hora, com sucesso.

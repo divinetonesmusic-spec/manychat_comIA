@@ -44,7 +44,7 @@ function limiteDoAmbiente(nome: string, padrao: number) {
 }
 const MAX_AUTOMATED_DMS_PER_HOUR = limiteDoAmbiente("DM_LIMITE_POR_HORA", 1500);
 export const LIMITE_PRIMEIRAS_POR_HORA = Math.min(limiteDoAmbiente("PRIMEIRAS_POR_HORA", 700), MAX_AUTOMATED_DMS_PER_HOUR);
-const SEND_DELAY_MS = 300;
+const SEND_DELAY_MS = Number(process.env.SEND_DELAY_MS || 120);
 const BATCH_SIZE = 5;
 
 /**
