@@ -18,6 +18,9 @@ const falsas: Record<string, string> = {
   WORKER_SECRET: "segredo-falso-do-relogio-com-mais-de-32-caracteres",
   ADMIN_SESSION_SECRET: "segredo-falso-da-sessao-com-mais-de-32-caracteres",
   MOLDE_API_TOKEN: "token-falso-do-molde-0123456789abcdef",
+  // Limites da fila menores nos testes (em produção: 1500 no total e 700 primeiras mensagens por hora).
+  DM_LIMITE_POR_HORA: "200",
+  PRIMEIRAS_POR_HORA: "140",
   NEXT_PUBLIC_SUPABASE_URL: "https://supabase.teste.invalid",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "chave-anon-falsa",
   R2_ACCOUNT_ID: "contafalsa",

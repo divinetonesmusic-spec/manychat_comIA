@@ -1453,12 +1453,12 @@ export async function markExpiredDmsSkipped() {
 /** Motivo gravado quando a resposta a um comentário antigo não saiu dentro dos 7 dias da Meta. */
 export const RESPONDER_ANTIGOS_VENCEU = "Passaram 7 dias do comentário: a Meta não deixa mais responder no direct.";
 
-export async function sentDmCountLastHour(accountId?: string | null) {
+export async function sentDmCountLastHour(accountId?: string | null, tipos: SendType[] = ["dm", "private_reply"]) {
   const { rows } = await query<{ count: string }>(
-    accountId
-      ? "select count(*) from public.queue where account_id = $1 and status = 'sent' and send_type in ('dm', 'private_reply') and sent_at >= now() - interval '1 hour'"
-      : "select count(*) from public.queue where status = 'sent' and send_type in ('dm', 'private_reply') and sent_at >= now() - interval '1 hour'",
-    accountId ? [accountId] : [],
+    `select count(*) from public.queue
+     where ($1::uuid is null or account_id = $1) and status = 'sent' and send_type = any($2::text[])
+       and sent_at >= now() - interval '1 hour'`,
+    [accountId ?? null, tipos],
   );
   return Number(rows[0]?.count ?? 0);
 }
@@ -1467,20 +1467,20 @@ export async function sentDmCountLastHour(accountId?: string | null) {
  * Próximo horário em que o perfil pode mandar mais uma mensagem direta (limite de 200 por hora):
  * 1 h e 5 s depois do 200º envio mais recente (é quando ele sai da janela de 1 h). No mínimo daqui a 1 minuto.
  */
-export async function nextDmSlot(accountId?: string | null, limite = 200): Promise<Date> {
+export async function nextDmSlot(accountId?: string | null, limite = 200, tipos: SendType[] = ["dm", "private_reply"]): Promise<Date> {
   const { rows } = await query<{ slot: Date }>(
     `select greatest(
               coalesce((
                 select q.sent_at + interval '1 hour 5 seconds'
                 from public.queue q
-                where ($1::uuid is null or q.account_id = $1) and q.status = 'sent' and q.send_type in ('dm', 'private_reply')
+                where ($1::uuid is null or q.account_id = $1) and q.status = 'sent' and q.send_type = any($3::text[])
                   and q.sent_at >= now() - interval '1 hour'
                 order by q.sent_at desc
                 offset $2 limit 1
               ), now()),
               now() + interval '1 minute'
             ) as slot`,
-    [accountId ?? null, Math.max(0, Math.floor(limite) - 1)],
+    [accountId ?? null, Math.max(0, Math.floor(limite) - 1), tipos],
   );
   return rows[0].slot;
 }

@@ -134,6 +134,14 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     assert.equal(l.status, "sent");
   });
 
+  test("as conversas não gastam a conta das 1ªs mensagens: com 150 conversas na hora, a 1ª mensagem ainda sai", async () => {
+    await jaEnviadas(contaA, 150, 10, "dm");
+    const primeira = await pendente(contaA, "private_reply");
+    await drain.drainQueue(40, 20_000);
+    const [p] = await lerFila([primeira]);
+    assert.equal(p.status, "sent");
+  });
+
   test("abaixo da reserva, a 1ª mensagem sai normalmente", async () => {
     await jaEnviadas(contaA, drain.LIMITE_PRIMEIRAS_POR_HORA - 1, 10, "private_reply");
     const primeira = await pendente(contaA, "private_reply");

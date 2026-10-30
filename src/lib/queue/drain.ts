@@ -31,14 +31,18 @@ import { renderMessageTemplate } from "@/lib/message-template";
 import { formatSaoPauloTime } from "@/lib/time";
 
 const MAX_JOBS_PER_DRAIN = 40;
-const MAX_AUTOMATED_DMS_PER_HOUR = 200;
 /**
- * Reserva para quem já está conversando (tocou em «Quero ver», respondeu): as 1ªs mensagens (resposta privada ao
- * comentário) param em 200 − 60 = 140 por hora; as 60 vagas restantes ficam para as conversas. Assim, quem toca no
- * botão recebe o link na hora, mesmo com um post viral enchendo a fila de 1ªs mensagens.
+ * Limites por hora de cada perfil (ajustáveis nas variáveis do servidor), abaixo dos da Meta com folga:
+ * - 1ªs mensagens (resposta privada ao comentário): a Meta deixa 750 por hora → PRIMEIRAS_POR_HORA, padrão 700.
+ * - Total de mensagens diretas (1ªs + conversas): a Meta conta as conversas por segundo (300/s) → DM_LIMITE_POR_HORA, padrão 1500.
+ * As conversas (quem tocou em «Quero ver») nunca esperam atrás das 1ªs mensagens: cada tipo tem a sua conta.
  */
-const RESERVA_CONVERSAS_POR_HORA = Number(process.env.RESERVA_CONVERSAS_POR_HORA || 60);
-export const LIMITE_PRIMEIRAS_POR_HORA = Math.max(1, MAX_AUTOMATED_DMS_PER_HOUR - Math.max(0, Math.min(RESERVA_CONVERSAS_POR_HORA, MAX_AUTOMATED_DMS_PER_HOUR - 1)));
+function limiteDoAmbiente(nome: string, padrao: number) {
+  const n = Math.floor(Number(process.env[nome]));
+  return Number.isFinite(n) && n > 0 ? n : padrao;
+}
+const MAX_AUTOMATED_DMS_PER_HOUR = limiteDoAmbiente("DM_LIMITE_POR_HORA", 1500);
+export const LIMITE_PRIMEIRAS_POR_HORA = Math.min(limiteDoAmbiente("PRIMEIRAS_POR_HORA", 700), MAX_AUTOMATED_DMS_PER_HOUR);
 const SEND_DELAY_MS = 300;
 const BATCH_SIZE = 5;
 
@@ -68,6 +72,7 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
   // 1ªs mensagens paradas na reserva (as conversas seguem); e quantas o perfil já mandou na última hora, contadas neste ciclo.
   const atPrimeiras = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
   const enviadasHora = new Map<string, number>();
+  const primeirasHora = new Map<string, number>();
   // Perfis em que a Meta pediu para esperar neste ciclo: os próximos envios deles voltam para a fila sem chamar a Meta.
   const metaWait = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
 
@@ -123,12 +128,13 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
             continue;
           }
           if (job.send_type === "private_reply") {
+            if (!primeirasHora.has(limitKey)) primeirasHora.set(limitKey, await sentDmCountLastHour(config.account_id, ["private_reply"]));
             let espera = atPrimeiras.get(limitKey);
-            if (!espera && naHora >= LIMITE_PRIMEIRAS_POR_HORA) {
-              const availableAt = await nextDmSlot(config.account_id, LIMITE_PRIMEIRAS_POR_HORA);
+            if (!espera && (primeirasHora.get(limitKey) ?? 0) >= LIMITE_PRIMEIRAS_POR_HORA) {
+              const availableAt = await nextDmSlot(config.account_id, LIMITE_PRIMEIRAS_POR_HORA, ["private_reply"]);
               espera = {
                 availableAt,
-                note: `Fila do post: ${LIMITE_PRIMEIRAS_POR_HORA} primeiras mensagens por hora (o resto do limite fica para quem já está conversando). Sai às ${formatSaoPauloTime(availableAt)}.`,
+                note: `Fila do post: ${LIMITE_PRIMEIRAS_POR_HORA} primeiras mensagens por hora (quem já está conversando não espera). Sai às ${formatSaoPauloTime(availableAt)}.`,
                 ids: [],
               };
               atPrimeiras.set(limitKey, espera);
@@ -147,6 +153,7 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
           await sendJob(job, config.instagram_user_id, config.instagram_access_token);
           await markJobSent(job.id);
           if (countsTowardDmLimit) enviadasHora.set(accountKey, (enviadasHora.get(accountKey) ?? 0) + 1);
+          if (job.send_type === "private_reply" && primeirasHora.has(accountKey)) primeirasHora.set(accountKey, (primeirasHora.get(accountKey) ?? 0) + 1);
           // O desafio de 5 dias (0017): a última mensagem do dia saiu → o dia conta como entregue. Nunca falha.
           if (job.payload.origem === ORIGEM_DESAFIO && job.payload.principal === true) await marcarEnvioDesafio(job.id);
           sent += 1;
