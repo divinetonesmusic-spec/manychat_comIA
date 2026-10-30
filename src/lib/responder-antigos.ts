@@ -97,7 +97,15 @@ export type JobResponder = {
   semAvanco?: number;
   /** A última leitura na Meta (para ver o que está acontecendo sem abrir os logs). */
   leitura?: Leitura | null;
+  /** Páginas que a Meta devolveu sem nenhum comentário (mas com «próxima página»). */
+  paginasVazias?: number;
+  /** Sem as respostas junto (replies{…}): quando a sonda mostrou que só assim a Meta devolve os comentários. */
+  semRespostas?: boolean;
+  /** O que a sonda viu na 1ª página vazia: o total de comentários do post e quantos vêm com menos campos. */
+  sonda?: Sonda | null;
 };
+
+type Sonda = { em: string; total: number | null; completo: number; semRespostas: number; soId: number; erro: string | null };
 
 type Leitura = { em: string; ms: number; limite: number; itens: number; proxima: boolean; erro: string | null };
 
@@ -446,7 +454,7 @@ async function contar(chave: string, inicio: JobResponder, account: InstagramAcc
       if (job.cursor !== "fim") {
         const pagina = await lerNaMeta(job, limite, deadline, () => {
           const url = new URL(`${GRAPH_BASE_URL}/${job.mediaId}/comments`);
-          url.searchParams.set("fields", `${CAMPOS},replies{${CAMPOS}}`);
+          url.searchParams.set("fields", job.semRespostas ? CAMPOS : `${CAMPOS},replies{${CAMPOS}}`);
           url.searchParams.set("limit", String(limite));
           if (job.cursor) url.searchParams.set("after", job.cursor);
           return graphFetch<{ data?: ComentarioMeta[]; paging?: Paginacao }>(url, account.instagram_access_token);
@@ -462,6 +470,19 @@ async function contar(chave: string, inicio: JobResponder, account: InstagramAcc
         job = await separar(job, lista, account, automation, pessoas, novos);
         job.respostasPendentes = [...job.respostasPendentes, ...pendentes];
         const proximo = pagina.paging?.next && pagina.paging.cursors?.after ? pagina.paging.cursors.after : null;
+        if (!pagina.data?.length && proximo) {
+          job.paginasVazias = (job.paginasVazias ?? 0) + 1;
+          // 1ª página vazia: pergunta à Meta de outro jeito (uma vez) para saber se é o pedido ou se ela esconde tudo.
+          if (!job.sonda && deadline - Date.now() > 3000) {
+            job.sonda = await sondar(job, account, limite, deadline);
+            if (!job.semRespostas && !job.sonda.completo && job.sonda.semRespostas > 0) {
+              // Sem replies{…} os comentários aparecem: continua sem eles, da mesma página (não avança o cursor).
+              job.semRespostas = true;
+              avancou();
+              continue;
+            }
+          }
+        }
         // A Meta devolvendo o mesmo cursor: acabou (senão ficaria lendo a mesma página para sempre).
         job.cursor = proximo && proximo !== job.cursor ? proximo : "fim";
         avancou();
@@ -504,13 +525,47 @@ async function lerNaMeta<T extends { data?: unknown[]; paging?: Paginacao }>(job
   const comeco = Date.now();
   try {
     const pagina = await chamarMeta(deadline, fazer);
-    job.leitura = { em: agoraIso(), ms: Date.now() - comeco, limite, itens: pagina.data?.length ?? 0, proxima: Boolean(pagina.paging?.next), erro: null };
+    const ms = Date.now() - comeco;
+    job.leitura = { em: agoraIso(), ms, limite, itens: pagina.data?.length ?? 0, proxima: Boolean(pagina.paging?.next), erro: null };
+    // A Meta voltou a responder rápido: a página volta a crescer (até 50).
+    if (ms < 1500 && limite < LIMITE_PAGINA) job.limite = Math.min(LIMITE_PAGINA, limite * 2);
     return pagina;
   } catch (error) {
     job.leitura = { em: agoraIso(), ms: Date.now() - comeco, limite, itens: 0, proxima: false, erro: mensagemMeta(error) };
     if (error instanceof MetaApiError && error.kind === "timeout") job.limite = Math.max(LIMITE_PAGINA_MIN, Math.floor(limite / 2));
     throw error;
   }
+}
+
+/** A sonda: o total de comentários do post e a mesma página pedida com e sem as respostas, e só com o id. Nunca lança. */
+async function sondar(job: JobResponder, account: InstagramAccount, limite: number, deadline: number): Promise<Sonda> {
+  const pedir = async (fields: string) => {
+    const url = new URL(`${GRAPH_BASE_URL}/${job.mediaId}/comments`);
+    url.searchParams.set("fields", fields);
+    url.searchParams.set("limit", String(limite));
+    if (job.cursor && job.cursor !== "fim") url.searchParams.set("after", job.cursor);
+    const pagina = await chamarMeta(deadline, () => graphFetch<{ data?: unknown[] }>(url, account.instagram_access_token));
+    return pagina.data?.length ?? 0;
+  };
+  const sonda: Sonda = { em: agoraIso(), total: null, completo: 0, semRespostas: 0, soId: 0, erro: null };
+  try {
+    sonda.semRespostas = await pedir(CAMPOS);
+    sonda.soId = await pedir("id");
+  } catch (error) {
+    sonda.erro = mensagemMeta(error);
+  }
+  try {
+    const media = await chamarMeta(deadline, () => {
+      const url = new URL(`${GRAPH_BASE_URL}/${job.mediaId}`);
+      url.searchParams.set("fields", "comments_count");
+      return graphFetch<{ comments_count?: number }>(url, account.instagram_access_token);
+    });
+    sonda.total = typeof media.comments_count === "number" ? media.comments_count : null;
+  } catch (error) {
+    sonda.erro ??= mensagemMeta(error);
+  }
+  console.info(`[responder-antigos] sonda ${job.mediaId}: ${JSON.stringify(sonda)}`);
+  return sonda;
 }
 
 /** Uma página de comentários: conta e separa quem combina, quem já foi respondido, repetidos e velhos. */
@@ -739,6 +794,9 @@ export function vista(job: JobResponder, envios: Envios | null) {
     mensagem: mensagem(job, envios, restantes, horas),
     erro: job.erro,
     leitura: job.leitura ?? null,
+    paginasVazias: job.paginasVazias ?? 0,
+    semRespostas: job.semRespostas ?? false,
+    sonda: job.sonda ?? null,
     esperarAte: job.esperarAte,
     iniciadoEm: job.iniciadoEm,
     confirmadoEm: job.confirmadoEm,
@@ -752,12 +810,19 @@ function mensagem(job: JobResponder, envios: Envios | null, restantes: number, h
   if (job.estado === "lendo") return `Lendo os comentários do post: ${job.lidos} lidos até agora. Nada foi mandado.`;
   if (job.estado === "erro") return job.erro || "A contagem parou com erro.";
   if (job.estado === "pronto") {
-    if (!job.paraEnviar) return "Ninguém para responder agora: todos já foram respondidos, não combinam ou passaram de 7 dias.";
-    return `${job.paraEnviar} pessoas podem receber agora. No ritmo de ${LIMITE_POR_HORA} por hora, leva ${duracao(horas)}. Nada foi mandado ainda.`;
+    if (!job.paraEnviar) return `Ninguém para responder agora: todos já foram respondidos, não combinam ou passaram de 7 dias.${avisoVazias(job)}`;
+    return `${job.paraEnviar} pessoas podem receber agora. No ritmo de ${LIMITE_POR_HORA} por hora, leva ${duracao(horas)}. Nada foi mandado ainda.${avisoVazias(job)}`;
   }
   const enviadas = envios?.enviadas ?? 0;
   if (job.estado === "concluido" && restantes === 0) return `${enviadas} de ${job.paraEnviar} enviadas. Terminou.`;
   return `${enviadas} de ${job.paraEnviar} enviadas; o resto sai no ritmo de ${LIMITE_POR_HORA} por hora.`;
+}
+
+/** A Meta mandou páginas sem comentário nenhum: o número pode estar baixo porque ela escondeu comentários. */
+function avisoVazias(job: JobResponder) {
+  if (!job.paginasVazias) return "";
+  const total = job.sonda?.total;
+  return ` Atenção: a Meta devolveu ${job.paginasVazias} páginas sem nenhum comentário${typeof total === "number" ? ` (o post tem ${total} comentários; li ${job.lidos})` : ""}; ela pode estar escondendo comentários deste app.`;
 }
 
 /** «cerca de 1 h 30 min», «menos de 1 min»… */

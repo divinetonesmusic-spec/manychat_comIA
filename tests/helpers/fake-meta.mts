@@ -17,6 +17,8 @@ export type FakeMeta = {
   comments: Map<string, FakeComment[]>;
   /** Se definido, GET /{media-id}/comments responde este erro (ex.: limite de uso, código 4). */
   commentsFailure: null | { status: number; error: Record<string, unknown> };
+  /** Se true, GET /{media-id}/comments com replies{…} nos campos devolve páginas vazias (só com «próxima»). */
+  commentsEmptyWithReplies: boolean;
   /** Quantas chamadas cujo caminho termina em `suffix` (ex.: "/media_publish"). */
   count: (suffix: string, method?: string) => number;
   /** status_code de cada container (o padrão vale para os que não estão aqui). */
@@ -101,6 +103,7 @@ export function installFakeMeta(): FakeMeta {
     calls: [],
     comments: new Map(),
     commentsFailure: null,
+    commentsEmptyWithReplies: false,
     count: (suffix, method) => fake.calls.filter((call) => call.path.endsWith(suffix) && (!method || call.method === method)).length,
     containerStatus: new Map(),
     defaultStatus: "FINISHED",
@@ -143,6 +146,7 @@ export function installFakeMeta(): FakeMeta {
       fake.calls.length = 0;
       fake.comments.clear();
       fake.commentsFailure = null;
+      fake.commentsEmptyWithReplies = false;
       fake.containerStatus.clear();
       fake.defaultStatus = "FINISHED";
       fake.feed.length = 0;
@@ -417,6 +421,10 @@ export function installFakeMeta(): FakeMeta {
     if (path.endsWith("/comments") && method === "GET") {
       if (fake.commentsFailure) return json({ error: fake.commentsFailure.error }, fake.commentsFailure.status);
       const lista = fake.comments.get(id) ?? [];
+      if (fake.commentsEmptyWithReplies && fields.includes("replies{")) {
+        const pagina = paginar(lista, url.searchParams, (comment) => comment);
+        return json({ ...pagina, data: [] });
+      }
       return json(paginar(lista, url.searchParams, (comment) => {
         const { replies, ...resto } = comment;
         if (!replies?.length) return resto;
@@ -431,6 +439,7 @@ export function installFakeMeta(): FakeMeta {
     if (path.endsWith("/comments") && method === "POST") return json({ id: `comment-${++seq}` });
     if (path.endsWith("/insights")) return json({ data: [] });
 
+    if (method === "GET" && fields === "comments_count") return json({ id, comments_count: (fake.comments.get(id) ?? []).length });
     if (method === "GET" && fields.includes("status_code")) {
       return json({ id, status_code: fake.containerStatus.get(id) ?? fake.defaultStatus, status: "" });
     }

@@ -281,6 +281,17 @@ describe("responder quem já comentou (com banco)", { skip: semBanco }, () => {
     assert.equal(deNovo.numeros.paraEnviar, 4);
   });
 
+  test("a Meta devolvendo páginas vazias com replies{…}: a sonda descobre e a leitura segue sem as respostas", async () => {
+    meta.commentsEmptyWithReplies = true;
+    const data = await contar(MEDIA);
+    assert.equal(data.estado, "pronto");
+    assert.equal(data.semRespostas, true);
+    assert.ok(data.sonda && data.sonda.semRespostas > 0 && data.sonda.completo === 0, JSON.stringify(data.sonda));
+    assert.ok(data.numeros.lidos > 0, "os comentários aparecem pedindo sem as respostas");
+    assert.equal(data.paginasVazias, 1);
+    assert.match(data.mensagem, /páginas sem nenhum comentário/);
+  });
+
   test("novo=1 recomeça uma contagem «lendo» presa que não leu nada (e não mexe na que já avançou)", async () => {
     const chave = `responder_antigos:${automacao}:${MEDIA}`;
     await db.sql("insert into public.app_status (chave, valor) values ($1, $2)", [
