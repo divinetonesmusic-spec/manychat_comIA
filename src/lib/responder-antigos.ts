@@ -159,6 +159,28 @@ export async function confirmar(pedido: PedidoResponder & { paraEnviar?: unknown
   return vista(depois, await contarEnvios(depois));
 }
 
+/**
+ * Parar (POST { parar: true }): encerra a contagem ou o envio de vez, sem precisar desligar a automação.
+ * Quem já entrou na fila segue a regra da fila; ninguém novo entra. Para voltar a mandar, conte de novo (novo=1):
+ * quem já recebeu é pulado. Não passa por `abrir` de propósito: funciona com a automação ligada ou desligada.
+ */
+export async function parar(pedido: { automationId: string; post: string }) {
+  const mediaId = String(pedido.post ?? "").trim();
+  if (!/^\d{6,30}$/.test(mediaId)) throw new ResponderErro("Para parar, mande o id da mídia (só números) em post.", 400);
+  const chave = `${CHAVE}${pedido.automationId}:${mediaId}`;
+  const job = await lerJob(chave);
+  if (!job) throw new ResponderErro("Não há envio deste post nesta automação.", 404);
+  if (job.estado !== "lendo" && job.estado !== "enviando" && job.estado !== "pronto") return vista(job, await contarEnvios(job));
+  const fim = await salvarSe(chave, job, (j) => ({
+    ...j,
+    estado: "concluido",
+    concluidoEm: agoraIso(),
+    erro: `Parado pelo dono em ${formatSaoPauloTime(new Date())}. Para mandar o resto, conte de novo: quem já recebeu é pulado.`,
+  }));
+  if (!fim) throw new ResponderErro("O envio está no meio de um passo agora. Tente de novo em alguns segundos.", 409);
+  return vista(fim, await contarEnvios(fim));
+}
+
 /** Relógio (a cada minuto): continua a contagem ou o envio que ficou pela metade. Nunca lança erro. */
 export async function runResponderAntigosClock(options: { deadline: number }) {
   const out = { passos: 0 };

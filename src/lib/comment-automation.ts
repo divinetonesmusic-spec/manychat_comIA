@@ -129,13 +129,25 @@ async function enqueueWelcomePrivateReply(input: {
     instagramCommentId: input.commentId,
     sendType: "private_reply",
     availableAt: delayDate(resolveInitialDelaySeconds(input.automation)),
-    payload: {
-      text: input.textOverride || input.automation.welcome_dm,
-      quickReplyLabel: input.automation.quick_reply_label,
-      quickReplyPayload: `automation:${input.automation.id}`,
-      quickReplies: input.automation.quick_replies,
-    },
+    payload: linkDireto(input.automation) && !input.textOverride
+      ? {
+          // Sem o passo do botão «Quero ver»: a 1ª mensagem já leva o botão com o link (1 mensagem por pessoa, não 2).
+          text: input.automation.welcome_dm,
+          buttonLabel: input.automation.link_button_label || "Abrir link",
+          url: input.automation.link_url,
+        }
+      : {
+          text: input.textOverride || input.automation.welcome_dm,
+          quickReplyLabel: input.automation.quick_reply_label,
+          quickReplyPayload: `automation:${input.automation.id}`,
+          quickReplies: input.automation.quick_replies,
+        },
   });
+}
+
+/** Sem resposta rápida configurada e com link: a mensagem de boas-vindas vai com o botão do link direto. */
+export function linkDireto(automation: Pick<Automation, "quick_reply_label" | "quick_replies" | "link_url">) {
+  return !automation.quick_reply_label?.trim() && !automation.quick_replies?.length && Boolean(automation.link_url?.trim());
 }
 
 async function enqueueNonFollowerPrivateReply(input: {

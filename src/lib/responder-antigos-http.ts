@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { confirmar, ResponderErro, simular } from "@/lib/responder-antigos";
+import { confirmar, parar, ResponderErro, simular } from "@/lib/responder-antigos";
 
 /**
  * A mesma porta do «Responder quem já comentou» para a tela (login do painel) e para o Molde (MOLDE_API_TOKEN):
- * GET = contar (simular, nada sai) · POST = confirmar e continuar o envio.
+ * GET = contar (simular, nada sai) · POST = confirmar e continuar o envio · POST { parar: true } = encerra o envio.
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -24,6 +24,14 @@ export async function responderPost(input: { automationId: unknown; accountId?: 
   const automationId = typeof input.automationId === "string" ? input.automationId.trim() : "";
   if (!UUID.test(automationId)) return falha("Falta a automação (automationId).", 400);
   if (input.accountId && !UUID.test(input.accountId)) return falha("accountId inválido.", 400);
+  if (input.body.parar === true) {
+    try {
+      const data = await parar({ automationId, post: String(input.body.post ?? "") });
+      return NextResponse.json({ data }, { headers: { "cache-control": "no-store" } });
+    } catch (error) {
+      return erro(error);
+    }
+  }
   if (input.body.paraEnviar === undefined) {
     return falha("Mande paraEnviar: o número de pessoas que o dono viu na contagem (é a confirmação dele).", 400);
   }
