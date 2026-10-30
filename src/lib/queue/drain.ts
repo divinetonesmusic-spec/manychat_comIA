@@ -3,6 +3,7 @@
   deferJobForMetaLimit,
   deferPendingDms,
   deferPendingPrivateReplies,
+  liberarAdiadasDaRegraAntiga,
   deferPendingJobsForAccount,
   deferQueueJobs,
   getConfig,
@@ -58,6 +59,7 @@ const BATCH_SIZE = 5;
 export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(process.env.DRAIN_BUDGET_MS || 6000)) {
   const deadline = Date.now() + budgetMs;
   await recoverStaleQueueJobs();
+  if (MAX_AUTOMATED_DMS_PER_HOUR > 200) await liberarAdiadasDaRegraAntiga(); // uma vez na prática: depois não sobra nota antiga
   await markExpiredDmsSkipped();
   await cleanupOldPending(); // DMs sem resposta fechadas há mais de 90 dias (no máximo 1 vez a cada 6 h, nunca falha)
 

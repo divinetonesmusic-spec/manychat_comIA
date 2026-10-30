@@ -1319,6 +1319,20 @@ export async function deferPendingPrivateReplies(accountId: string | null | unde
   return rowCount ?? 0;
 }
 
+/**
+ * Mensagens que esperavam pela regra antiga (200 por hora no total, 140 primeiras) voltam para a fila agora:
+ * passam de novo pelos limites novos e, se ainda não couberem, esperam com a nota nova (que não casa aqui).
+ */
+export async function liberarAdiadasDaRegraAntiga(): Promise<number> {
+  const { rowCount } = await query(
+    `update public.queue
+     set available_at = now(), last_error = null
+     where status = 'pending' and available_at > now()
+       and (last_error like 'Limite de 200 mensagens por hora%' or last_error like 'Fila do post: 140 primeiras%')`,
+  );
+  return rowCount ?? 0;
+}
+
 export async function markJobSent(id: string) {
   await query("update public.queue set status = 'sent', sent_at = now(), last_error = null where id = $1", [id]);
 }

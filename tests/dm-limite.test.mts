@@ -142,6 +142,21 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     assert.equal(p.status, "sent");
   });
 
+  test("liberarAdiadasDaRegraAntiga: só as que esperavam pela regra antiga voltam para agora", async () => {
+    const antiga = await pendente(contaA, "private_reply");
+    const nova = await pendente(contaA, "private_reply");
+    const outra = await pendente(contaA, "dm");
+    await db.sql("update public.queue set available_at = now() + interval '50 minutes', last_error = 'Limite de 200 mensagens por hora deste perfil: sai às 21:30.' where id = $1", [antiga]);
+    await db.sql("update public.queue set available_at = now() + interval '50 minutes', last_error = 'Fila do post: 700 primeiras mensagens por hora (quem já está conversando não espera). Sai às 21:30.' where id = $1", [nova]);
+    await db.sql("update public.queue set available_at = now() + interval '50 minutes', last_error = 'A Meta pediu para esperar.' where id = $1", [outra]);
+    assert.equal(await repos.liberarAdiadasDaRegraAntiga(), 1);
+    const [a, n, o] = await lerFila([antiga, nova, outra]);
+    assert.ok(a.available_at.getTime() <= Date.now() + 1000);
+    assert.equal(a.last_error, null);
+    assert.ok(n.available_at.getTime() > Date.now() + 30 * 60_000);
+    assert.ok(o.available_at.getTime() > Date.now() + 30 * 60_000);
+  });
+
   test("abaixo da reserva, a 1ª mensagem sai normalmente", async () => {
     await jaEnviadas(contaA, drain.LIMITE_PRIMEIRAS_POR_HORA - 1, 10, "private_reply");
     const primeira = await pendente(contaA, "private_reply");
