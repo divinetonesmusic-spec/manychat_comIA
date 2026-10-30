@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ slug: string; id: string }> };
 
 /** Quanto vale o link do áudio: o bastante para o celular baixar e guardar (ele guarda para tocar sem internet). */
-export const LINK_AUDIO_SEG = 15 * 60;
+const LINK_AUDIO_SEG = 15 * 60;
 
 /**
  * GET /a/<slug>/audio/<id>[?link=1] — só para quem tem a assinatura ativa (a sessão deste aparelho): o link assinado do R2 (15 min),
