@@ -641,7 +641,15 @@ export async function graphFetch<T>(url: URL, accessToken: string, init: Request
 }
 
 export async function readGraphResponse<T>(response: Response): Promise<T> {
-  const payload = (await response.json().catch(() => ({}))) as GraphResponse<T>;
+  const payload = (await response.json().catch((error: unknown) => {
+    // O prazo (AbortSignal.timeout) também corta a leitura do corpo: antes isso virava «{}» e parecia uma resposta vazia
+    // de sucesso (uma página de comentários sem nada e sem próxima página). Agora é o mesmo erro temporário do prazo.
+    const name = error instanceof Error ? error.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new MetaApiError(`Instagram Graph ${META_API_VERSION}: a Meta demorou demais para mandar a resposta. Tente de novo em alguns minutos.`, { kind: "timeout" });
+    }
+    return {};
+  })) as GraphResponse<T>;
 
   if (!response.ok || payload.error) {
     const details = payload.error?.message || `${response.status} ${response.statusText}`;

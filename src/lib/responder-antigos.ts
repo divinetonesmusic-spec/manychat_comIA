@@ -41,6 +41,12 @@ const INTERVALO_MS = Math.round(3600_000 / LIMITE_POR_HORA); // 18 s entre uma p
 const PARTE_MAX = 500;
 const PAGINAS_DE_POSTS_MAX = 40; // 2.000 posts do perfil, no máximo, para achar o link
 const POSSE_MS = 40_000;
+/** Comentários por página. Num Reel viral (milhares de comentários, com as respostas junto) 50 por página pode passar do
+ * prazo: cada vez que a Meta demora, a página seguinte pede a metade, até 10. */
+const LIMITE_PAGINA = 50;
+const LIMITE_PAGINA_MIN = 10;
+/** Tentativas seguidas sem ler nada (a Meta demorando ou falhando) até a contagem parar com erro visível. */
+const TENTATIVAS_MAX = 6;
 const ESPERA_META_MS = 15 * 60_000;
 const CAMPOS = "id,text,timestamp,from,username";
 const CHAVE = "responder_antigos:";
@@ -85,7 +91,15 @@ export type JobResponder = {
   esperarAte: string | null;
   erro: string | null;
   posse: string | null;
+  /** Comentários por página na próxima leitura (cai pela metade quando a Meta demora). */
+  limite?: number;
+  /** Passos seguidos sem avançar (erro ou demora da Meta). Ao chegar em TENTATIVAS_MAX, a contagem para com erro. */
+  semAvanco?: number;
+  /** A última leitura na Meta (para ver o que está acontecendo sem abrir os logs). */
+  leitura?: Leitura | null;
 };
+
+type Leitura = { em: string; ms: number; limite: number; itens: number; proxima: boolean; erro: string | null };
 
 export class ResponderErro extends Error {
   constructor(message: string, readonly status = 400, readonly dados?: Record<string, unknown>) {
@@ -176,7 +190,7 @@ async function abrir(pedido: PedidoResponder, deadline: number) {
   const settings = await getProfileSettings(account.id);
   if (!settings.channel_active) throw new ResponderErro("As automações deste perfil estão pausadas. Ligue o canal antes de responder.", 400);
 
-  const post = await resolverPost(account, pedido.post, deadline);
+  const post = await postGuardado(automation.id, pedido) ?? (await resolverPost(account, pedido.post, deadline));
   const postIds = automationPostIds(automation);
   if (postIds.length && !postIds.includes(post.mediaId)) {
     throw new ResponderErro("Esta automação não está ligada a este post. Escolha o post na automação (ou use outro link).", 400);
@@ -184,10 +198,23 @@ async function abrir(pedido: PedidoResponder, deadline: number) {
 
   const chave = `${CHAVE}${automation.id}:${post.mediaId}`;
   let job = await lerJob(chave);
-  if (!job || (pedido.novo && job.estado !== "enviando" && job.estado !== "lendo")) {
+  if (!job || (pedido.novo && (job.estado === "lendo" ? semProgresso(job) : job.estado !== "enviando"))) {
     job = await comecar(chave, account, automation, post, job);
   }
   return { job, chave, automation, account };
+}
+
+/** Contagem «lendo» que não leu nada: pode recomeçar com novo=1 (antes ficava presa para sempre). */
+function semProgresso(job: JobResponder) {
+  return job.lidos === 0 && !job.partes && !job.respostasPendentes?.length;
+}
+
+/** Id da mídia (só números) que já tem contagem guardada: não precisa perguntar à Meta de novo a cada chamada. */
+async function postGuardado(automationId: string, pedido: PedidoResponder) {
+  const valor = String(pedido.post || "").trim();
+  if (pedido.novo || !/^\d{6,30}$/.test(valor)) return null;
+  const job = await lerJob(`${CHAVE}${automationId}:${valor}`);
+  return job ? { mediaId: job.mediaId, permalink: job.permalink } : null;
 }
 
 function conferirAutomacao(automation: Automation) {
@@ -230,6 +257,9 @@ async function comecar(chave: string, account: InstagramAccount, automation: Aut
     esperarAte: null,
     erro: null,
     posse: null,
+    limite: LIMITE_PAGINA,
+    semAvanco: 0,
+    leitura: null,
   };
   await query(
     `insert into public.app_status (chave, valor, atualizado_em) values ($1, $2, now())
@@ -287,6 +317,7 @@ async function passo(chave: string, deadline: number, contexto?: { automation: A
   const posse = await pegarPosse(chave);
   if (!posse) return null;
   let job = posse;
+  const comeco = Date.now();
   try {
     if (job.esperarAte && Date.parse(job.esperarAte) > Date.now()) return await soltar(chave, job);
     const automation = contexto?.automation ?? (await getAutomation(job.automationId, job.accountId));
@@ -300,20 +331,50 @@ async function passo(chave: string, deadline: number, contexto?: { automation: A
       if (!automation.active) return await soltar(chave, { ...job, erro: "A automação foi desligada: o envio está parado. Ligue de novo para continuar." });
       job = await enviar(chave, { ...job, erro: null }, account, automation, deadline);
     }
+    registrar(chave, job, comeco, null);
     return await soltar(chave, job);
   } catch (error) {
-    if (isMetaRateLimit(error)) {
+    // Nunca engole o erro: ele fica no job.erro (a tela, o Molde e o GET mostram) e nos logs da função; a posse é solta.
+    // O que `contar` já tinha lido antes do erro vem junto (ErroNoMeio), para não perder nem contar duas vezes.
+    const base = error instanceof ErroNoMeio ? error.job : job;
+    const causa = error instanceof ErroNoMeio ? error.causa : error;
+    registrar(chave, base, comeco, causa);
+    const lendo = base.estado === "lendo";
+    if (isMetaRateLimit(causa)) {
+      // Esperar não conta como tentativa perdida: a Meta disse quando voltar.
       const ate = new Date(Date.now() + ESPERA_META_MS);
-      return await soltar(chave, { ...job, esperarAte: ate.toISOString(), erro: `A Meta pediu para esperar. Continuo sozinho às ${formatSaoPauloTime(ate)}.` });
+      return await soltar(chave, { ...base, esperarAte: ate.toISOString(), erro: `A Meta pediu para esperar. Continuo sozinho às ${formatSaoPauloTime(ate)}.` });
     }
-    if (error instanceof MetaApiError && error.temporary) {
-      return await soltar(chave, { ...job, erro: "A Meta demorou para responder. Continuo sozinho no próximo minuto." });
+    const falhas = (base.semAvanco ?? 0) + 1;
+    const desistir = lendo && falhas >= TENTATIVAS_MAX;
+    const fim = (erro: string) =>
+      soltar(chave, {
+        ...base,
+        semAvanco: falhas,
+        estado: desistir ? "erro" : base.estado,
+        erro: desistir ? `A contagem parou depois de ${falhas} tentativas seguidas sem conseguir ler. Último erro: ${erro} Conte de novo (novo=1).` : erro,
+      });
+    if (causa instanceof MetaApiError && causa.temporary) {
+      return await fim(`A Meta demorou para responder (${mensagemMeta(causa)}). Continuo sozinho no próximo minuto.`);
     }
-    if (error instanceof MetaApiError) {
-      return await soltar(chave, { ...job, estado: job.estado === "lendo" ? "erro" : job.estado, erro: `A Meta recusou: ${mensagemMeta(error)}` });
+    if (causa instanceof MetaApiError) {
+      return await soltar(chave, { ...base, estado: lendo ? "erro" : base.estado, erro: `A Meta recusou: ${mensagemMeta(causa)}` });
     }
-    await soltar(chave, job).catch(() => undefined);
-    throw error;
+    return await fim(`Erro inesperado: ${causa instanceof Error ? causa.message : String(causa)}.`);
+  }
+}
+
+/** Uma linha por passo nos logs do Netlify (Functions → Next.js Server Handler, filtro «responder-antigos»). */
+function registrar(chave: string, job: JobResponder, comeco: number, erro: unknown) {
+  const linha = `[responder-antigos] ${chave} estado=${job.estado} lidos=${job.lidos} combinam=${job.combinam} paraEnviar=${job.paraEnviar} ms=${Date.now() - comeco} leitura=${JSON.stringify(job.leitura ?? null)}`;
+  if (erro) console.error(`${linha} erro=${erro instanceof Error ? `${erro.name}: ${erro.message}` : String(erro)}`);
+  else console.info(linha);
+}
+
+/** Erro no meio da contagem, levando o que já foi lido (o job até a última página que deu certo). */
+class ErroNoMeio extends Error {
+  constructor(readonly job: JobResponder, readonly causa: unknown) {
+    super(causa instanceof Error ? causa.message : String(causa));
   }
 }
 
@@ -330,10 +391,24 @@ async function pegarPosse(chave: string): Promise<JobResponder | null> {
   return rows[0]?.valor ?? null;
 }
 
+/**
+ * Grava e solta a posse — só se a posse ainda for a nossa. Um pedido que passou dos 40 s (ou uma contagem recomeçada com
+ * novo=1 no meio) não sobrescreve o que o dono da posse nova gravou.
+ */
 async function soltar(chave: string, job: JobResponder) {
   const livre = { ...job, posse: null };
-  await query("update public.app_status set valor = $2, atualizado_em = now() where chave = $1", [chave, JSON.stringify(livre)]);
-  return livre;
+  if (!job.posse) {
+    await query("update public.app_status set valor = $2, atualizado_em = now() where chave = $1", [chave, JSON.stringify(livre)]);
+    return livre;
+  }
+  const { rows } = await query<{ valor: JobResponder }>(
+    `update public.app_status set valor = $2, atualizado_em = now()
+     where chave = $1 and valor ->> 'posse' = $3
+     returning valor`,
+    [chave, JSON.stringify(livre), job.posse],
+  );
+  if (rows[0]) return livre;
+  return (await lerJob(chave)) ?? livre;
 }
 
 /** Muda o trabalho só se ninguém estiver com a posse (para a confirmação não brigar com o relógio). */
@@ -353,56 +428,89 @@ async function lerJob(chave: string) {
 // Contar (simulação): ler os comentários na Meta e separar quem vai receber
 
 async function contar(chave: string, inicio: JobResponder, account: InstagramAccount, automation: Automation, deadline: number) {
-  let job: JobResponder = { ...inicio, erro: null, esperarAte: null };
+  // O erro anterior continua visível até a leitura avançar de novo (antes era apagado no começo de cada passo).
+  let job: JobResponder = { ...inicio, esperarAte: null };
   const novos: Candidato[] = [];
   const pessoas = new Set(job.pessoas);
+  let paginas = 0;
+  const avancou = () => {
+    paginas += 1;
+    job.semAvanco = 0;
+    job.erro = null;
+  };
 
-  while (deadline - Date.now() > 2500) {
-    if (job.cursor !== "fim") {
-      const pagina = await chamarMeta(deadline, () => {
-        const url = new URL(`${GRAPH_BASE_URL}/${job.mediaId}/comments`);
-        url.searchParams.set("fields", `${CAMPOS},replies{${CAMPOS}}`);
-        url.searchParams.set("limit", "50");
-        if (job.cursor) url.searchParams.set("after", job.cursor);
-        return graphFetch<{ data?: ComentarioMeta[]; paging?: Paginacao }>(url, account.instagram_access_token);
-      });
-      const lista: ComentarioMeta[] = [];
-      const pendentes: string[] = [];
-      for (const comentario of pagina.data ?? []) {
-        lista.push(comentario);
-        for (const resposta of comentario.replies?.data ?? []) lista.push(resposta);
-        // Mais respostas do que vieram junto: guarda o comentário e de onde continuar («<id> <cursor>»).
-        if (comentario.id && comentario.replies?.paging?.next && comentario.replies.paging.cursors?.after) pendentes.push(`${comentario.id} ${comentario.replies.paging.cursors.after}`);
+  try {
+    // Pelo menos uma página por passo quando há 1,5 s; as seguintes só com folga (2,5 s) para gravar antes do fim.
+    while (deadline - Date.now() > (paginas ? 2500 : 1500)) {
+      const limite = job.limite ?? LIMITE_PAGINA;
+      if (job.cursor !== "fim") {
+        const pagina = await lerNaMeta(job, limite, deadline, () => {
+          const url = new URL(`${GRAPH_BASE_URL}/${job.mediaId}/comments`);
+          url.searchParams.set("fields", `${CAMPOS},replies{${CAMPOS}}`);
+          url.searchParams.set("limit", String(limite));
+          if (job.cursor) url.searchParams.set("after", job.cursor);
+          return graphFetch<{ data?: ComentarioMeta[]; paging?: Paginacao }>(url, account.instagram_access_token);
+        });
+        const lista: ComentarioMeta[] = [];
+        const pendentes: string[] = [];
+        for (const comentario of pagina.data ?? []) {
+          lista.push(comentario);
+          for (const resposta of comentario.replies?.data ?? []) lista.push(resposta);
+          // Mais respostas do que vieram junto: guarda o comentário e de onde continuar («<id> <cursor>»).
+          if (comentario.id && comentario.replies?.paging?.next && comentario.replies.paging.cursors?.after) pendentes.push(`${comentario.id} ${comentario.replies.paging.cursors.after}`);
+        }
+        job = await separar(job, lista, account, automation, pessoas, novos);
+        job.respostasPendentes = [...job.respostasPendentes, ...pendentes];
+        const proximo = pagina.paging?.next && pagina.paging.cursors?.after ? pagina.paging.cursors.after : null;
+        // A Meta devolvendo o mesmo cursor: acabou (senão ficaria lendo a mesma página para sempre).
+        job.cursor = proximo && proximo !== job.cursor ? proximo : "fim";
+        avancou();
+        continue;
       }
-      job = await separar(job, lista, account, automation, pessoas, novos);
-      job.respostasPendentes = [...job.respostasPendentes, ...pendentes];
-      job.cursor = pagina.paging?.next && pagina.paging.cursors?.after ? pagina.paging.cursors.after : "fim";
-      continue;
+      if (job.respostasPendentes.length) {
+        const [pai, cursorInicial] = job.respostasPendentes[0].split(" ");
+        const cursor = job.respostasCursor || cursorInicial;
+        const pagina = await lerNaMeta(job, limite, deadline, () => {
+          const url = new URL(`${GRAPH_BASE_URL}/${pai}/replies`);
+          url.searchParams.set("fields", CAMPOS);
+          url.searchParams.set("limit", String(limite));
+          if (cursor) url.searchParams.set("after", cursor);
+          return graphFetch<{ data?: ComentarioMeta[]; paging?: Paginacao }>(url, account.instagram_access_token);
+        });
+        // Continua depois da 1ª página de respostas (que veio junto com o comentário); se repetir alguma, ela não conta de novo.
+        job = await separar(job, pagina.data ?? [], account, automation, pessoas, novos);
+        const proximo = pagina.paging?.next ? pagina.paging.cursors?.after ?? null : null;
+        job.respostasCursor = proximo && proximo !== cursor ? proximo : null;
+        if (!job.respostasCursor) job.respostasPendentes = job.respostasPendentes.slice(1);
+        avancou();
+        continue;
+      }
+      // Leu tudo: monta a lista final (do mais antigo para o mais novo) e fecha a contagem.
+      job = await guardarParte(chave, job, novos.splice(0));
+      job = await fecharContagem(chave, { ...job, pessoas: [...pessoas] });
+      return job;
     }
-    if (job.respostasPendentes.length) {
-      const [pai, cursorInicial] = job.respostasPendentes[0].split(" ");
-      const cursor = job.respostasCursor || cursorInicial;
-      const pagina = await chamarMeta(deadline, () => {
-        const url = new URL(`${GRAPH_BASE_URL}/${pai}/replies`);
-        url.searchParams.set("fields", CAMPOS);
-        url.searchParams.set("limit", "50");
-        if (cursor) url.searchParams.set("after", cursor);
-        return graphFetch<{ data?: ComentarioMeta[]; paging?: Paginacao }>(url, account.instagram_access_token);
-      });
-      // Continua depois da 1ª página de respostas (que veio junto com o comentário); se repetir alguma, ela não conta de novo.
-      job = await separar(job, pagina.data ?? [], account, automation, pessoas, novos);
-      const proximo = pagina.paging?.next ? pagina.paging.cursors?.after ?? null : null;
-      job.respostasCursor = proximo;
-      if (!proximo) job.respostasPendentes = job.respostasPendentes.slice(1);
-      continue;
-    }
-    // Leu tudo: monta a lista final (do mais antigo para o mais novo) e fecha a contagem.
-    job = await guardarParte(chave, job, novos.splice(0));
-    job = await fecharContagem(chave, { ...job, pessoas: [...pessoas] });
-    return job;
+  } catch (error) {
+    // Guarda o que já foi lido nas páginas que deram certo e devolve o erro para o passo gravar em job.erro.
+    const salvo = await guardarParte(chave, job, novos.splice(0)).catch(() => job);
+    throw new ErroNoMeio({ ...salvo, pessoas: [...pessoas] }, error);
   }
   job = await guardarParte(chave, job, novos.splice(0));
   return { ...job, pessoas: [...pessoas] };
+}
+
+/** Uma leitura na Meta com o tempo medido (job.leitura). Demorou demais: a próxima página pede a metade. */
+async function lerNaMeta<T extends { data?: unknown[]; paging?: Paginacao }>(job: JobResponder, limite: number, deadline: number, fazer: () => Promise<T>) {
+  const comeco = Date.now();
+  try {
+    const pagina = await chamarMeta(deadline, fazer);
+    job.leitura = { em: agoraIso(), ms: Date.now() - comeco, limite, itens: pagina.data?.length ?? 0, proxima: Boolean(pagina.paging?.next), erro: null };
+    return pagina;
+  } catch (error) {
+    job.leitura = { em: agoraIso(), ms: Date.now() - comeco, limite, itens: 0, proxima: false, erro: mensagemMeta(error) };
+    if (error instanceof MetaApiError && error.kind === "timeout") job.limite = Math.max(LIMITE_PAGINA_MIN, Math.floor(limite / 2));
+    throw error;
+  }
 }
 
 /** Uma página de comentários: conta e separa quem combina, quem já foi respondido, repetidos e velhos. */
@@ -630,6 +738,7 @@ export function vista(job: JobResponder, envios: Envios | null) {
     terminaPorVolta: termina && termina.getTime() > Date.now() ? termina.toISOString() : null,
     mensagem: mensagem(job, envios, restantes, horas),
     erro: job.erro,
+    leitura: job.leitura ?? null,
     esperarAte: job.esperarAte,
     iniciadoEm: job.iniciadoEm,
     confirmadoEm: job.confirmadoEm,

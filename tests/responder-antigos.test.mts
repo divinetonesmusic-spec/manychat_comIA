@@ -254,6 +254,47 @@ describe("responder quem já comentou (com banco)", { skip: semBanco }, () => {
     assert.equal((await filaDoBackfill()).filter((j) => j.send_type === "private_reply").length, 4);
   });
 
+  test("a Meta travando nos comentários: o erro aparece, a posse é solta, a página diminui e para com erro depois de 6 tentativas", async () => {
+    process.env.META_TIMEOUT_MS = "150";
+    meta.hang = /\/comments$/;
+    try {
+      const primeira = await lib.simular({ automationId: automacao, post: MEDIA }, 3000);
+      assert.equal(primeira.estado, "lendo");
+      assert.match(String(primeira.erro), /Meta demorou/, "o erro não é engolido");
+      assert.equal(primeira.leitura?.limite, 50);
+      assert.ok(primeira.leitura?.erro);
+      const [{ valor }] = await db.sql<{ valor: { posse: string | null; limite: number } }>("select valor from public.app_status where chave like 'responder\\_antigos:%'");
+      assert.equal(valor.posse, null, "a posse foi solta");
+      assert.equal(valor.limite, 25, "a próxima página pede a metade");
+
+      let ultima = primeira;
+      for (let i = 0; i < 5; i += 1) ultima = await lib.simular({ automationId: automacao, post: MEDIA }, 3000);
+      assert.equal(ultima.estado, "erro");
+      assert.match(String(ultima.erro), /6 tentativas/);
+    } finally {
+      meta.hang = null;
+      delete process.env.META_TIMEOUT_MS;
+    }
+    // Com a Meta de volta, recomeçar (novo=1) conta tudo.
+    const deNovo = await contar(MEDIA, true);
+    assert.equal(deNovo.estado, "pronto");
+    assert.equal(deNovo.numeros.paraEnviar, 4);
+  });
+
+  test("novo=1 recomeça uma contagem «lendo» presa que não leu nada (e não mexe na que já avançou)", async () => {
+    const chave = `responder_antigos:${automacao}:${MEDIA}`;
+    await db.sql("insert into public.app_status (chave, valor) values ($1, $2)", [
+      chave,
+      JSON.stringify({ versao: 1, accountId: conta, automationId: automacao, mediaId: MEDIA, permalink: null, estado: "lendo", cursor: "x", respostasPendentes: [], respostasCursor: null, lidos: 0, combinam: 0, jaRespondidos: 0, repetidos: 0, velhos: 0, semTempo: 0, paraEnviar: 0, enfileirados: 0, puladosNoEnvio: 0, partes: 0, envioParte: 0, envioPos: 0, pessoas: [], proximoHorario: null, iniciadoEm: "2026-01-01T00:00:00.000Z", confirmadoEm: null, concluidoEm: null, esperarAte: null, erro: null, posse: new Date(Date.now() + 30_000).toISOString() }),
+    ]);
+    const presa = await lib.simular({ automationId: automacao, post: MEDIA }, 3000);
+    assert.equal(presa.iniciadoEm, "2026-01-01T00:00:00.000Z", "sem novo=1 continua a mesma");
+    const nova = await contar(MEDIA, true);
+    assert.notEqual(nova.iniciadoEm, "2026-01-01T00:00:00.000Z");
+    assert.equal(nova.estado, "pronto");
+    assert.equal(nova.numeros.lidos, 70);
+  });
+
   test("erros claros: automação desligada, post de outra automação, link desconhecido, sem token do Molde", async () => {
     const semToken = await rota.GET(request(`/api/molde/responder-antigos?automationId=${automacao}&post=${MEDIA}`));
     assert.equal(semToken.status, 401);
