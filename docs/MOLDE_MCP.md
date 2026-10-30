@@ -47,6 +47,13 @@ claude mcp add --transport http molde https://SEU-SITE/api/mcp --header "Authori
 
 As regras são as mesmas do Telegram (o mesmo código): o rascunho vale 30 minutos; confirmar de novo não pede outra vez; refazer precisa do motivo; a primeira decisão vale; «Publicar mesmo assim» é sempre do dono (o Claude é instruído a nunca escolher isso sozinho).
 
+### Responder quem já comentou (rotas para uma próxima ferramenta)
+
+O conector ainda **não** tem ferramenta para isto. A página do Molde (pelo robô) já pode usar as rotas
+`GET /api/molde/responder-antigos` (contar, nada sai) e `POST /api/molde/responder-antigos` (confirmar com o número que o
+dono viu), com o `MOLDE_API_TOKEN`: veja `docs/API_MOLDE_RESPONDER_ANTIGOS.md`. Uma ferramenta no MCP deve seguir a mesma
+regra do `pedir`/`confirmar`: primeiro mostrar os números ao dono e só confirmar depois do sim dele.
+
 ## Para quem mexe no código
 
 - Rota: `src/app/api/mcp/route.ts` (POST com JSON-RPC 2.0; GET e DELETE respondem 405). Lógica: `src/lib/mcp/molde.ts`.

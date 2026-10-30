@@ -8,8 +8,15 @@ export type FakeCall = { method: string; host: string; path: string; search: URL
 
 export type FakeMedia = { id: string; caption: string; timestamp: string; permalink: string };
 
+/** Comentário de um post (GET /{media-id}/comments), com as respostas dele. */
+export type FakeComment = { id: string; text: string; timestamp: string; from?: { id: string; username?: string }; replies?: FakeComment[] };
+
 export type FakeMeta = {
   calls: FakeCall[];
+  /** Comentários de cada post (mídia → comentários, o mais novo primeiro), lidos de 50 em 50 com cursor. */
+  comments: Map<string, FakeComment[]>;
+  /** Se definido, GET /{media-id}/comments responde este erro (ex.: limite de uso, código 4). */
+  commentsFailure: null | { status: number; error: Record<string, unknown> };
   /** Quantas chamadas cujo caminho termina em `suffix` (ex.: "/media_publish"). */
   count: (suffix: string, method?: string) => number;
   /** status_code de cada container (o padrão vale para os que não estão aqui). */
@@ -92,6 +99,8 @@ export function installFakeMeta(): FakeMeta {
 
   const fake: FakeMeta = {
     calls: [],
+    comments: new Map(),
+    commentsFailure: null,
     count: (suffix, method) => fake.calls.filter((call) => call.path.endsWith(suffix) && (!method || call.method === method)).length,
     containerStatus: new Map(),
     defaultStatus: "FINISHED",
@@ -132,6 +141,8 @@ export function installFakeMeta(): FakeMeta {
     gumroadSales: new Set(),
     reset: () => {
       fake.calls.length = 0;
+      fake.comments.clear();
+      fake.commentsFailure = null;
       fake.containerStatus.clear();
       fake.defaultStatus = "FINISHED";
       fake.feed.length = 0;
@@ -402,6 +413,21 @@ export function installFakeMeta(): FakeMeta {
     }
     if (path.endsWith("/replies") && method === "POST") return json({ id: `reply-${++seq}` });
 
+    // Leitura dos comentários (paginada como a Meta: 50 por vez, cursor «after»), com as respostas (2 vêm junto).
+    if (path.endsWith("/comments") && method === "GET") {
+      if (fake.commentsFailure) return json({ error: fake.commentsFailure.error }, fake.commentsFailure.status);
+      const lista = fake.comments.get(id) ?? [];
+      return json(paginar(lista, url.searchParams, (comment) => {
+        const { replies, ...resto } = comment;
+        if (!replies?.length) return resto;
+        return { ...resto, replies: paginar(replies, new URLSearchParams({ limit: "2" }), (reply) => reply) };
+      }));
+    }
+    if (path.endsWith("/replies") && method === "GET") {
+      const pai = [...fake.comments.values()].flat().find((comment) => comment.id === id);
+      return json(paginar(pai?.replies ?? [], url.searchParams, (reply) => reply));
+    }
+
     if (path.endsWith("/comments") && method === "POST") return json({ id: `comment-${++seq}` });
     if (path.endsWith("/insights")) return json({ data: [] });
 
@@ -417,6 +443,17 @@ export function installFakeMeta(): FakeMeta {
   }) as typeof fetch;
 
   return fake;
+}
+
+function paginar<T>(lista: T[], search: URLSearchParams, mostrar: (item: T) => unknown) {
+  const limite = Math.min(50, Number(search.get("limit") || 25));
+  const inicio = Number(search.get("after") || 0);
+  const pagina = lista.slice(inicio, inicio + limite).map(mostrar);
+  const fim = inicio + limite;
+  return {
+    data: pagina,
+    paging: fim < lista.length ? { cursors: { before: String(inicio), after: String(fim) }, next: `https://graph.instagram.com/next?after=${fim}` } : { cursors: { before: String(inicio), after: String(fim) } },
+  };
 }
 
 /** Formato de data que a Meta usa no campo timestamp (ex.: 2026-10-07T12:00:00+0000). */

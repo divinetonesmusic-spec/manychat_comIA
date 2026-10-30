@@ -12,6 +12,7 @@ import { runVendasClock } from "@/lib/vendas/relogio";
 import { runDesafioClock } from "@/lib/db/desafios";
 import { runAppClock } from "@/lib/app/relogio";
 import { runTokenClock } from "@/lib/instagram/token-clock";
+import { runResponderAntigosClock } from "@/lib/responder-antigos";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -96,11 +97,14 @@ async function runCycle(request: NextRequest) {
   // por vez no tempo que sobrar, com aviso no Telegram quando falha ou falta pouco para vencer. Nunca falha.
   const tokens = await runTokenClock({ deadline, origin: request.nextUrl.origin });
 
+  // «Responder quem já comentou»: continua a contagem ou o envio que ficou pela metade (mesmo com a página fechada). Nunca falha.
+  const responderAntigos = await runResponderAntigosClock({ deadline });
+
   // Limpeza do banco (eventos de mais de 90 dias, envios terminados há mais de 30), no máximo 1 vez por hora. Nunca falha.
   const limpeza = await cleanupOldRecords({ deadline });
 
   // Batimento para o /api/health (migração 0004). Falha ignorada: sem a 0004 o relógio segue normal.
   await recordClockBeat({ ms: Date.now() - startedAt });
 
-  return { ok: true, ...queue, content, avisosDm, avisosVideo, molde, vendas, desafio, app, tokens, limpeza, ms: Date.now() - startedAt };
+  return { ok: true, ...queue, content, avisosDm, avisosVideo, molde, vendas, desafio, app, tokens, responderAntigos, limpeza, ms: Date.now() - startedAt };
 }

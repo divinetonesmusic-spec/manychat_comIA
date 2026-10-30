@@ -17,10 +17,10 @@ import {
 import { closePendingForOptOutSafely, recordPendingDmSafely } from "@/lib/db/dm-pending";
 import { avancarSequencia, iniciarSequencia, marcarRespostaDepois, sequenciaAguardando, sequenciaDaAutomacao } from "@/lib/db/dm-sequencias";
 import { buildFollowerGatePayload, executeAutomationFlow, FOLLOW_CHECK_PAYLOAD_PREFIX, hasExecutableFlow } from "@/lib/flow-executor";
-import { getInstagramUserProfile, type InstagramUserProfile } from "@/lib/instagram/client";
+import { delayDate, desafioSafely, resolveInitialDelaySeconds, runCommentAutomations, safeGetInstagramUserProfile } from "@/lib/comment-automation";
 import { safeEqualSecret } from "@/lib/secrets";
 import { QUIZ_PAYLOAD, responderQuizDm } from "@/lib/funil/quiz-dm";
-import { capturarEmailDesafio, registrarConvite, tocarDesafio } from "@/lib/db/desafios";
+import { capturarEmailDesafio, tocarDesafio } from "@/lib/db/desafios";
 import { DESAFIO_PAYLOAD } from "@/lib/desafio/desafio";
 
 export const runtime = "nodejs";
@@ -139,72 +139,7 @@ async function processComment(entry: WebhookEntry, change: WebhookChange) {
   });
 
   const matches = await findMatchingAutomations({ accountId: account.id, trigger: "comments", text, postId: mediaId });
-  const needsFollowerCheck = matches.some((automation) => automation.require_follower);
-  const profile = needsFollowerCheck
-    ? await safeGetInstagramUserProfile(instagramUserId, account.instagram_access_token)
-    : null;
-
-  const contactInput = {
-    accountId: account.id,
-    instagramUserId,
-    instagramUsername: profile?.username ?? username,
-    instagramName: profile?.name ?? null,
-    instagramProfilePictureUrl: profile?.profile_pic ?? null,
-    instagramFollowerCount: profile?.follower_count ?? null,
-    isUserFollowBusiness: profile?.is_user_follow_business ?? null,
-    isBusinessFollowUser: profile?.is_business_follow_user ?? null,
-    followerCheckedAt: profile ? new Date() : null,
-  };
-
-  const contactId = await upsertContact(contactInput);
-  const followUrl = account.instagram_username
-    ? `https://www.instagram.com/${account.instagram_username}`
-    : "https://www.instagram.com/";
-
-  for (const automation of matches) {
-    await upsertContact({ ...contactInput, lastAutomationId: automation.id });
-
-    if (hasExecutableFlow(automation)) {
-      const executed = await executeAutomationFlow({
-        automation,
-        eventId,
-        contactId,
-        instagramUserId,
-        commentId,
-        trigger: "comment",
-        isFollower: profile?.is_user_follow_business ?? null,
-        followUrl,
-      });
-      if (executed) continue;
-    }
-
-    await enqueuePublicReply({ automation, eventId, contactId, instagramUserId, commentId });
-
-    if (automation.require_follower && profile?.is_user_follow_business !== true) {
-      await enqueueNonFollowerPrivateReply({
-        automation,
-        eventId,
-        contactId,
-        instagramUserId,
-        commentId,
-        followUrl,
-      });
-      continue;
-    }
-
-    await enqueueWelcomePrivateReply({
-      automation,
-      eventId,
-      contactId,
-      instagramUserId,
-      commentId,
-      textOverride: automation.require_follower ? buildFollowerConfirmationText(automation.follower_confirmation_text, automation.follower_confirmation_greetings) : undefined,
-    });
-    // Sequência de DM do post (0012): a pessoa fica esperando a resposta dela para receber os passos 2, 3 e o lembrete.
-    if (sequenciaDaAutomacao(automation)) await iniciarSequencia({ accountId: account.id, automationId: automation.id, contactId });
-    // Desafio de 5 dias (0017): quem comentou entra como «comentou», com a versão (A ou B) sorteada; o toque em «Começar» manda o dia 1.
-    if (automation.desafio_id) await desafioSafely("registrar quem comentou", () => registrarConvite({ desafioId: automation.desafio_id as string, accountId: account.id, contactId }));
-  }
+  await runCommentAutomations({ account, eventId, commentId, instagramUserId, username, matches });
 
   return matches.length;
 }
@@ -499,16 +434,6 @@ async function avancarSequenciaSafely(input: Parameters<typeof avancarSequencia>
   }
 }
 
-/** O desafio nunca derruba o webhook: um erro dele só vai para o log (e a mensagem segue o caminho normal). */
-async function desafioSafely<T>(oQue: string, fazer: () => Promise<T>): Promise<T | false> {
-  try {
-    return await fazer();
-  } catch (error) {
-    console.error(`[desafio] não consegui ${oQue}:`, error instanceof Error ? error.message : error);
-    return false;
-  }
-}
-
 async function sequenciaAguardandoSafely(contactId: string) {
   try {
     return await sequenciaAguardando(contactId);
@@ -523,32 +448,6 @@ function eventDate(timestamp: number | undefined) {
   const date = new Date(Number(timestamp));
   return Number.isFinite(date.getTime()) && date.getTime() > 0 && date.getTime() <= Date.now() + 5 * 60_000 ? date : new Date();
 }
-async function enqueueWelcomePrivateReply(input: {
-  automation: Automation;
-  eventId: string;
-  contactId: string;
-  instagramUserId: string;
-  commentId: string;
-  textOverride?: string;
-}) {
-  await enqueueJob({
-    accountId: input.automation.account_id,
-    eventId: input.eventId,
-    contactId: input.contactId,
-    automationId: input.automation.id,
-    instagramRecipientId: input.instagramUserId,
-    instagramCommentId: input.commentId,
-    sendType: "private_reply",
-    availableAt: delayDate(resolveInitialDelaySeconds(input.automation)),
-    payload: {
-      text: input.textOverride || input.automation.welcome_dm,
-      quickReplyLabel: input.automation.quick_reply_label,
-      quickReplyPayload: `automation:${input.automation.id}`,
-      quickReplies: input.automation.quick_replies,
-    },
-  });
-}
-
 async function enqueueWelcomeDm(input: {
   automation: Automation;
   eventId: string;
@@ -574,47 +473,6 @@ async function enqueueWelcomeDm(input: {
 }
 
 
-async function enqueueNonFollowerPrivateReply(input: {
-  automation: Automation;
-  eventId: string;
-  contactId: string;
-  instagramUserId: string;
-  commentId: string;
-  followUrl: string;
-}) {
-  await enqueueJob({
-    accountId: input.automation.account_id,
-    eventId: input.eventId,
-    contactId: input.contactId,
-    automationId: input.automation.id,
-    instagramRecipientId: input.instagramUserId,
-    instagramCommentId: input.commentId,
-    sendType: "private_reply",
-    availableAt: delayDate(resolveInitialDelaySeconds(input.automation)),
-    payload: {
-      text: input.automation.non_follower_dm,
-      buttonLabel: input.automation.non_follower_button_label,
-      url: input.followUrl,
-    },
-  });
-}
-
-async function safeGetInstagramUserProfile(userId: string, accessToken: string): Promise<InstagramUserProfile | null> {
-  try {
-    return await getInstagramUserProfile(userId, accessToken);
-  } catch (error) {
-    console.warn("[webhook] follower check failed", error instanceof Error ? error.message : error);
-    return null;
-  }
-}
-
-function buildFollowerConfirmationText(text: string, configuredGreetings: string[] | null | undefined) {
-  const greetings = configuredGreetings?.map((item) => item.trim()).filter(Boolean) ?? [];
-  const availableGreetings = greetings.length ? greetings : ["Oii", "Olá", "Eii", "Eae", "Opa"];
-  const greeting = availableGreetings[Math.floor(Math.random() * availableGreetings.length)];
-  return `${greeting} ${text}`.trim();
-}
-
 function buildReactionEventId(entry: WebhookEntry, event: WebhookMessageEvent, senderId: string) {
   const reaction = event.reaction;
   const messageId = reaction?.mid || event.message?.mid || "unknown-message";
@@ -623,55 +481,6 @@ function buildReactionEventId(entry: WebhookEntry, event: WebhookMessageEvent, s
   const timestamp = event.timestamp ?? entry.time ?? Date.now();
   return `reaction:${entry.id ?? "entry"}:${senderId}:${messageId}:${action}:${value}:${timestamp}`;
 }
-function delayDate(seconds: number) {
-  const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-  return new Date(Date.now() + safeSeconds * 1000);
-}
-
-function resolveInitialDelaySeconds(automation: Automation) {
-  const fixedSeconds = positiveInteger(automation.reply_delay_seconds);
-  if (automation.reply_delay_mode !== "random") return fixedSeconds;
-  const min = positiveInteger(automation.reply_delay_min_seconds ?? fixedSeconds);
-  const max = positiveInteger(automation.reply_delay_max_seconds ?? fixedSeconds);
-  if (max <= min) return min;
-  return min + Math.floor(Math.random() * (max - min + 1));
-}
-
-function pickPublicReply(automation: Automation) {
-  const replies = automation.public_replies.filter((reply) => reply.trim());
-  if (!replies.length) return "";
-  if (automation.public_reply_mode === "fixed") return replies[0];
-  return replies[Math.floor(Math.random() * replies.length)];
-}
-
-function positiveInteger(value: number | null | undefined) {
-  const number = Number(value || 0);
-  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
-}
-async function enqueuePublicReply(input: {
-  automation: Automation;
-  eventId: string;
-  contactId: string;
-  instagramUserId: string;
-  commentId: string;
-}) {
-  if (!input.automation.public_replies.length) return;
-
-  const text = pickPublicReply(input.automation);
-
-  await enqueueJob({
-    accountId: input.automation.account_id,
-    eventId: input.eventId,
-    contactId: input.contactId,
-    automationId: input.automation.id,
-    instagramRecipientId: input.instagramUserId,
-    instagramCommentId: input.commentId,
-    sendType: "public_reply",
-    availableAt: delayDate(resolveInitialDelaySeconds(input.automation)),
-    payload: { text },
-  });
-}
-
 function verifySignature(rawBody: string, signature: string | null) {
   const appSecret = process.env.INSTAGRAM_APP_SECRET;
   if (!appSecret || !signature?.startsWith("sha256=")) return false;

@@ -45,6 +45,7 @@ import {
 import type { Automation, AutomationTrigger, DelayMode, FlowEdgeDefinition, FlowNodeDefinition, MatchType, QuickReply, ReplyMode } from "@/lib/db/repositories";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { mediaTypeLabel } from "@/lib/rotulos";
+import { ResponderAntigos } from "./responder-antigos";
 
 
 type Props = {
@@ -390,6 +391,7 @@ export function FluxoEditorClient({ automation, backHref, accountId, isInstagram
               ) : null}
               <Link className="btn-secondary h-10 px-3" href={backHref} title="Voltar para a lista de fluxos"><ArrowLeft size={16} /> Voltar</Link>
               <button className="btn-secondary h-10 px-3" disabled title="Testar fluxo" type="button"><Workflow size={16} /> Testar</button>
+              <ResponderAntigos automationId={automation.id} accountId={accountId} postIds={splitPostIds(automation.post_id || "")} />
               <button className="btn-primary h-10 px-3" disabled={saving} onClick={saveFlow} title="Salvar as alterações do fluxo" type="button">
                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                 {saving ? "Salvando..." : "Salvar"}

@@ -812,24 +812,37 @@ export async function findMatchingAutomations(input: {
   postId?: string | null;
 }): Promise<Automation[]> {
   const automations = await listAutomations(input.accountId);
+  return automations.filter((automation) => automationMatches(automation, input));
+}
+
+/**
+ * A regra de uma automação (ligada, gatilho, perfil, post e palavra-chave), sem banco. É a mesma que o webhook usa
+ * (findMatchingAutomations) e a que o «Responder quem já comentou» usa para escolher os comentários antigos.
+ */
+export function automationMatches(
+  automation: Automation,
+  input: { accountId?: string | null; trigger: AutomationTrigger; text: string; postId?: string | null },
+) {
+  if (!automation.active || !automation.triggers.includes(input.trigger)) return false;
+  if (input.accountId && automation.account_id !== input.accountId) return false;
+  const configuredPostIds = parseAutomationPostIds(automation.post_id);
+  if (configuredPostIds.length && (!input.postId || !configuredPostIds.includes(input.postId))) return false;
+  if (automation.match_type === "any") return true;
+
+  const keywords = automation.keywords.map(normalize).filter(Boolean);
+  if (!keywords.length) return false;
+
   const text = normalize(input.text);
+  if (automation.match_type === "exact") {
+    return keywords.some((keyword) => text === keyword);
+  }
 
-  return automations.filter((automation) => {
-    if (!automation.active || !automation.triggers.includes(input.trigger)) return false;
-    if (input.accountId && automation.account_id !== input.accountId) return false;
-    const configuredPostIds = parseAutomationPostIds(automation.post_id);
-    if (configuredPostIds.length && (!input.postId || !configuredPostIds.includes(input.postId))) return false;
-    if (automation.match_type === "any") return true;
+  return keywords.some((keyword) => text.includes(keyword));
+}
 
-    const keywords = automation.keywords.map(normalize).filter(Boolean);
-    if (!keywords.length) return false;
-
-    if (automation.match_type === "exact") {
-      return keywords.some((keyword) => text === keyword);
-    }
-
-    return keywords.some((keyword) => text.includes(keyword));
-  });
+/** Os posts escolhidos na automação (vazio = todos os posts do perfil). */
+export function automationPostIds(automation: Pick<Automation, "post_id">) {
+  return parseAutomationPostIds(automation.post_id);
 }
 export async function upsertContact(input: {
   accountId?: string | null;
@@ -1409,7 +1422,23 @@ export async function markExpiredDmsSkipped() {
        and c.opted_out_at is not null`,
     [MOLDE_REPLY_OPTED_OUT],
   );
+
+  // «Responder quem já comentou»: a Meta só aceita a resposta privada até 7 dias depois do comentário. O que entrou na fila
+  // por ali (origem responder_antigos) e não saiu a tempo não é mandado (nem a resposta pública que diz «te mandei no direct»).
+  await query(
+    `update public.queue
+     set status = 'skipped', last_error = $1
+     where status = 'pending'
+       and send_type in ('private_reply', 'public_reply')
+       and payload ->> 'origem' = 'responder_antigos'
+       and (case when payload ->> 'comentarioEm' ~ '^\\d{4}-\\d{2}-\\d{2}T' then (payload ->> 'comentarioEm')::timestamptz end)
+           < now() - interval '7 days' + interval '10 minutes'`,
+    [RESPONDER_ANTIGOS_VENCEU],
+  );
 }
+
+/** Motivo gravado quando a resposta a um comentário antigo não saiu dentro dos 7 dias da Meta. */
+export const RESPONDER_ANTIGOS_VENCEU = "Passaram 7 dias do comentário: a Meta não deixa mais responder no direct.";
 
 export async function sentDmCountLastHour(accountId?: string | null) {
   const { rows } = await query<{ count: string }>(

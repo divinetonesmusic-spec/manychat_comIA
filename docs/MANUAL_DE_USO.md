@@ -66,6 +66,21 @@ Uma automacao possui quatro partes principais:
 
 A resposta privada so pode ser enviada dentro do periodo permitido pela Meta. Evite testar repetidamente no mesmo comentario porque a Meta limita respostas privadas por comentario.
 
+### Responder quem já comentou (post que viralizou antes da automação)
+
+A automação só responde comentários **novos**. Para quem comentou antes de ela existir:
+
+1. Abra a automação do post (Fluxos → a automação → Editar). Ela precisa estar **Ativa** e com o post escolhido.
+2. Toque em **«Responder quem já comentou neste post»**.
+3. Cole o link do Reel (ou do post) e toque em **«Contar os comentários»**. Nada é mandado nesta hora.
+4. Confira os números: quantos comentários foram lidos, quantos têm a palavra-chave, quantos já foram respondidos,
+   quantos passaram de 7 dias (a Meta não deixa responder) e quantas pessoas vão receber.
+5. Toque em **«Mandar para N pessoas»**. As mensagens saem no ritmo de 200 por hora (12 mil comentários levam uns 2 a 3
+   dias; quem passar dos 7 dias antes da vez fica de fora). Pode fechar a tela: o envio continua sozinho.
+6. Quer pegar quem comentou depois? Volte e toque em **«Contar de novo»**: quem já recebeu nunca recebe de novo.
+
+Detalhes para quem mexe no código: `docs/API_MOLDE_RESPONDER_ANTIGOS.md`.
+
 ### Automacao de DM
 
 O usuario precisa iniciar a conversa. Configure a palavra-chave e a resposta. Mensagens comuns so podem ser enviadas dentro da janela de 24 horas apos a interacao do usuario.
