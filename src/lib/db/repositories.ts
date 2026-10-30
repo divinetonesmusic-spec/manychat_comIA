@@ -1306,6 +1306,19 @@ export async function deferPendingDms(accountId: string | null | undefined, avai
   return rowCount ?? 0;
 }
 
+/** Só as 1ªs mensagens (resposta privada ao comentário) esperam: as conversas (dm) seguem pela reserva. */
+export async function deferPendingPrivateReplies(accountId: string | null | undefined, availableAt: Date, note: string): Promise<number> {
+  const { rowCount } = await query(
+    `update public.queue
+     set available_at = $2, last_error = $3
+     where status = 'pending' and send_type = 'private_reply'
+       and account_id is not distinct from $1::uuid
+       and available_at < $2`,
+    [accountId ?? null, availableAt, note.slice(0, 500)],
+  );
+  return rowCount ?? 0;
+}
+
 export async function markJobSent(id: string) {
   await query("update public.queue set status = 'sent', sent_at = now(), last_error = null where id = $1", [id]);
 }
@@ -1454,7 +1467,7 @@ export async function sentDmCountLastHour(accountId?: string | null) {
  * Próximo horário em que o perfil pode mandar mais uma mensagem direta (limite de 200 por hora):
  * 1 h e 5 s depois do 200º envio mais recente (é quando ele sai da janela de 1 h). No mínimo daqui a 1 minuto.
  */
-export async function nextDmSlot(accountId?: string | null): Promise<Date> {
+export async function nextDmSlot(accountId?: string | null, limite = 200): Promise<Date> {
   const { rows } = await query<{ slot: Date }>(
     `select greatest(
               coalesce((
@@ -1463,11 +1476,11 @@ export async function nextDmSlot(accountId?: string | null): Promise<Date> {
                 where ($1::uuid is null or q.account_id = $1) and q.status = 'sent' and q.send_type in ('dm', 'private_reply')
                   and q.sent_at >= now() - interval '1 hour'
                 order by q.sent_at desc
-                offset 199 limit 1
+                offset $2 limit 1
               ), now()),
               now() + interval '1 minute'
             ) as slot`,
-    [accountId ?? null],
+    [accountId ?? null, Math.max(0, Math.floor(limite) - 1)],
   );
   return rows[0].slot;
 }

@@ -115,6 +115,33 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     assert.ok(linhas.slice(2).every((l) => l.available_at.getTime() > Date.now() + 30 * 60_000), "volta mais tarde, daqui a bastante tempo");
   });
 
+  test("reserva das conversas: com 140 na hora, a 1ª mensagem (comentário) espera e o link de quem tocou no botão sai na hora", async () => {
+    await jaEnviadas(contaA, drain.LIMITE_PRIMEIRAS_POR_HORA, 10, "private_reply");
+    const primeira = await pendente(contaA, "private_reply");
+    const link = await pendente(contaA, "dm");
+
+    const resultado = await drain.drainQueue(40, 20_000);
+
+    assert.equal(drain.LIMITE_PRIMEIRAS_POR_HORA, 140);
+    assert.equal(meta.count("/messages"), 1, "só o link (conversa) chega à Meta");
+    assert.equal(resultado.sent, 1);
+    assert.equal(resultado.failed, 0);
+    const [p, l] = await lerFila([primeira, link]);
+    assert.equal(p.status, "pending");
+    assert.equal(p.attempts, 1, "não gasta tentativa");
+    assert.match(p.last_error ?? "", /^Fila do post: 140 primeiras mensagens por hora/);
+    assert.ok(p.available_at.getTime() > Date.now() + 30 * 60_000);
+    assert.equal(l.status, "sent");
+  });
+
+  test("abaixo da reserva, a 1ª mensagem sai normalmente", async () => {
+    await jaEnviadas(contaA, drain.LIMITE_PRIMEIRAS_POR_HORA - 1, 10, "private_reply");
+    const primeira = await pendente(contaA, "private_reply");
+    await drain.drainQueue(40, 20_000);
+    const [p] = await lerFila([primeira]);
+    assert.equal(p.status, "sent");
+  });
+
   test("resposta privada (comentário) também espera", async () => {
     await jaEnviadas(contaA, 200, 5, "private_reply");
     const priv = await pendente(contaA, "private_reply");

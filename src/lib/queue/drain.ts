@@ -2,6 +2,7 @@
   claimQueueJobs,
   deferJobForMetaLimit,
   deferPendingDms,
+  deferPendingPrivateReplies,
   deferPendingJobsForAccount,
   deferQueueJobs,
   getConfig,
@@ -31,6 +32,13 @@ import { formatSaoPauloTime } from "@/lib/time";
 
 const MAX_JOBS_PER_DRAIN = 40;
 const MAX_AUTOMATED_DMS_PER_HOUR = 200;
+/**
+ * Reserva para quem já está conversando (tocou em «Quero ver», respondeu): as 1ªs mensagens (resposta privada ao
+ * comentário) param em 200 − 60 = 140 por hora; as 60 vagas restantes ficam para as conversas. Assim, quem toca no
+ * botão recebe o link na hora, mesmo com um post viral enchendo a fila de 1ªs mensagens.
+ */
+const RESERVA_CONVERSAS_POR_HORA = Number(process.env.RESERVA_CONVERSAS_POR_HORA || 60);
+export const LIMITE_PRIMEIRAS_POR_HORA = Math.max(1, MAX_AUTOMATED_DMS_PER_HOUR - Math.max(0, Math.min(RESERVA_CONVERSAS_POR_HORA, MAX_AUTOMATED_DMS_PER_HOUR - 1)));
 const SEND_DELAY_MS = 300;
 const BATCH_SIZE = 5;
 
@@ -57,6 +65,9 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
   let stoppedEarly = false;
   // Perfis que já bateram no limite neste ciclo: as próximas mensagens deles esperam sem consultar o banco de novo.
   const atLimit = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
+  // 1ªs mensagens paradas na reserva (as conversas seguem); e quantas o perfil já mandou na última hora, contadas neste ciclo.
+  const atPrimeiras = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
+  const enviadasHora = new Map<string, number>();
   // Perfis em que a Meta pediu para esperar neste ciclo: os próximos envios deles voltam para a fila sem chamar a Meta.
   const metaWait = new Map<string, { availableAt: Date; note: string; ids: string[] }>();
 
@@ -92,8 +103,10 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
         const countsTowardDmLimit = job.send_type === "dm" || job.send_type === "private_reply";
         if (countsTowardDmLimit) {
           const limitKey = config.account_id ?? "";
+          if (!enviadasHora.has(limitKey)) enviadasHora.set(limitKey, await sentDmCountLastHour(config.account_id));
+          const naHora = enviadasHora.get(limitKey) ?? 0;
           let wait = atLimit.get(limitKey);
-          if (!wait && (await sentDmCountLastHour(config.account_id)) >= MAX_AUTOMATED_DMS_PER_HOUR) {
+          if (!wait && naHora >= MAX_AUTOMATED_DMS_PER_HOUR) {
             const availableAt = await nextDmSlot(config.account_id);
             wait = {
               availableAt,
@@ -109,12 +122,31 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
             deferred += 1;
             continue;
           }
+          if (job.send_type === "private_reply") {
+            let espera = atPrimeiras.get(limitKey);
+            if (!espera && naHora >= LIMITE_PRIMEIRAS_POR_HORA) {
+              const availableAt = await nextDmSlot(config.account_id, LIMITE_PRIMEIRAS_POR_HORA);
+              espera = {
+                availableAt,
+                note: `Fila do post: ${LIMITE_PRIMEIRAS_POR_HORA} primeiras mensagens por hora (o resto do limite fica para quem já está conversando). Sai às ${formatSaoPauloTime(availableAt)}.`,
+                ids: [],
+              };
+              atPrimeiras.set(limitKey, espera);
+              deferred += await deferPendingPrivateReplies(config.account_id, availableAt, espera.note);
+            }
+            if (espera) {
+              espera.ids.push(job.id);
+              deferred += 1;
+              continue;
+            }
+          }
         }
 
         processed += 1;
         try {
           await sendJob(job, config.instagram_user_id, config.instagram_access_token);
           await markJobSent(job.id);
+          if (countsTowardDmLimit) enviadasHora.set(accountKey, (enviadasHora.get(accountKey) ?? 0) + 1);
           // O desafio de 5 dias (0017): a última mensagem do dia saiu → o dia conta como entregue. Nunca falha.
           if (job.payload.origem === ORIGEM_DESAFIO && job.payload.principal === true) await marcarEnvioDesafio(job.id);
           sent += 1;
@@ -138,7 +170,7 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
       }
     } finally {
       // Adiadas do lote, de uma vez só (também se algo falhar no meio: elas não podem ficar presas em "sending").
-      for (const wait of [...atLimit.values(), ...metaWait.values()]) {
+      for (const wait of [...atLimit.values(), ...atPrimeiras.values(), ...metaWait.values()]) {
         const ids = wait.ids.splice(0);
         await deferQueueJobs(ids, wait.availableAt, wait.note);
       }
