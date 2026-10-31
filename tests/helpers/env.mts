@@ -21,6 +21,8 @@ const falsas: Record<string, string> = {
   // Limites da fila menores nos testes (em produção: 1500 no total e 700 primeiras mensagens por hora).
   DM_LIMITE_POR_HORA: "200",
   PRIMEIRAS_POR_HORA: "140",
+  // Freio geral da fila desligado nos testes (em produção vale até 30/11/2026).
+  ENVIOS_PAUSADOS_ATE: "",
   NEXT_PUBLIC_SUPABASE_URL: "https://supabase.teste.invalid",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "chave-anon-falsa",
   R2_ACCOUNT_ID: "contafalsa",

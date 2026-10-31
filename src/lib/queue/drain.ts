@@ -68,6 +68,15 @@ export function tipoDoEnvio(sendType: string): TipoEnvio {
 const COTA_PAUSA_PCT = Number(process.env.META_COTA_PAUSA_PCT || 90);
 const COTA_PAUSA_MIN = Number(process.env.META_COTA_PAUSA_MIN || 5);
 const SEND_DELAY_MS = Number(process.env.SEND_DELAY_MS || 120);
+
+/** Até quando a fila fica parada. ENVIOS_PAUSADOS_ATE="" (vazio) desliga o freio; uma data ISO troca o prazo. */
+const PAUSA_PADRAO = "2026-12-01T00:00:00-03:00";
+export function enviosPausados(agora = new Date()) {
+  const ate = process.env.ENVIOS_PAUSADOS_ATE ?? PAUSA_PADRAO;
+  if (!ate.trim()) return false;
+  const fim = new Date(ate);
+  return Number.isFinite(fim.getTime()) && agora < fim;
+}
 const BATCH_SIZE = 5;
 
 /**
@@ -80,6 +89,12 @@ const BATCH_SIZE = 5;
  * tentativa, e os outros envios do mesmo perfil esperam junto. Erros de verdade seguem como antes (3 tentativas, de 5 em 5 min).
  */
 export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(process.env.DRAIN_BUDGET_MS || 6000)) {
+  // Freio geral (31/10/2026): o Instagram restringiu o envio de mensagens do perfil até 30/11. Enquanto valer,
+  // nada da fila sai (nem direct nem resposta pública): os envios ficam «pending», sem gastar tentativa.
+  if (enviosPausados()) {
+    console.warn("[fila] envios pausados até", process.env.ENVIOS_PAUSADOS_ATE ?? PAUSA_PADRAO);
+    return { processed: 0, sent: 0, failed: 0, deferred: 0, stoppedEarly: false, pausado: true };
+  }
   const deadline = Date.now() + budgetMs;
   await recoverStaleQueueJobs();
   if (MAX_AUTOMATED_DMS_PER_HOUR > 200) await liberarAdiadasDaRegraAntiga(); // uma vez na prática: depois não sobra nota antiga
