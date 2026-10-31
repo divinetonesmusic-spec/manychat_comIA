@@ -17,6 +17,9 @@
   recoverStaleQueueJobs,
   releaseQueueJobs,
   sentDmCountLastHour,
+  pegarPublicasMaisNovas,
+  publicasEnviadasNaHora,
+  pularPublicasAntigas,
   type QueueJob,
 } from "@/lib/db/repositories";
 import {
@@ -33,7 +36,7 @@ import { marcarEnvioDesafio } from "@/lib/db/desafios";
 import { ORIGEM_DESAFIO } from "@/lib/desafio/desafio";
 import { renderMessageTemplate } from "@/lib/message-template";
 import { formatSaoPauloTime } from "@/lib/time";
-import { respondePublicamente } from "@/lib/comment-automation";
+import { escolhidoUmEm, respondePublicamente } from "@/lib/comment-automation";
 
 const MAX_JOBS_PER_DRAIN = 40;
 /**
@@ -92,8 +95,9 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
   // Freio geral (31/10/2026): o Instagram restringiu o envio de mensagens do perfil até 30/11. Enquanto valer,
   // nada da fila sai (nem direct nem resposta pública): os envios ficam «pending», sem gastar tentativa.
   if (enviosPausados()) {
-    console.warn("[fila] envios pausados até", process.env.ENVIOS_PAUSADOS_ATE ?? PAUSA_PADRAO);
-    return { processed: 0, sent: 0, failed: 0, deferred: 0, stoppedEarly: false, pausado: true };
+    // Só respostas públicas, poucas por hora, com o texto da pausa (link da bio). DMs ficam paradas.
+    await recoverStaleQueueJobs();
+    return { ...(await drainPublicasNaPausa(budgetMs)), pausado: true };
   }
   const deadline = Date.now() + budgetMs;
   await recoverStaleQueueJobs();
@@ -248,7 +252,75 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
     if (stoppedEarly) break;
   }
 
-  return { processed, sent, failed, deferred, stoppedEarly };
+  return { processed, sent, failed, deferred, stoppedEarly, pausado: false };
+}
+
+/**
+ * Pausa do direct (restrição do Instagram): por perfil, no máximo PUBLICAS_NA_PAUSA_POR_HORA (padrão 10) respostas
+ * públicas por hora, só em 1 a cada PUBLICAS_NA_PAUSA_UMA_EM (padrão 4) comentários, só de comentários com até 2 h,
+ * e com uma das frases de RESPOSTAS_NA_PAUSA (sem link, sem prometer direct). Um erro da Meta segura o perfil por 2 h.
+ */
+export const RESPOSTAS_NA_PAUSA = [
+  "Tá no link da minha bio 📌",
+  "Deixei no link da bio pra você 😉",
+  "Corre no link da minha bio 📒",
+  "Tá nos meus destaques e no link da bio 🙌",
+  "Te espero no link da bio 📌",
+  "Separei tudo no link da bio ✍️",
+];
+
+export function respostaNaPausa(commentId: string) {
+  let h = 7;
+  for (const ch of commentId) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
+  return RESPOSTAS_NA_PAUSA[h % RESPOSTAS_NA_PAUSA.length];
+}
+
+async function drainPublicasNaPausa(budgetMs: number) {
+  const deadline = Date.now() + budgetMs;
+  const porHora = Math.max(0, Math.floor(Number(process.env.PUBLICAS_NA_PAUSA_POR_HORA ?? 10)));
+  const umEm = Math.max(1, Math.floor(Number(process.env.PUBLICAS_NA_PAUSA_UMA_EM ?? 4)));
+  const nota = "Pausa do direct: resposta pública antiga (mais de 2 h) não sai.";
+  let processed = 0, sent = 0, failed = 0, deferred = 0;
+  deferred += await pularPublicasAntigas(2, nota);
+  if (porHora === 0) return { processed, sent, failed, deferred, stoppedEarly: false };
+
+  const jobs = await pegarPublicasMaisNovas(20);
+  const naHora = new Map<string, number>();
+  const travados = new Set<string>();
+  const devolver: string[] = [];
+  try {
+    for (const job of jobs) {
+      const conta = job.account_id ?? "";
+      if (Date.now() > deadline - 800 || travados.has(conta)) { devolver.push(job.id); continue; }
+      if (!job.instagram_comment_id || !escolhidoUmEm(job.instagram_comment_id, umEm)) {
+        await markJobSkipped(job.id, `Pausa do direct: resposta pública só em 1 a cada ${umEm} comentários.`);
+        continue;
+      }
+      if (!naHora.has(conta)) naHora.set(conta, await publicasEnviadasNaHora(job.account_id));
+      if ((naHora.get(conta) ?? 0) >= porHora) { devolver.push(job.id); continue; }
+      const config = await getConfig(job.account_id);
+      if (!config.instagram_access_token) { devolver.push(job.id); continue; }
+      processed += 1;
+      try {
+        await sendPublicCommentReply({ commentId: job.instagram_comment_id, accessToken: config.instagram_access_token, text: respostaNaPausa(job.instagram_comment_id) });
+        await markJobSent(job.id);
+        naHora.set(conta, (naHora.get(conta) ?? 0) + 1);
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        const meta = error instanceof MetaApiError ? error : null;
+        console.warn("[fila] pausa: a Meta recusou a resposta pública", { conta, codigo: meta?.code, subcodigo: meta?.subcode, mensagem: meta?.message?.slice(0, 300) });
+        await markJobFailed(job.id, error instanceof Error ? error.message : "Erro ao responder o comentário");
+        const ate = new Date(Date.now() + 2 * 60 * 60_000);
+        travados.add(conta);
+        deferred += await deferPendingJobsForAccount(job.account_id, ate, `Pausa do direct: a Meta recusou uma resposta pública. Tento de novo às ${formatSaoPauloTime(ate)}.`, ["public_reply"]);
+      }
+      await delay(1500);
+    }
+  } finally {
+    await releaseQueueJobs(devolver);
+  }
+  return { processed, sent, failed, deferred, stoppedEarly: false };
 }
 
 async function sendJob(job: QueueJob, instagramUserId: string, accessToken: string) {

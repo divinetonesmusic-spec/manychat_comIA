@@ -1915,3 +1915,37 @@ function normalize(value: string) {
     .trim()
     .toLowerCase();
 }
+
+/** Pausa do direct: respostas públicas que a fila já mandou na última hora (por perfil). */
+export async function publicasEnviadasNaHora(accountId: string | null): Promise<number> {
+  const { rows } = await query<{ n: string }>(
+    "select count(*) as n from public.queue where account_id is not distinct from $1::uuid and send_type = 'public_reply' and status = 'sent' and sent_at >= now() - interval '1 hour'",
+    [accountId],
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
+/** Pausa do direct: resposta pública de comentário com mais de `horas` não sai mais (fica «skipped» com a nota). */
+export async function pularPublicasAntigas(horas: number, nota: string): Promise<number> {
+  const { rowCount } = await query(
+    `update public.queue set status = 'skipped', claimed_at = null, last_error = $2
+     where status = 'pending' and send_type = 'public_reply' and created_at < now() - make_interval(hours => $1)`,
+    [horas, nota.slice(0, 500)],
+  );
+  return rowCount ?? 0;
+}
+
+/** Pausa do direct: pega só respostas públicas, as mais novas primeiro. */
+export async function pegarPublicasMaisNovas(limit: number): Promise<QueueJob[]> {
+  if (limit <= 0) return [];
+  const { rows } = await query<QueueJob>(
+    `update public.queue set status = 'sending', claimed_at = now(), attempts = attempts + 1
+     where id in (
+       select id from public.queue
+       where status = 'pending' and send_type = 'public_reply' and available_at <= now()
+       order by created_at desc limit $1 for update skip locked)
+     returning *`,
+    [limit],
+  );
+  return rows;
+}
