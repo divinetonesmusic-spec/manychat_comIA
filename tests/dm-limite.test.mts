@@ -149,7 +149,13 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     await db.sql("update public.queue set available_at = now() + interval '50 minutes', last_error = 'Limite de 200 mensagens por hora deste perfil: sai às 21:30.' where id = $1", [antiga]);
     await db.sql("update public.queue set available_at = now() + interval '50 minutes', last_error = 'Fila do post: 700 primeiras mensagens por hora (quem já está conversando não espera). Sai às 21:30.' where id = $1", [nova]);
     await db.sql("update public.queue set available_at = now() + interval '50 minutes', last_error = 'A Meta pediu para esperar.' where id = $1", [outra]);
-    assert.equal(await repos.liberarAdiadasDaRegraAntiga(), 1);
+    const conversaPausada = await pendente(contaA, "dm");
+    const primeiraPausada = await pendente(contaA, "private_reply");
+    await db.sql("update public.queue set available_at = now() + interval '50 minutes', last_error = 'A Meta pediu para esperar (limite de uso). Nova tentativa às 22:30.' where id = any($1::uuid[])", [[conversaPausada, primeiraPausada]]);
+    assert.equal(await repos.liberarAdiadasDaRegraAntiga(), 2);
+    const [cp, pp] = await lerFila([conversaPausada, primeiraPausada]);
+    assert.ok(cp.available_at.getTime() <= Date.now() + 1000, "a conversa pausada pela regra antiga volta");
+    assert.ok(pp.available_at.getTime() > Date.now() + 30 * 60_000, "a 1ª mensagem pausada pela Meta continua esperando");
     const [a, n, o] = await lerFila([antiga, nova, outra]);
     assert.ok(a.available_at.getTime() <= Date.now() + 1000);
     assert.equal(a.last_error, null);

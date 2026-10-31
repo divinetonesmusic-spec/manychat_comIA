@@ -1328,7 +1328,9 @@ export async function liberarAdiadasDaRegraAntiga(): Promise<number> {
     `update public.queue
      set available_at = now(), last_error = null
      where status = 'pending' and available_at > now()
-       and (last_error like 'Limite de 200 mensagens por hora%' or last_error like 'Fila do post: 140 primeiras%')`,
+       and (last_error like 'Limite de 200 mensagens por hora%' or last_error like 'Fila do post: 140 primeiras%'
+            -- a pausa antiga da Meta segurava o perfil inteiro; conversa e resposta pública voltam (cada tipo tem a sua pausa agora)
+            or (last_error like 'A Meta pediu para esperar (limite de uso)%' and send_type in ('dm', 'public_reply')))`,
   );
   return rowCount ?? 0;
 }
