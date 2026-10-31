@@ -21,6 +21,8 @@
 } from "@/lib/db/repositories";
 import {
   isMetaRateLimit,
+  MetaApiError,
+  pegarUltimoUsoMeta,
   sendDirectMediaMessage,
   sendDirectMessage,
   sendPrivateReply,
@@ -46,6 +48,25 @@ function limiteDoAmbiente(nome: string, padrao: number) {
 }
 const MAX_AUTOMATED_DMS_PER_HOUR = limiteDoAmbiente("DM_LIMITE_POR_HORA", 1500);
 export const LIMITE_PRIMEIRAS_POR_HORA = Math.min(limiteDoAmbiente("PRIMEIRAS_POR_HORA", 700), MAX_AUTOMATED_DMS_PER_HOUR);
+
+/** Cada tipo de envio tem a sua cota na Meta: uma pausa num tipo não segura os outros. */
+type TipoEnvio = "primeiras" | "conversas" | "publicas";
+const TIPOS_DO_ENVIO: Record<TipoEnvio, ("dm" | "private_reply" | "public_reply")[]> = {
+  primeiras: ["private_reply"],
+  conversas: ["dm"],
+  publicas: ["public_reply"],
+};
+const NOME_DO_TIPO: Record<TipoEnvio, string> = {
+  primeiras: "as primeiras mensagens (resposta privada ao comentário)",
+  conversas: "as mensagens da conversa (o link depois do botão)",
+  publicas: "as respostas públicas nos comentários",
+};
+export function tipoDoEnvio(sendType: string): TipoEnvio {
+  return sendType === "private_reply" ? "primeiras" : sendType === "public_reply" ? "publicas" : "conversas";
+}
+/** Cota da Meta acima disto (%): pausa curta naquele tipo antes de ser bloqueado. */
+const COTA_PAUSA_PCT = Number(process.env.META_COTA_PAUSA_PCT || 90);
+const COTA_PAUSA_MIN = Number(process.env.META_COTA_PAUSA_MIN || 5);
 const SEND_DELAY_MS = Number(process.env.SEND_DELAY_MS || 120);
 const BATCH_SIZE = 5;
 
@@ -102,7 +123,9 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
         }
 
         const accountKey = config.account_id ?? "";
-        const waitingMeta = metaWait.get(accountKey);
+        const tipo = tipoDoEnvio(job.send_type);
+        const metaKey = `${accountKey}:${tipo}`;
+        const waitingMeta = metaWait.get(metaKey);
         if (waitingMeta) {
           waitingMeta.ids.push(job.id);
           deferred += 1;
@@ -164,16 +187,31 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
           await markJobSent(job.id);
           if (countsTowardDmLimit) enviadasHora.set(accountKey, (enviadasHora.get(accountKey) ?? 0) + 1);
           if (job.send_type === "private_reply" && primeirasHora.has(accountKey)) primeirasHora.set(accountKey, (primeirasHora.get(accountKey) ?? 0) + 1);
+          // A Meta avisou que a cota deste tipo está quase no fim: pausa curta antes do bloqueio (os outros tipos seguem).
+          const uso = pegarUltimoUsoMeta();
+          if (uso && uso.pct >= COTA_PAUSA_PCT && !metaWait.has(metaKey)) {
+            const availableAt = new Date(Date.now() + Math.max(1, COTA_PAUSA_MIN) * 60_000);
+            const note = `A cota da Meta para ${NOME_DO_TIPO[tipo]} chegou a ${Math.round(uso.pct)}%: pausa curta até ${formatSaoPauloTime(availableAt)} para não ser bloqueado.`;
+            console.warn("[fila] cota da Meta alta", { conta: accountKey, tipo, pct: uso.pct });
+            metaWait.set(metaKey, { availableAt, note, ids: [] });
+            deferred += await deferPendingJobsForAccount(config.account_id, availableAt, note, TIPOS_DO_ENVIO[tipo]);
+          }
           // O desafio de 5 dias (0017): a última mensagem do dia saiu → o dia conta como entregue. Nunca falha.
           if (job.payload.origem === ORIGEM_DESAFIO && job.payload.principal === true) await marcarEnvioDesafio(job.id);
           sent += 1;
         } catch (error) {
           if (isMetaRateLimit(error)) {
-            const wait = await deferJobForMetaLimit(job.id);
+            const meta = error instanceof MetaApiError ? error : null;
+            const codigo = meta?.code != null ? ` (código ${meta.code}${meta.subcode != null ? `/${meta.subcode}` : ""})` : "";
+            console.warn("[fila] a Meta pediu para esperar", { conta: accountKey, tipo, codigo: meta?.code, subcodigo: meta?.subcode, uso: meta?.uso, mensagem: meta?.message?.slice(0, 300) });
+            const wait = await deferJobForMetaLimit(job.id, {
+              minutos: meta?.uso?.liberaEmMin ?? null,
+              nota: (at) => `A Meta limitou ${NOME_DO_TIPO[tipo]}${codigo}. Volta às ${formatSaoPauloTime(at)}; os outros envios seguem.`,
+            });
             if (wait.availableAt) {
               deferred += 1;
-              metaWait.set(accountKey, { availableAt: wait.availableAt, note: wait.note, ids: [] });
-              deferred += await deferPendingJobsForAccount(config.account_id, wait.availableAt, wait.note);
+              metaWait.set(metaKey, { availableAt: wait.availableAt, note: wait.note, ids: [] });
+              deferred += await deferPendingJobsForAccount(config.account_id, wait.availableAt, wait.note, TIPOS_DO_ENVIO[tipo]);
             } else {
               failed += 1;
             }

@@ -564,13 +564,16 @@ export class MetaApiError extends Error {
   readonly code: number | null;
   readonly subcode: number | null;
   readonly kind: MetaErrorKind;
+  /** O aviso de cota que a Meta mandou junto com o erro (quanto usou e quanto falta para liberar). */
+  readonly uso: UsoMeta | null;
 
-  constructor(message: string, details: { status?: number | null; code?: number | null; subcode?: number | null; kind?: MetaErrorKind } = {}) {
+  constructor(message: string, details: { status?: number | null; code?: number | null; subcode?: number | null; kind?: MetaErrorKind; uso?: UsoMeta | null } = {}) {
     super(message);
     this.name = "MetaApiError";
     this.status = details.status ?? null;
     this.code = details.code ?? null;
     this.subcode = details.subcode ?? null;
+    this.uso = details.uso ?? null;
     this.kind = details.kind ?? classifyMetaError(this.status, this.code, this.subcode);
   }
 
@@ -640,7 +643,49 @@ export async function graphFetch<T>(url: URL, accessToken: string, init: Request
   return readGraphResponse<T>(response);
 }
 
+/**
+ * O aviso de cota da Meta, nos cabeçalhos de cada resposta: X-Business-Use-Case-Usage (por conta, com
+ * estimated_time_to_regain_access em minutos) e X-App-Usage (do app). `pct` é o maior uso informado (0–100).
+ */
+export type UsoMeta = { pct: number; liberaEmMin: number };
+
+export function lerUsoMeta(headers: Headers | null | undefined): UsoMeta | null {
+  if (!headers || typeof headers.get !== "function") return null;
+  let pct = -1;
+  let libera = 0;
+  const conta = (o: Record<string, unknown>) => {
+    for (const chave of ["call_count", "total_time", "total_cputime"]) {
+      const n = Number(o[chave]);
+      if (Number.isFinite(n)) pct = Math.max(pct, n);
+    }
+    const e = Number(o.estimated_time_to_regain_access);
+    if (Number.isFinite(e)) libera = Math.max(libera, e);
+  };
+  try {
+    const buc = headers.get("x-business-use-case-usage");
+    if (buc) {
+      const j = JSON.parse(buc) as Record<string, unknown>;
+      for (const lista of Object.values(j)) if (Array.isArray(lista)) for (const o of lista) if (o && typeof o === "object") conta(o as Record<string, unknown>);
+    }
+  } catch { /* cabeçalho estranho: ignora */ }
+  try {
+    const app = headers.get("x-app-usage");
+    if (app) conta(JSON.parse(app) as Record<string, unknown>);
+  } catch { /* idem */ }
+  return pct < 0 && libera <= 0 ? null : { pct: Math.max(0, pct), liberaEmMin: libera };
+}
+
+/** O último aviso de cota lido (a fila consulta depois de cada envio para desacelerar antes do bloqueio). */
+let ultimoUso: UsoMeta | null = null;
+export function pegarUltimoUsoMeta() {
+  const u = ultimoUso;
+  ultimoUso = null;
+  return u;
+}
+
 export async function readGraphResponse<T>(response: Response): Promise<T> {
+  const uso = lerUsoMeta(response.headers);
+  if (uso) ultimoUso = uso;
   const payload = (await response.json().catch((error: unknown) => {
     // O prazo (AbortSignal.timeout) também corta a leitura do corpo: antes isso virava «{}» e parecia uma resposta vazia
     // de sucesso (uma página de comentários sem nada e sem próxima página). Agora é o mesmo erro temporário do prazo.
@@ -657,6 +702,7 @@ export async function readGraphResponse<T>(response: Response): Promise<T> {
       status: response.status,
       code: typeof payload.error?.code === "number" ? payload.error.code : null,
       subcode: typeof payload.error?.error_subcode === "number" ? payload.error.error_subcode : null,
+      uso,
     });
   }
 

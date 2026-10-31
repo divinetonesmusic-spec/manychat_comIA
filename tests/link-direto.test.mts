@@ -22,3 +22,15 @@ test("post viral: 1 em 3 comentários ganha resposta pública, sempre o mesmo pa
   assert.equal(escolhidoUmEm("17890000000042", 3), escolhidoUmEm("17890000000042", 3));
   assert.equal(escolhidoUmEm("qualquer", 1), true);
 });
+
+import { lerUsoMeta } from "@/lib/instagram/client";
+
+test("lerUsoMeta: lê o maior uso e o tempo para liberar dos cabeçalhos da Meta", () => {
+  const h = new Headers({
+    "x-business-use-case-usage": JSON.stringify({ "1789": [{ type: "instagram", call_count: 93, total_cputime: 12, total_time: 40, estimated_time_to_regain_access: 17 }] }),
+    "x-app-usage": JSON.stringify({ call_count: 20, total_time: 5, total_cputime: 3 }),
+  });
+  assert.deepEqual(lerUsoMeta(h), { pct: 93, liberaEmMin: 17 });
+  assert.equal(lerUsoMeta(new Headers()), null);
+  assert.equal(lerUsoMeta(new Headers({ "x-app-usage": "isso não é json" })), null);
+});

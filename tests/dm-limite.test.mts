@@ -174,6 +174,26 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     }
   });
 
+  test("deferJobForMetaLimit: com o tempo que a Meta informou, espera isso + 1 min (não os 30 min)", async () => {
+    const id = await pendente(contaA, "dm");
+    await db.sql("update public.queue set status = 'sending' where id = $1", [id]);
+    const r = await repos.deferJobForMetaLimit(id, { minutos: 12 });
+    const minutos = (r.availableAt!.getTime() - Date.now()) / 60_000;
+    assert.ok(minutos > 12.5 && minutos < 13.5, `espera ${minutos}`);
+  });
+
+  test("1ªs mensagens que esperam: as mais novas saem primeiro", async () => {
+    const velha = await pendente(contaA, "private_reply");
+    const nova = await pendente(contaA, "private_reply");
+    await db.sql("update public.queue set created_at = now() - interval '3 hours' where id = $1", [velha]);
+    const slot = new Date(Date.now() + 10 * 60_000);
+    await repos.deferPendingPrivateReplies(contaA, slot, "teste");
+    const [v, n] = await lerFila([velha, nova]);
+    assert.ok(n.available_at.getTime() < v.available_at.getTime(), "a nova sai antes da velha");
+    const atrasoVelha = (v.available_at.getTime() - slot.getTime()) / 60_000;
+    assert.ok(atrasoVelha > 17 && atrasoVelha < 19, `a de 3 h espera ~18 min a mais (1/10), veio ${atrasoVelha}`);
+  });
+
   test("abaixo da reserva, a 1ª mensagem sai normalmente", async () => {
     await jaEnviadas(contaA, drain.LIMITE_PRIMEIRAS_POR_HORA - 1, 10, "private_reply");
     const primeira = await pendente(contaA, "private_reply");

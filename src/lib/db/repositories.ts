@@ -1310,7 +1310,7 @@ export async function deferPendingDms(accountId: string | null | undefined, avai
 export async function deferPendingPrivateReplies(accountId: string | null | undefined, availableAt: Date, note: string): Promise<number> {
   const { rowCount } = await query(
     `update public.queue
-     set available_at = $2, last_error = $3
+     set available_at = ${PRIMEIRAS_MAIS_NOVAS_PRIMEIRO}, last_error = $3
      where status = 'pending' and send_type = 'private_reply'
        and account_id is not distinct from $1::uuid
        and available_at < $2`,
@@ -1378,7 +1378,10 @@ export function metaLimitNote(availableAt: Date) {
  * sem gastar tentativa e sem virar "falhou": 30 min na 1ª vez, dobrando até 4 h. A contagem fica no próprio envio
  * (payload.limiteMeta). Só desiste depois de 6 esperas seguidas. Devolve o horário da nova tentativa (ou null se desistiu).
  */
-export async function deferJobForMetaLimit(id: string): Promise<{ availableAt: Date | null; note: string }> {
+export async function deferJobForMetaLimit(
+  id: string,
+  opcoes: { minutos?: number | null; nota?: (availableAt: Date) => string } = {},
+): Promise<{ availableAt: Date | null; note: string }> {
   const { rows } = await query<{ vezes: number }>(
     "select coalesce((payload ->> 'limiteMeta')::int, 0) + 1 as vezes from public.queue where id = $1",
     [id],
@@ -1393,9 +1396,13 @@ export async function deferJobForMetaLimit(id: string): Promise<{ availableAt: D
     );
     return { availableAt: null, note: META_LIMIT_GAVE_UP };
   }
-  const minutes = Math.min(META_LIMIT_FIRST_WAIT_MINUTES * 2 ** (vezes - 1), META_LIMIT_MAX_WAIT_MINUTES);
+  // A Meta disse quanto falta (estimated_time_to_regain_access): espera isso + 1 min. Senão, 30 min dobrando.
+  const informado = Number(opcoes.minutos);
+  const minutes = Number.isFinite(informado) && informado > 0
+    ? Math.min(Math.ceil(informado) + 1, META_LIMIT_MAX_WAIT_MINUTES)
+    : Math.min(META_LIMIT_FIRST_WAIT_MINUTES * 2 ** (vezes - 1), META_LIMIT_MAX_WAIT_MINUTES);
   const availableAt = new Date(Date.now() + minutes * 60_000);
-  const note = metaLimitNote(availableAt);
+  const note = opcoes.nota ? opcoes.nota(availableAt) : metaLimitNote(availableAt);
   await query(
     `update public.queue
      set status = 'pending', claimed_at = null, attempts = greatest(attempts - 1, 0),
@@ -1410,15 +1417,28 @@ export async function deferJobForMetaLimit(id: string): Promise<{ availableAt: D
  * A Meta pediu para esperar: os outros envios ainda "pending" do mesmo perfil que sairiam antes de `availableAt`
  * esperam junto (não adianta chamar a Meta para ouvir o mesmo "espere"). Não gasta tentativa.
  */
-export async function deferPendingJobsForAccount(accountId: string | null | undefined, availableAt: Date, note: string): Promise<number> {
+export async function deferPendingJobsForAccount(
+  accountId: string | null | undefined,
+  availableAt: Date,
+  note: string,
+  tipos: SendType[] = ["dm", "private_reply", "public_reply"],
+): Promise<number> {
   const { rowCount } = await query(
     `update public.queue
-     set available_at = $2, last_error = $3
-     where status = 'pending' and account_id is not distinct from $1::uuid and available_at < $2`,
-    [accountId ?? null, availableAt, note.slice(0, 500)],
+     set available_at = case when send_type = 'private_reply' then ${PRIMEIRAS_MAIS_NOVAS_PRIMEIRO} else $2 end,
+         last_error = $3
+     where status = 'pending' and account_id is not distinct from $1::uuid and available_at < $2 and send_type = any($4::text[])`,
+    [accountId ?? null, availableAt, note.slice(0, 500), tipos],
   );
   return rowCount ?? 0;
 }
+
+/**
+ * As 1ªs mensagens que esperam voltam das mais novas para as mais velhas: quem acabou de comentar ainda está com o
+ * post na mão. Cada uma espera o horário livre mais 1/10 do tempo que ela já tem (no máximo 6 h; uma de 1 h espera
+ * 6 min a mais, uma de 10 h, 1 h a mais), e nunca passa de 6,5 dias depois do comentário (a Meta só deixa responder em 7).
+ */
+const PRIMEIRAS_MAIS_NOVAS_PRIMEIRO = "least($2::timestamptz + least((now() - created_at) / 10, interval '6 hours'), greatest($2::timestamptz, created_at + interval '6 days 12 hours'))";
 
 /** DM com mídia e texto: o texto já saiu. Uma nova tentativa manda só a mídia (não repete o texto). */
 export async function markJobTextSent(id: string) {

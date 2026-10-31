@@ -122,10 +122,15 @@ describe("fila: limite de uso da Meta e DM com mídia", { skip: semBanco }, () =
   const liberar = () => db!.sql("update public.queue set available_at = now() - interval '1 second' where status = 'pending'");
   const minutosAte = (data: Date) => (new Date(data).getTime() - Date.now()) / MIN;
 
-  test("limite de uso (código 4): espera 30 min, não gasta tentativa, não vira 'falhou'; os outros envios do perfil esperam junto", async () => {
+  test("limite de uso (código 4): espera 30 min, não gasta tentativa, não vira 'falhou'; os envios do mesmo tipo esperam junto e os de outro tipo seguem", async () => {
     const primeiro = await pendente(conta);
     const segundo = await pendente(conta);
     const deOutroPerfil = await pendente(outra);
+    const [publica] = await db!.sql<{ id: string }>(
+      `insert into public.queue (account_id, send_type, status, instagram_recipient_id, instagram_comment_id, payload)
+       values ($1, 'public_reply', 'pending', 'dest-pub', 'cmt-pub-1', '{"text":"Te mandei no direct"}'::jsonb) returning id`,
+      [conta],
+    );
     meta.messagesError = { status: 400, error: { message: "(#4) Application request limit reached", code: 4 } };
 
     const resultado = await drain.drainQueue(40, 20_000);
@@ -135,13 +140,16 @@ describe("fila: limite de uso da Meta e DM com mídia", { skip: semBanco }, () =
     assert.equal(a.status, "pending");
     assert.equal(a.attempts, 0, "não gastou tentativa");
     assert.ok(Math.abs(minutosAte(a.available_at) - 30) < 1, `espera ${minutosAte(a.available_at)} min`);
-    assert.match(a.last_error ?? "", /^A Meta pediu para esperar \(limite de uso\)\. Nova tentativa às \d\d:\d\d\.$/);
+    assert.match(a.last_error ?? "", /^A Meta limitou as mensagens da conversa \(o link depois do botão\) \(código 4\)\. Volta às \d\d:\d\d; os outros envios seguem\.$/);
     assert.equal(a.payload.limiteMeta, 1);
 
     const b = await ler(segundo);
     assert.equal(b.status, "pending");
     assert.equal(b.attempts, 0);
-    assert.ok(minutosAte(b.available_at) > 29, "o outro envio do mesmo perfil espera junto");
+    assert.ok(minutosAte(b.available_at) > 29, "o outro envio do mesmo tipo e do mesmo perfil espera junto");
+
+    const p = await ler(publica.id);
+    assert.equal(p.status, "sent", "a resposta pública (outro tipo, outra cota) não esperou");
 
     // O outro perfil também esbarrou no limite (a Meta falsa recusa tudo), mas cada perfil conta o seu.
     const c = await ler(deOutroPerfil);
