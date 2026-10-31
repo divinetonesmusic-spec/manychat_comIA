@@ -1342,6 +1342,10 @@ export async function publicasNaHora(accountId: string): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
+export async function markJobSkipped(id: string, nota: string) {
+  await query("update public.queue set status = 'skipped', claimed_at = null, last_error = $2 where id = $1", [id, nota.slice(0, 500)]);
+}
+
 export async function markJobSent(id: string) {
   await query("update public.queue set status = 'sent', sent_at = now(), last_error = null where id = $1", [id]);
 }

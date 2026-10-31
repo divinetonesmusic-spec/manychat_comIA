@@ -157,6 +157,23 @@ describe("limite de 200 mensagens por hora", { skip: semBanco }, () => {
     assert.ok(o.available_at.getTime() > Date.now() + 30 * 60_000);
   });
 
+  test("post viral: com 150 respostas públicas na hora, a da fila fora do «1 em 3» é pulada e a escolhida sai", async () => {
+    const { escolhidoUmEm } = await import("@/lib/comment-automation");
+    await db.sql(
+      `insert into public.queue (account_id, send_type, status, instagram_recipient_id, instagram_comment_id, payload, attempts, sent_at)
+       select $1::uuid, 'public_reply', 'sent', 'dest-pub-' || g, 'cmt-pub-' || g, '{"text":"oi"}'::jsonb, 1, now() from generate_series(1, 150) g`,
+      [contaA],
+    );
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i += 1) ids.push(await pendente(contaA, "public_reply"));
+    const antes = await db.sql<{ id: string; instagram_comment_id: string }>("select id, instagram_comment_id from public.queue where id = any($1::uuid[])", [ids]);
+    await drain.drainQueue(40, 20_000);
+    for (const linha of await lerFila(ids)) {
+      const comentario = antes.find((a) => a.id === linha.id)!.instagram_comment_id;
+      assert.equal(linha.status, escolhidoUmEm(comentario, 3) ? "sent" : "skipped", comentario);
+    }
+  });
+
   test("abaixo da reserva, a 1ª mensagem sai normalmente", async () => {
     await jaEnviadas(contaA, drain.LIMITE_PRIMEIRAS_POR_HORA - 1, 10, "private_reply");
     const primeira = await pendente(contaA, "private_reply");

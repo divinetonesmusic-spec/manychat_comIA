@@ -11,6 +11,7 @@
   markExpiredDmsSkipped,
   markJobFailed,
   markJobSent,
+  markJobSkipped,
   markJobTextSent,
   nextDmSlot,
   recoverStaleQueueJobs,
@@ -30,6 +31,7 @@ import { marcarEnvioDesafio } from "@/lib/db/desafios";
 import { ORIGEM_DESAFIO } from "@/lib/desafio/desafio";
 import { renderMessageTemplate } from "@/lib/message-template";
 import { formatSaoPauloTime } from "@/lib/time";
+import { respondePublicamente } from "@/lib/comment-automation";
 
 const MAX_JOBS_PER_DRAIN = 40;
 /**
@@ -104,6 +106,12 @@ export async function drainQueue(limit = MAX_JOBS_PER_DRAIN, budgetMs = Number(p
         if (waitingMeta) {
           waitingMeta.ids.push(job.id);
           deferred += 1;
+          continue;
+        }
+
+        // Post viral: a resposta pública que já estava na fila segue a regra de 1 em 3 (o direct sai para todos).
+        if (job.send_type === "public_reply" && job.instagram_comment_id && !(await respondePublicamente(config.account_id ?? null, job.instagram_comment_id))) {
+          await markJobSkipped(job.id, "Post viral: resposta pública só em 1 a cada 3 comentários (o direct saiu normal).");
           continue;
         }
 
