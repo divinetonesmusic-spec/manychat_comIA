@@ -1,5 +1,6 @@
 import {
   enqueueJob,
+  publicasNaHora,
   upsertContact,
   type Automation,
   type InstagramAccount,
@@ -183,6 +184,7 @@ async function enqueuePublicReply(input: {
   commentId: string;
 }) {
   if (!input.automation.public_replies.length) return;
+  if (!(await respondePublicamente(input.automation.account_id, input.commentId))) return;
 
   const text = pickPublicReply(input.automation);
 
@@ -218,6 +220,26 @@ export function resolveInitialDelaySeconds(automation: Automation) {
   const max = positiveInteger(automation.reply_delay_max_seconds ?? fixedSeconds);
   if (max <= min) return min;
   return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+/**
+ * Post viral: a resposta pública gasta a mesma cota da Meta que as mensagens do direct. Quando o perfil já pôs mais de
+ * PUBLICAS_VIRAL_POR_HORA (padrão 150) respostas públicas na fila na última hora, só 1 a cada PUBLICAS_UMA_EM (padrão 3)
+ * comentários ganha a resposta pública (escolhido pelo id do comentário, sempre o mesmo). O direct sai para todos.
+ */
+export async function respondePublicamente(accountId: string | null, commentId: string) {
+  const limite = Number(process.env.PUBLICAS_VIRAL_POR_HORA || 150);
+  const umEm = Math.max(1, Math.floor(Number(process.env.PUBLICAS_UMA_EM || 3)));
+  if (umEm === 1 || !(limite > 0)) return true;
+  if (!accountId || (await publicasNaHora(accountId)) < limite) return true;
+  return escolhidoUmEm(commentId, umEm);
+}
+
+/** 1 em N, sempre o mesmo para o mesmo comentário (sem sorteio: o mesmo webhook repetido dá a mesma resposta). */
+export function escolhidoUmEm(commentId: string, umEm: number) {
+  let h = 0;
+  for (const ch of commentId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % umEm === 0;
 }
 
 function pickPublicReply(automation: Automation) {

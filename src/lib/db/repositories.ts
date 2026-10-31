@@ -1333,6 +1333,15 @@ export async function liberarAdiadasDaRegraAntiga(): Promise<number> {
   return rowCount ?? 0;
 }
 
+/** Quantas respostas públicas o perfil pôs na fila na última hora (para o modo «post viral»). */
+export async function publicasNaHora(accountId: string): Promise<number> {
+  const { rows } = await query<{ n: string }>(
+    "select count(*) as n from public.queue where account_id = $1 and send_type = 'public_reply' and created_at >= now() - interval '1 hour'",
+    [accountId],
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
 export async function markJobSent(id: string) {
   await query("update public.queue set status = 'sent', sent_at = now(), last_error = null where id = $1", [id]);
 }
